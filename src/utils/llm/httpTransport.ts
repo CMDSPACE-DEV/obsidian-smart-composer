@@ -17,6 +17,25 @@ type PostOptions = {
   fetchFn?: typeof fetch
 }
 
+const MAX_ERROR_BODY_BYTES = 4096
+
+export class LLMHttpError extends Error {
+  public readonly status: number
+  public readonly responseBody: string
+  public readonly requestId?: string
+
+  constructor(status: number, responseBody: string, requestId?: string) {
+    const safeResponseBody = prepareErrorBody(responseBody)
+    const details = safeResponseBody ? ` ${safeResponseBody}` : ''
+    const request = requestId ? ` (request ID: ${requestId})` : ''
+    super(`Request failed: ${status}${details}${request}`)
+    this.name = 'LLMHttpError'
+    this.status = status
+    this.responseBody = safeResponseBody
+    this.requestId = requestId
+  }
+}
+
 export async function postJson<T>(
   endpoint: string,
   body: unknown,
@@ -37,7 +56,7 @@ export async function postJson<T>(
     })
 
     if (!response.ok) {
-      throw new Error(`Request failed: ${response.status}`)
+      throw await getFetchError(response)
     }
 
     return (await response.json()) as T
@@ -47,7 +66,7 @@ export async function postJson<T>(
   const status = response.statusCode ?? 0
   const responseBody = await readStreamToString(response)
   if (status < 200 || status >= 300) {
-    throw new Error(`Request failed: ${status} ${responseBody}`)
+    throw getNodeError(response, status, responseBody)
   }
 
   return JSON.parse(responseBody) as T
@@ -74,7 +93,7 @@ export async function postFormUrlEncoded<T>(
     })
 
     if (!response.ok) {
-      throw new Error(`Request failed: ${response.status}`)
+      throw await getFetchError(response)
     }
 
     return (await response.json()) as T
@@ -90,7 +109,7 @@ export async function postFormUrlEncoded<T>(
   const status = response.statusCode ?? 0
   const responseBody = await readStreamToString(response)
   if (status < 200 || status >= 300) {
-    throw new Error(`Request failed: ${status} ${responseBody}`)
+    throw getNodeError(response, status, responseBody)
   }
 
   return JSON.parse(responseBody) as T
@@ -115,8 +134,15 @@ export async function postStream(
       signal,
     })
 
-    if (!response.ok || !response.body) {
-      throw new Error(`Request failed: ${response.status}`)
+    if (!response.ok) {
+      throw await getFetchError(response)
+    }
+    if (!response.body) {
+      throw new LLMHttpError(
+        response.status,
+        'Response did not include a readable body.',
+        getFetchRequestId(response),
+      )
     }
 
     return response.body
@@ -126,7 +152,7 @@ export async function postStream(
   const status = response.statusCode ?? 0
   if (status < 200 || status >= 300) {
     const responseBody = await readStreamToString(response)
-    throw new Error(`Request failed: ${status} ${responseBody}`)
+    throw getNodeError(response, status, responseBody)
   }
 
   return response
@@ -218,4 +244,68 @@ async function readStreamToString(
     }
   }
   return Buffer.concat(chunks).toString('utf8')
+}
+
+async function getFetchError(response: Response): Promise<LLMHttpError> {
+  let responseBody = ''
+  try {
+    responseBody = await response.text()
+  } catch {
+    // Some mocked or already-consumed responses cannot expose their body.
+  }
+  return new LLMHttpError(
+    response.status,
+    responseBody,
+    getFetchRequestId(response),
+  )
+}
+
+function getFetchRequestId(response: Response): string | undefined {
+  return (
+    response.headers?.get('x-request-id') ??
+    response.headers?.get('request-id') ??
+    undefined
+  )
+}
+
+function getNodeError(
+  response: IncomingMessage,
+  status: number,
+  responseBody: string,
+): LLMHttpError {
+  const header =
+    response.headers['x-request-id'] ?? response.headers['request-id']
+  const requestId = Array.isArray(header) ? header[0] : header
+  return new LLMHttpError(status, responseBody, requestId)
+}
+
+function prepareErrorBody(body: string): string {
+  const sanitized = body
+    .replace(
+      /(["'](?:authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|api[_-]?key|apikey|token)["']\s*:\s*["'])(.*?)(["'])/gi,
+      '$1[REDACTED]$3',
+    )
+    .replace(
+      /\b((?:access[_-]?token|refresh[_-]?token|id[_-]?token|api[_-]?key|apikey|token)\s*=\s*)[^&\s]+/gi,
+      '$1[REDACTED]',
+    )
+    .replace(
+      /\b((?:authorization|api[_-]?key|apikey)\s*:\s*)[^\r\n,;}]+/gi,
+      '$1[REDACTED]',
+    )
+    .replace(/\b(Bearer|Basic)\s+[-A-Za-z0-9._~+/]+=*/gi, '$1 [REDACTED]')
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, '[REDACTED]')
+
+  let byteLength = 0
+  let truncated = ''
+  const encoder = new TextEncoder()
+  for (const character of sanitized) {
+    const characterBytes = encoder.encode(character).byteLength
+    if (byteLength + characterBytes > MAX_ERROR_BODY_BYTES) {
+      break
+    }
+    truncated += character
+    byteLength += characterBytes
+  }
+  return truncated
 }

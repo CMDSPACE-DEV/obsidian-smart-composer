@@ -9,6 +9,11 @@ import { RetrievalMetadata } from '../../types/chat'
 import { tokenCount } from '../../utils/llm/token'
 import { getChatModelClient } from '../llm/manager'
 
+import {
+  getInternalRagModel,
+  shouldSurfacePlanRequestError,
+} from './internalModel'
+
 type ExhaustiveReadResult = Omit<SelectEmbedding, 'embedding'> & {
   similarity: number
 }
@@ -153,7 +158,9 @@ async function readFileContents(
 ): Promise<FileContent[]> {
   return await Promise.all(
     files.map(async (file) => {
-      const content = (await app.vault.cachedRead(file)).replace(/\x00/g, '')
+      const content = (await app.vault.cachedRead(file))
+        .split(String.fromCharCode(0))
+        .join('')
       return {
         file,
         content,
@@ -256,10 +263,7 @@ async function summarizeBatchWithPlan({
     settings,
     setSettings: setSettings ?? (() => undefined),
   })
-  const summaryModel =
-    'thinking' in model || 'reasoning' in model
-      ? { ...model, thinking: undefined, reasoning: undefined }
-      : model
+  const summaryModel = getInternalRagModel(model)
 
   try {
     const response = await providerClient.generateResponse(summaryModel, {
@@ -286,6 +290,9 @@ ${batch.map(formatChunkForBatch).join('\n\n')}`,
     })
     return response.choices[0]?.message.content ?? ''
   } catch (error) {
+    if (shouldSurfacePlanRequestError(error)) {
+      throw error
+    }
     console.warn('Exhaustive folder batch summary failed:', error)
     return `Batch ${batchIndex + 1} summary fallback:
 ${batch

@@ -8,6 +8,11 @@ import { SelectEmbedding, VectorMetaData } from '../../database/schema'
 import { SmartComposerSettings } from '../../settings/schema/setting.types'
 import { RetrievalMetadata } from '../../types/chat'
 
+import {
+  getInternalRagModel,
+  shouldSurfacePlanRequestError,
+} from './internalModel'
+
 type PlanRerankResult = Omit<SelectEmbedding, 'embedding'> & {
   similarity: number
 }
@@ -106,6 +111,9 @@ export async function processQueryWithPlanRerank({
       },
     }
   } catch (error) {
+    if (shouldSurfacePlanRequestError(error)) {
+      throw error
+    }
     console.warn('Plan rerank failed, using local candidate ranking:', error)
     const results = toRerankResults(
       candidates.slice(0, settings.ragOptions.limit),
@@ -173,7 +181,9 @@ async function buildChunkCandidates(
     await Promise.all(
       files.map(async (file) => {
         const fileContent = await app.vault.cachedRead(file)
-        const sanitizedContent = fileContent.replace(/\x00/g, '')
+        const sanitizedContent = fileContent
+          .split(String.fromCharCode(0))
+          .join('')
         if (!sanitizedContent.trim()) {
           return []
         }
@@ -230,10 +240,7 @@ async function getPlanSelectedIndexes({
     settings,
     setSettings: setSettings ?? (() => undefined),
   })
-  const rerankModel =
-    'thinking' in model || 'reasoning' in model
-      ? { ...model, thinking: undefined, reasoning: undefined }
-      : model
+  const rerankModel = getInternalRagModel(model)
 
   const response = await providerClient.generateResponse(rerankModel, {
     model: model.model,
@@ -352,7 +359,7 @@ function isIndexObject(value: unknown): value is { index: number } {
 function parseJsonFromText(text: string): { indices?: unknown[] } | unknown[] {
   const fencedMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
   const jsonText = fencedMatch?.[1] ?? extractJsonLikeText(text)
-  return JSON.parse(jsonText)
+  return JSON.parse(jsonText) as { indices?: unknown[] } | unknown[]
 }
 
 function extractJsonLikeText(text: string): string {

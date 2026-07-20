@@ -4,7 +4,7 @@ import { BaseLLMProvider } from '../../core/llm/base'
 import { McpManager } from '../../core/mcp/mcpManager'
 import { ChatMessage, ChatToolMessage } from '../../types/chat'
 import { ChatModel } from '../../types/chat-model.types'
-import { RequestTool } from '../../types/llm/request'
+import { RequestProviderMetadata, RequestTool } from '../../types/llm/request'
 import {
   Annotation,
   LLMResponseStreaming,
@@ -298,8 +298,10 @@ export class ResponseGenerator {
                 ...message.metadata,
                 usage: chunk.usage ?? message.metadata?.usage,
               },
-              // Keep the first providerMetadata received (signature is sent once)
-              providerMetadata: message.providerMetadata ?? providerMetadata,
+              providerMetadata: mergeProviderMetadata(
+                message.providerMetadata,
+                providerMetadata,
+              ),
             }
           : message,
       ),
@@ -379,5 +381,47 @@ export class ResponseGenerator {
       }
     }
     return mergedAnnotations
+  }
+}
+
+export function mergeProviderMetadata(
+  existing?: RequestProviderMetadata,
+  incoming?: RequestProviderMetadata,
+): RequestProviderMetadata | undefined {
+  if (!existing) return incoming
+  if (!incoming) return existing
+
+  const deepseekReasoning = [
+    existing.deepseek?.reasoningContent,
+    incoming.deepseek?.reasoningContent,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join('')
+
+  return {
+    ...existing,
+    ...incoming,
+    anthropic:
+      incoming.anthropic?.thinkingBlocks !== undefined
+        ? incoming.anthropic
+        : existing.anthropic,
+    openaiCodex:
+      existing.openaiCodex || incoming.openaiCodex
+        ? {
+            ...existing.openaiCodex,
+            ...incoming.openaiCodex,
+          }
+        : undefined,
+    gemini:
+      existing.gemini || incoming.gemini
+        ? {
+            thoughtSignature:
+              existing.gemini?.thoughtSignature ??
+              incoming.gemini?.thoughtSignature,
+          }
+        : undefined,
+    deepseek: deepseekReasoning
+      ? { reasoningContent: deepseekReasoning }
+      : undefined,
   }
 }

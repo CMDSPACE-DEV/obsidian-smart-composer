@@ -49,39 +49,46 @@ describe('processQueryWithPlanRerank', () => {
         ),
       },
     } as unknown as App
+    const generateResponse = jest.fn().mockResolvedValue({
+      id: 'response-id',
+      model: 'claude-sonnet-5',
+      object: 'chat.completion',
+      choices: [
+        {
+          finish_reason: 'stop',
+          message: {
+            role: 'assistant',
+            content: 'not json',
+          },
+        },
+      ],
+    })
     mockedGetChatModelClient.mockReturnValue({
       model: {
         providerType: 'anthropic-plan',
         providerId: 'anthropic-plan',
-        id: 'claude-sonnet-4.6 (plan)',
-        model: 'claude-sonnet-4-6',
+        id: 'claude-sonnet-5 (plan)',
+        model: 'claude-sonnet-5',
+        thinking: {
+          enabled: true,
+          mode: 'adaptive',
+          effort: 'high',
+          display: 'summarized',
+        },
       },
       providerClient: {
-        generateResponse: jest.fn().mockResolvedValue({
-          id: 'response-id',
-          model: 'claude-sonnet-4-6',
-          object: 'chat.completion',
-          choices: [
-            {
-              finish_reason: 'stop',
-              message: {
-                role: 'assistant',
-                content: 'not json',
-              },
-            },
-          ],
-        }),
+        generateResponse,
       },
     } as unknown as ReturnType<typeof getChatModelClient>)
 
     const { results, retrievalMetadata } = await processQueryWithPlanRerank({
       app,
       settings: {
-        version: 18,
+        version: 19,
         providers: [],
         chatModels: [],
         embeddingModels: [],
-        chatModelId: 'claude-sonnet-4.6 (plan)',
+        chatModelId: 'claude-sonnet-5 (plan)',
         applyModelId: 'gpt-4.1-mini',
         embeddingModelId: 'openai/text-embedding-3-small',
         systemPrompt: '',
@@ -118,5 +125,82 @@ describe('processQueryWithPlanRerank', () => {
       totalFilesRead: 2,
       exhaustive: false,
     })
+    expect(generateResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'claude-sonnet-5',
+        thinking: {
+          enabled: false,
+          mode: 'adaptive',
+          effort: 'high',
+          display: 'summarized',
+        },
+      }),
+      expect.objectContaining({
+        max_tokens: 512,
+        temperature: 0,
+      }),
+    )
+  })
+
+  it('surfaces Plan entitlement errors instead of silently reranking locally', async () => {
+    const file = createFile('notes/secure.md', 1)
+    const app = {
+      vault: {
+        cachedRead: jest.fn().mockResolvedValue('restricted content'),
+      },
+    } as unknown as App
+    const entitlementError = Object.assign(new Error('entitlement missing'), {
+      status: 403,
+    })
+    mockedGetChatModelClient.mockReturnValue({
+      model: {
+        providerType: 'openai-plan',
+        providerId: 'openai-plan',
+        id: 'gpt-5.6-terra (plan)',
+        model: 'gpt-5.6-terra',
+        reasoning: { reasoning_effort: 'low' },
+      },
+      providerClient: {
+        generateResponse: jest.fn().mockRejectedValue(entitlementError),
+      },
+    } as unknown as ReturnType<typeof getChatModelClient>)
+
+    await expect(
+      processQueryWithPlanRerank({
+        app,
+        settings: {
+          version: 19,
+          providers: [],
+          chatModels: [],
+          embeddingModels: [],
+          chatModelId: 'gpt-5.6-terra (plan)',
+          applyModelId: 'gpt-4.1-mini',
+          embeddingModelId: 'openai/text-embedding-3-small',
+          systemPrompt: '',
+          ragOptions: {
+            retrievalMode: 'plan-rerank',
+            folderReadMode: 'auto',
+            chunkSize: 1000,
+            thresholdTokens: 1,
+            exhaustiveDirectTokenLimit: 60000,
+            minSimilarity: 0,
+            limit: 1,
+            planRerankCandidateLimit: 2,
+            excludePatterns: [],
+            includePatterns: [],
+          },
+          mcp: { servers: [] },
+          chatOptions: {
+            includeCurrentFileContent: true,
+            enableTools: true,
+            maxAutoIterations: 1,
+          },
+        },
+        query: 'secure',
+        files: [file],
+        scopeType: 'folders',
+      }),
+    ).rejects.toBe(entitlementError)
+    expect(consoleWarnSpy).not.toHaveBeenCalled()
   })
 })

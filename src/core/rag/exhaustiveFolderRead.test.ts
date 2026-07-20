@@ -31,11 +31,11 @@ function createSettings(
   overrides: Partial<SmartComposerSettings> = {},
 ): SmartComposerSettings {
   return {
-    version: 18,
+    version: 19,
     providers: [...DEFAULT_PROVIDERS],
     chatModels: [...DEFAULT_CHAT_MODELS],
     embeddingModels: [],
-    chatModelId: 'claude-sonnet-4.6 (plan)',
+    chatModelId: 'gpt-5.6-sol (plan)',
     applyModelId: 'gpt-4.1-mini',
     embeddingModelId: 'openai/text-embedding-3-small',
     systemPrompt: '',
@@ -102,7 +102,7 @@ describe('processQueryWithExhaustiveFolderRead', () => {
     const secondFile = createFile('notes/second.md', 2)
     const generateResponse = jest.fn().mockResolvedValue({
       id: 'summary',
-      model: 'claude-sonnet-4-6',
+      model: 'gpt-5.6-sol',
       object: 'chat.completion',
       choices: [
         {
@@ -116,10 +116,14 @@ describe('processQueryWithExhaustiveFolderRead', () => {
     })
     mockedGetChatModelClient.mockReturnValue({
       model: {
-        providerType: 'anthropic-plan',
-        providerId: 'anthropic-plan',
-        id: 'claude-sonnet-4.6 (plan)',
-        model: 'claude-sonnet-4-6',
+        providerType: 'openai-plan',
+        providerId: 'openai-plan',
+        id: 'gpt-5.6-sol (plan)',
+        model: 'gpt-5.6-sol',
+        reasoning: {
+          reasoning_effort: 'max',
+          reasoning_summary: 'auto',
+        },
       },
       providerClient: {
         generateResponse,
@@ -154,6 +158,16 @@ describe('processQueryWithExhaustiveFolderRead', () => {
     )
     expect(JSON.stringify(generateResponse.mock.calls[0])).toContain(
       'notes/second.md',
+    )
+    expect(generateResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'gpt-5.6-sol',
+        reasoning: { reasoning_effort: 'none' },
+      }),
+      expect.objectContaining({
+        max_tokens: 1200,
+        temperature: 0,
+      }),
     )
     expect(result.promptText).toContain('batch summary covering both notes')
     expect(result.retrievalMetadata).toMatchObject({
