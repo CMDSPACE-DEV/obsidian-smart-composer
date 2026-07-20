@@ -17,6 +17,7 @@ import {
 import { parseSmartComposerSettings } from './settings/schema/settings'
 import { SmartComposerSettingTab } from './settings/SettingTab'
 import { getMentionableBlockData } from './utils/obsidian'
+import { SettingsSaveQueue } from './utils/settingsSaveQueue'
 
 export default class SmartComposerPlugin extends Plugin {
   settings: SmartComposerSettings
@@ -27,6 +28,8 @@ export default class SmartComposerPlugin extends Plugin {
   ragEngine: RAGEngine | null = null
   private dbManagerInitPromise: Promise<DatabaseManager> | null = null
   private ragEngineInitPromise: Promise<RAGEngine> | null = null
+  private settingsSaveQueue: SettingsSaveQueue<SmartComposerSettings> | null =
+    null
   private timeoutIds: ReturnType<typeof setTimeout>[] = [] // Use ReturnType instead of number
 
   async onload() {
@@ -156,6 +159,7 @@ export default class SmartComposerPlugin extends Plugin {
   async loadSettings() {
     this.settings = parseSmartComposerSettings(await this.loadData())
     await this.saveData(this.settings) // Save updated settings
+    this.settingsSaveQueue = new SettingsSaveQueue(this.settings)
   }
 
   async setSettings(newSettings: SmartComposerSettings) {
@@ -167,10 +171,31 @@ ${validationResult.error.issues.map((v) => v.message).join('\n')}`)
       return
     }
 
+    const previousSettings = this.settings
     this.settings = newSettings
-    await this.saveData(newSettings)
     this.ragEngine?.setSettings(newSettings)
     this.settingsChangeListeners.forEach((listener) => listener(newSettings))
+
+    const settingsSaveQueue =
+      this.settingsSaveQueue ?? new SettingsSaveQueue(previousSettings)
+    this.settingsSaveQueue = settingsSaveQueue
+    const saveOperation = settingsSaveQueue.enqueue(newSettings, (settings) =>
+      this.saveData(settings),
+    )
+
+    try {
+      await saveOperation
+    } catch (error) {
+      if (this.settings === newSettings) {
+        const persistedSettings = settingsSaveQueue.persistedValue
+        this.settings = persistedSettings
+        this.ragEngine?.setSettings(persistedSettings)
+        this.settingsChangeListeners.forEach((listener) =>
+          listener(persistedSettings),
+        )
+      }
+      throw error
+    }
   }
 
   addSettingsChangeListener(

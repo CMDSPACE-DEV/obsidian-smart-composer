@@ -10,6 +10,7 @@
   - v1.4.0 Plan 모델: GPT-5.6 Sol/Terra/Luna와 Claude Sonnet 5
     - GPT-5.6 모델별로 `none`, `low`, `medium`, `high`, `xhigh`, `max` 추론 강도를 독립 설정
     - Claude Sonnet 5 Adaptive Thinking, 추론 강도, thinking summary 표시 설정 지원
+    - 채팅 입력창에서 현재 추론 강도를 바로 확인하고 변경하는 빠른 effort 선택기 추가
     - 기존 gpt-5.5 (plan)과 Claude Sonnet 4.6 (plan) 설정은 업데이트 시 새 Plan 모델로 이전
   - RAG 임베딩이 원래 **OpenAI API키로만 폴더 멘션/임베딩을 할 수 있도록 하드코딩된 버그**가 있었습니다.
     - Plan 모드로도 API 키 아예 없이도 폴더 멘션 및 청크, 임베딩이 가능하도록 개선 (API 키 제거 후 동작 확인)

@@ -24,6 +24,19 @@
 - [ ] 사용자 커스텀 모델, API 키 모델, OAuth 연결 정보가 보존된다.
 - [ ] Obsidian 재시작 후 모든 새 설정이 그대로 유지된다.
 
+## 채팅 입력창 빠른 effort 선택기
+
+- [ ] GPT-5.6 또는 Claude Sonnet 5 Plan 모델을 선택하면 모델명과 Image 버튼 사이에 현재 effort가 표시된다.
+- [ ] GPT에서는 `none`, `low`, `medium`, `high`, `xhigh`, `max`를 선택할 수 있고 즉시 표시가 바뀐다.
+- [ ] Claude에서는 `off`, `low`, `medium`, `high`, `xhigh`, `max`를 선택할 수 있고 `off` 뒤 effort를 다시 선택하면 Adaptive Thinking이 켜진다.
+- [ ] 빠른 선택기에서 바꾼 값이 모델 설정창과 일치하고 Obsidian 재시작 후에도 유지된다.
+- [ ] effort를 바꾼 직후 바로 전송해도 새 effort가 첫 요청부터 적용된다.
+- [ ] 모델과 effort를 빠르게 연속 변경해도 마지막 선택이 저장되고 다른 설정을 덮어쓰지 않는다.
+- [ ] GPT `none` 선택 시 reasoning summary 설정이 제거되고 Claude `off` 선택 시 저장된 effort/display 값은 보존된다.
+- [ ] 지원하지 않는 모델을 선택하면 effort 선택기가 숨겨진다.
+- [ ] 좁은 채팅 패널에서도 effort와 Image/Chat/Vault Chat 버튼이 겹치지 않고 모델명만 말줄임된다.
+- [ ] 키보드로 effort 버튼에 포커스하고 메뉴를 열어 항목을 선택할 수 있다.
+
 ## GPT-5.6 Plan
 
 Sol, Terra, Luna 각각에서 `none`, `low`, `medium`, `high`, `xhigh`, `max`를 한 번씩 호출해 총 18개 조합을 확인합니다.
