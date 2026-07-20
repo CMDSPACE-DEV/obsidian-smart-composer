@@ -2,22 +2,59 @@ import { readFileSync, writeFileSync } from 'fs'
 
 const targetVersion = process.argv[2]
 if (!targetVersion) {
-    console.error('Please provide a target version as a command line argument.')
-    process.exit(1)
+  console.error('Please provide a target version as a command line argument.')
+  process.exit(1)
 }
 
-// read minAppVersion from manifest.json and bump version to target version
-let manifest = JSON.parse(readFileSync('manifest.json', 'utf8'))
+if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(targetVersion)) {
+  console.error(`Invalid version: ${targetVersion}`)
+  process.exit(1)
+}
+
+const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'))
+const writeJson = (path, value) =>
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`)
+
+const manifest = readJson('manifest.json')
+const versions = readJson('versions.json')
+const packageJson = readJson('package.json')
+const packageLock = readJson('package-lock.json')
+
+const isRecord = (value) =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const documents = [
+  ['manifest.json', manifest],
+  ['versions.json', versions],
+  ['package.json', packageJson],
+  ['package-lock.json', packageLock],
+]
+
+for (const [path, value] of documents) {
+  if (!isRecord(value)) {
+    console.error(`${path} must contain a JSON object.`)
+    process.exit(1)
+  }
+}
+
+if (typeof manifest.minAppVersion !== 'string') {
+  console.error('manifest.json does not contain a valid minAppVersion.')
+  process.exit(1)
+}
+
+if (!isRecord(packageLock.packages?.[''])) {
+  console.error('package-lock.json does not contain the root package entry.')
+  process.exit(1)
+}
+
 const { minAppVersion } = manifest
 manifest.version = targetVersion
-writeFileSync('manifest.json', JSON.stringify(manifest, null, 2))
-
-// update versions.json with target version and minAppVersion from manifest.json
-let versions = JSON.parse(readFileSync('versions.json', 'utf8'))
 versions[targetVersion] = minAppVersion
-writeFileSync('versions.json', JSON.stringify(versions, null, 2))
-
-// update package.json with target version
-let packageJson = JSON.parse(readFileSync('package.json', 'utf8'))
 packageJson.version = targetVersion
-writeFileSync('package.json', JSON.stringify(packageJson, null, 2))
+packageLock.version = targetVersion
+packageLock.packages[''].version = targetVersion
+
+writeJson('manifest.json', manifest)
+writeJson('versions.json', versions)
+writeJson('package.json', packageJson)
+writeJson('package-lock.json', packageLock)

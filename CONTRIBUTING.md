@@ -79,7 +79,7 @@ This process ensures a clean and organized migration history.
 
 When debugging database-related issues in Obsidian's developer console, you can use the "Store as global variable" feature to interact with the database directly:
 
-1. Look for the console message "Smart composer database initialized." 
+1. Look for the console message "Smart composer database initialized."
 2. Right-click on this DatabaseManager object and select "Store as global variable" (it will be stored as `tempN`)
 3. You can then run SQL queries directly using the stored variable. For example:
 
@@ -90,8 +90,9 @@ When debugging database-related issues in Obsidian's developer console, you can 
      WHERE table_schema NOT IN ('information_schema', 'pg_catalog')
        AND table_type = 'BASE TABLE'
      ORDER BY table_schema, table_name;
-   `);
+   `)
    ```
+
 4. should call `await temp1.save()` to save the database to disk
 
 This method allows you to inspect database tables, run queries, and debug database-related issues directly in the console.
@@ -99,6 +100,7 @@ This method allows you to inspect database tables, run queries, and debug databa
 ## Sending a Pull Request
 
 Before starting work on a significant change, please first discuss the proposed changes by either:
+
 1. Opening a new issue
 2. Starting a discussion in GitHub Discussions
 
@@ -136,8 +138,12 @@ This project is licensed under the [MIT License](LICENSE). By contributing to th
 
 ## Deployment (Maintainers Only)
 
-For maintainers with repository write access, deployments are handled through git tags. To deploy a new version:
+Version 1.4.0 is released from `release/1.4.0-plan-models`; `main` remains on the stable 1.3.1 line. To prepare the release:
 
-1. Create and push a new tag: `git tag <version-number> && git push origin <version-number>`
+1. Confirm `package.json`, `package-lock.json`, `manifest.json`, and `versions.json` all contain `1.4.0`, run the complete local check suite, and complete [the v1.4.0 manual QA checklist](./MANUAL_QA_1.4.0.md).
+2. Push the fully tested release branch and wait for its CI run to pass.
+3. Create an annotated tag at the remote release-branch HEAD: `git tag -a 1.4.0 -m "Smart_composer_Achmage v1.4.0"`, then push that tag.
+4. The release workflow verifies the tag target and version files, repeats all checks, builds the plugin, and creates or updates a draft GitHub Release.
+5. Download `main.js`, `manifest.json`, and `styles.css` from the draft and test them in a clean Obsidian vault. Publish the draft as the Latest release only after that smoke test passes.
 
-Github workflow will automatically build, release and create a pull request to bump versions in versions.json, manifest.json and package.json. The pull request needs to be manually reviewed and merged by a maintainer.
+The release workflow never modifies or pushes `main`, and it refuses to overwrite an already published release. Use `npm run version -- <version>` for future version preparation; the script updates all four version files, including both package-lock version fields.

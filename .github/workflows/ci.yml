@@ -1,23 +1,41 @@
 name: CI
 
 on:
+  push:
+    branches:
+      - 'release/**'
   pull_request:
-    branches: [main]
+    branches:
+      - main
+
+permissions:
+  contents: read
 
 jobs:
   check:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Check out source
+        uses: actions/checkout@v6
+
       - name: Use Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
-      - run: npm ci
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Type check
         run: npm run type:check
+
       - name: Lint check
         run: npm run lint:check
+
       - name: Test
-        run: npm test
+        run: npm test -- --runInBand
+
+      - name: Build plugin
+        run: npm run build
