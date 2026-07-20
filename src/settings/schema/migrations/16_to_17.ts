@@ -83,16 +83,18 @@ export const migrateFrom16To17: SettingMigration['migrate'] = (data) => {
   }
 
   if (Array.isArray(newData.chatModels)) {
-    newData.chatModels = newData.chatModels.map((model) => {
-      const modelId = (model as { id?: unknown }).id
-      if (typeof modelId === 'string' && LEGACY_MODEL_IDS.has(modelId)) {
-        return {
-          ...(model as Record<string, unknown>),
-          enable: false,
+    newData.chatModels = (newData.chatModels as unknown[]).map(
+      (model: unknown) => {
+        const modelId = (model as { id?: unknown }).id
+        if (typeof modelId === 'string' && LEGACY_MODEL_IDS.has(modelId)) {
+          return {
+            ...(model as Record<string, unknown>),
+            enable: false,
+          }
         }
-      }
-      return model
-    })
+        return model
+      },
+    )
   }
 
   return newData
