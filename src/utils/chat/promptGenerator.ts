@@ -161,47 +161,8 @@ export class PromptGenerator {
         }
       })
 
-    // TODO: Also verify that tool messages appear right after their corresponding assistant tool calls
-    const filteredRequestMessages: RequestMessage[] = requestMessages
-      .map((msg) => {
-        switch (msg.role) {
-          case 'user':
-            return msg
-          case 'assistant': {
-            // Filter out tool calls that don't have a corresponding tool message
-            const filteredToolCalls = msg.tool_calls?.filter((t) =>
-              requestMessages.some(
-                (rm) => rm.role === 'tool' && rm.tool_call.id === t.id,
-              ),
-            )
-            return {
-              ...msg,
-              tool_calls:
-                filteredToolCalls && filteredToolCalls.length > 0
-                  ? filteredToolCalls
-                  : undefined,
-            }
-          }
-          case 'tool': {
-            // Filter out tool messages that don't have a corresponding assistant message
-            const assistantMessage = requestMessages.find(
-              (rm) =>
-                rm.role === 'assistant' &&
-                rm.tool_calls?.some((t) => t.id === msg.tool_call.id),
-            )
-            if (!assistantMessage) {
-              return null
-            } else {
-              return msg
-            }
-          }
-          default:
-            return msg
-        }
-      })
-      .filter((m) => m !== null)
-
-    return filteredRequestMessages
+    validateCompleteToolCallSets(requestMessages)
+    return requestMessages
   }
 
   private parseAssistantMessage({
@@ -597,7 +558,7 @@ ${similaritySearchResults
 
   private getScopeType({
     useVaultSearch,
-    files,
+    files: _files,
     folders,
   }: {
     useVaultSearch?: boolean
@@ -838,6 +799,56 @@ ${transcript.map((t) => `${t.offset}: ${t.text}`).join('\n')}`
       (model) => model.id === this.settings.chatModelId,
     )
     return chatModel?.promptLevel ?? PromptLevel.Default
+  }
+}
+
+function validateCompleteToolCallSets(messages: RequestMessage[]): void {
+  const calls = new Map<string, number>()
+  const results = new Map<string, number>()
+
+  messages.forEach((message, index) => {
+    if (message.role === 'assistant') {
+      for (const toolCall of message.tool_calls ?? []) {
+        if (calls.has(toolCall.id)) {
+          throw new Error(
+            `Duplicate tool call ID in chat history: ${toolCall.id}`,
+          )
+        }
+        calls.set(toolCall.id, index)
+      }
+    } else if (message.role === 'tool') {
+      if (results.has(message.tool_call.id)) {
+        throw new Error(
+          `Duplicate tool result ID in chat history: ${message.tool_call.id}`,
+        )
+      }
+      results.set(message.tool_call.id, index)
+    }
+  })
+
+  for (const [toolCallId, callIndex] of calls) {
+    const resultIndex = results.get(toolCallId)
+    if (resultIndex === undefined) {
+      throw new Error(`Missing tool result for tool call ${toolCallId}`)
+    }
+    if (resultIndex <= callIndex) {
+      throw new Error(`Tool result precedes its tool call ${toolCallId}`)
+    }
+    if (
+      messages
+        .slice(callIndex + 1, resultIndex)
+        .some((message) => message.role !== 'tool')
+    ) {
+      throw new Error(
+        `Tool result for ${toolCallId} is not adjacent to its assistant tool call`,
+      )
+    }
+  }
+
+  for (const toolResultId of results.keys()) {
+    if (!calls.has(toolResultId)) {
+      throw new Error(`Orphan tool result in chat history: ${toolResultId}`)
+    }
   }
 }
 

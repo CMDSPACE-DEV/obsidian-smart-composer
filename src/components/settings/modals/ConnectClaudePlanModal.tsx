@@ -118,6 +118,15 @@ function ConnectClaudePlanModalComponent({
 
   return (
     <div>
+      <div className="smtcmp-settings-desc-warning">
+        <strong className="smtcmp-settings-desc-warning-title">
+          Experimental:
+        </strong>{' '}
+        Anthropic recommends API authentication for third-party tools. This
+        unofficial subscription OAuth flow may stop working or put account
+        access at risk.
+      </div>
+
       <div className="smtcmp-plan-connect-steps">
         <div className="smtcmp-plan-connect-steps-title">How it works</div>
         <ol>

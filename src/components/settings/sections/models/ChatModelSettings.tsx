@@ -2,7 +2,14 @@ import { App, Notice } from 'obsidian'
 import { useState } from 'react'
 
 import SmartComposerPlugin from '../../../../main'
-import { ChatModel, chatModelSchema } from '../../../../types/chat-model.types'
+import {
+  CLAUDE_ADAPTIVE_EFFORTS,
+  ChatModel,
+  ClaudeEffort,
+  GPT_5_6_EFFORTS,
+  Gpt56Effort,
+  chatModelSchema,
+} from '../../../../types/chat-model.types'
 import { ObsidianButton } from '../../../common/ObsidianButton'
 import { ObsidianDropdown } from '../../../common/ObsidianDropdown'
 import { ObsidianSetting } from '../../../common/ObsidianSetting'
@@ -15,6 +22,14 @@ type SettingsComponentProps = {
   plugin: SmartComposerPlugin
   onClose: () => void
 }
+
+type OpenAIPlanModel = Extract<ChatModel, { providerType: 'openai-plan' }>
+type OpenAIPlanEffort = NonNullable<
+  NonNullable<OpenAIPlanModel['reasoning']>['reasoning_effort']
+>
+type OpenAIPlanSummary = NonNullable<
+  NonNullable<OpenAIPlanModel['reasoning']>['reasoning_summary']
+>
 
 export class ChatModelSettingsModal extends ReactModal<SettingsComponentProps> {
   constructor(model: ChatModel, app: App, plugin: SmartComposerPlugin) {
@@ -138,20 +153,32 @@ const MODEL_SETTINGS_REGISTRY: ModelSettingsRegistry[] = [
 
     SettingsComponent: (props: SettingsComponentProps) => {
       const { model, plugin, onClose } = props
-      const typedModel = model as ChatModel & { providerType: 'openai-plan' }
-      const [reasoningEffort, setReasoningEffort] = useState<string>(
-        typedModel.reasoning?.reasoning_effort ?? '',
-      )
-      const [reasoningSummary, setReasoningSummary] = useState<string>(
-        typedModel.reasoning?.reasoning_summary ?? '',
-      )
+      const typedModel = model as OpenAIPlanModel
+      const isGpt56 = isGpt56PlanModel(typedModel)
+      const [reasoningEffort, setReasoningEffort] = useState<
+        OpenAIPlanEffort | ''
+      >(typedModel.reasoning?.reasoning_effort ?? (isGpt56 ? 'medium' : ''))
+      const [reasoningSummary, setReasoningSummary] = useState<
+        OpenAIPlanSummary | ''
+      >(typedModel.reasoning?.reasoning_summary ?? '')
 
       const handleSubmit = async () => {
-        const updatedReasoning = {
-          reasoning_effort: reasoningEffort || undefined,
-          reasoning_summary: reasoningSummary || undefined,
+        if (
+          isGpt56 &&
+          !GPT_5_6_EFFORTS.includes(reasoningEffort as Gpt56Effort)
+        ) {
+          new Notice('Select a supported GPT-5.6 reasoning effort.')
+          return
         }
-        const updatedModel = {
+
+        const updatedReasoning: NonNullable<OpenAIPlanModel['reasoning']> = {
+          reasoning_effort: reasoningEffort || undefined,
+          reasoning_summary:
+            reasoningEffort === 'none'
+              ? undefined
+              : reasoningSummary || undefined,
+        }
+        const updatedModel: OpenAIPlanModel = {
           ...typedModel,
           reasoning:
             updatedReasoning.reasoning_effort ||
@@ -185,16 +212,32 @@ const MODEL_SETTINGS_REGISTRY: ModelSettingsRegistry[] = [
           >
             <ObsidianDropdown
               value={reasoningEffort}
-              options={{
-                '': 'Not set (OpenAI default)',
-                none: 'none',
-                minimal: 'minimal',
-                low: 'low',
-                medium: 'medium',
-                high: 'high',
-                xhigh: 'xhigh',
+              options={
+                isGpt56
+                  ? {
+                      none: 'none (fastest)',
+                      low: 'low',
+                      medium: 'medium',
+                      high: 'high',
+                      xhigh: 'xhigh',
+                      max: 'max (deepest)',
+                    }
+                  : {
+                      '': 'Not set (OpenAI default)',
+                      none: 'none',
+                      minimal: 'minimal',
+                      low: 'low',
+                      medium: 'medium',
+                      high: 'high',
+                      xhigh: 'xhigh',
+                    }
+              }
+              onChange={(value: string) => {
+                setReasoningEffort(value as OpenAIPlanEffort | '')
+                if (value === 'none') {
+                  setReasoningSummary('')
+                }
               }}
-              onChange={(value: string) => setReasoningEffort(value)}
             />
           </ObsidianSetting>
           <ObsidianSetting
@@ -203,15 +246,124 @@ const MODEL_SETTINGS_REGISTRY: ModelSettingsRegistry[] = [
           >
             <ObsidianDropdown
               value={reasoningSummary}
+              disabled={reasoningEffort === 'none'}
               options={{
                 '': 'Not set (OpenAI default)',
                 auto: 'auto',
                 concise: 'concise',
                 detailed: 'detailed',
               }}
-              onChange={(value: string) => setReasoningSummary(value)}
+              onChange={(value: string) =>
+                setReasoningSummary(value as OpenAIPlanSummary | '')
+              }
             />
           </ObsidianSetting>
+
+          <ObsidianSetting>
+            <ObsidianButton text="Save" onClick={handleSubmit} cta />
+            <ObsidianButton text="Cancel" onClick={onClose} />
+          </ObsidianSetting>
+        </>
+      )
+    },
+  },
+
+  /** Claude Sonnet 5 adaptive thinking settings. */
+  {
+    check: (model) =>
+      model.providerType === 'anthropic-plan' &&
+      model.model === 'claude-sonnet-5',
+    SettingsComponent: (props: SettingsComponentProps) => {
+      const { model, plugin, onClose } = props
+      const typedModel = model as Extract<
+        ChatModel,
+        { providerType: 'anthropic-plan' }
+      >
+      const adaptiveThinking =
+        typedModel.thinking?.mode === 'adaptive'
+          ? typedModel.thinking
+          : undefined
+      const [thinkingEnabled, setThinkingEnabled] = useState(
+        adaptiveThinking?.enabled ?? typedModel.thinking?.enabled ?? true,
+      )
+      const [effort, setEffort] = useState<ClaudeEffort>(
+        adaptiveThinking?.effort ?? 'high',
+      )
+      const [showSummary, setShowSummary] = useState(
+        (adaptiveThinking?.display ?? 'summarized') === 'summarized',
+      )
+
+      const handleSubmit = async () => {
+        if (!CLAUDE_ADAPTIVE_EFFORTS.includes(effort)) {
+          new Notice('Select a supported Claude effort.')
+          return
+        }
+
+        const updatedModel: typeof typedModel = {
+          ...typedModel,
+          thinking: {
+            enabled: thinkingEnabled,
+            mode: 'adaptive',
+            effort,
+            display: showSummary ? 'summarized' : 'omitted',
+          },
+        }
+        const validationResult = chatModelSchema.safeParse(updatedModel)
+        if (!validationResult.success) {
+          new Notice(
+            validationResult.error.issues.map((v) => v.message).join('\n'),
+          )
+          return
+        }
+
+        await plugin.setSettings({
+          ...plugin.settings,
+          chatModels: plugin.settings.chatModels.map((m) =>
+            m.id === model.id ? updatedModel : m,
+          ),
+        })
+        onClose()
+      }
+
+      return (
+        <>
+          <ObsidianSetting
+            name="Adaptive Thinking"
+            desc="Let Claude decide when and how deeply to reason."
+          >
+            <ObsidianToggle
+              value={thinkingEnabled}
+              onChange={setThinkingEnabled}
+            />
+          </ObsidianSetting>
+          {thinkingEnabled && (
+            <>
+              <ObsidianSetting
+                name="Effort"
+                desc="Balances reasoning depth, latency, and token use."
+                className="smtcmp-setting-item--nested"
+              >
+                <ObsidianDropdown
+                  value={effort}
+                  options={{
+                    low: 'low',
+                    medium: 'medium',
+                    high: 'high',
+                    xhigh: 'xhigh',
+                    max: 'max',
+                  }}
+                  onChange={(value) => setEffort(value as ClaudeEffort)}
+                />
+              </ObsidianSetting>
+              <ObsidianSetting
+                name="Show Thinking Summary"
+                desc="Display Anthropic's summarized thinking output."
+                className="smtcmp-setting-item--nested"
+              >
+                <ObsidianToggle value={showSummary} onChange={setShowSummary} />
+              </ObsidianSetting>
+            </>
+          )}
 
           <ObsidianSetting>
             <ObsidianButton text="Save" onClick={handleSubmit} cta />
@@ -236,13 +388,20 @@ const MODEL_SETTINGS_REGISTRY: ModelSettingsRegistry[] = [
       const DEFAULT_THINKING_BUDGET_TOKENS = 8192
 
       const { model, plugin, onClose } = props
-      const typedModel = model as ChatModel & { providerType: 'anthropic' }
+      const typedModel = model as Extract<
+        ChatModel,
+        { providerType: 'anthropic' | 'anthropic-plan' }
+      >
+      const manualThinking =
+        typedModel.thinking && 'budget_tokens' in typedModel.thinking
+          ? typedModel.thinking
+          : undefined
       const [thinkingEnabled, setThinkingEnabled] = useState<boolean>(
         typedModel.thinking?.enabled ?? false,
       )
       const [budgetTokens, setBudgetTokens] = useState(
         (
-          typedModel.thinking?.budget_tokens ?? DEFAULT_THINKING_BUDGET_TOKENS
+          manualThinking?.budget_tokens ?? DEFAULT_THINKING_BUDGET_TOKENS
         ).toString(),
       )
 
@@ -546,6 +705,12 @@ const MODEL_SETTINGS_REGISTRY: ModelSettingsRegistry[] = [
 
 function getModelSettings(model: ChatModel): ModelSettingsRegistry | undefined {
   return MODEL_SETTINGS_REGISTRY.find((registry) => registry.check(model))
+}
+
+function isGpt56PlanModel(
+  model: Extract<ChatModel, { providerType: 'openai-plan' }>,
+): boolean {
+  return ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'].includes(model.model)
 }
 
 export function hasChatModelSettings(model: ChatModel): boolean {

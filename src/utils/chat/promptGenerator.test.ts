@@ -2,11 +2,13 @@ import { SerializedEditorState, SerializedElementNode } from 'lexical'
 import { App, TFile, TFolder } from 'obsidian'
 
 import { DEFAULT_CHAT_MODELS, DEFAULT_PROVIDERS } from '../../constants'
+import { AnthropicProvider } from '../../core/llm/anthropic'
 import { processQueryWithExhaustiveFolderRead } from '../../core/rag/exhaustiveFolderRead'
-import { RAGEngine } from '../../core/rag/ragEngine'
 import { processQueryWithPlanRerank } from '../../core/rag/planRerank'
+import { RAGEngine } from '../../core/rag/ragEngine'
 import { SmartComposerSettings } from '../../settings/schema/setting.types'
-import { ChatUserMessage } from '../../types/chat'
+import { ChatMessage, ChatUserMessage } from '../../types/chat'
+import { ToolCallResponseStatus } from '../../types/tool-call.types'
 
 import { PromptGenerator } from './promptGenerator'
 
@@ -26,7 +28,7 @@ const mockedProcessQueryWithExhaustiveFolderRead =
     typeof processQueryWithExhaustiveFolderRead
   >
 
-class MockTFile extends (TFile as unknown as { new (): TFile }) {
+class MockTFile extends (TFile as unknown as new () => TFile) {
   path: string
   name: string
   extension: string
@@ -41,7 +43,7 @@ class MockTFile extends (TFile as unknown as { new (): TFile }) {
   }
 }
 
-class MockTFolder extends (TFolder as unknown as { new (): TFolder }) {
+class MockTFolder extends (TFolder as unknown as new () => TFolder) {
   path: string
   name: string
   children: TFile[]
@@ -92,7 +94,7 @@ function createSettings(
   overrides: Partial<SmartComposerSettings> = {},
 ): SmartComposerSettings {
   return {
-    version: 18,
+    version: 19,
     providers: [...DEFAULT_PROVIDERS],
     chatModels: [...DEFAULT_CHAT_MODELS],
     embeddingModels: [
@@ -104,7 +106,7 @@ function createSettings(
         dimension: 1536,
       },
     ],
-    chatModelId: 'claude-sonnet-4.6 (plan)',
+    chatModelId: 'claude-sonnet-5 (plan)',
     applyModelId: 'gpt-4.1-mini',
     embeddingModelId: 'openai/text-embedding-3-small',
     systemPrompt: '',
@@ -327,3 +329,143 @@ describe('PromptGenerator RAG retrieval', () => {
     )
   })
 })
+
+describe('PromptGenerator tool-call history', () => {
+  const createGenerator = () =>
+    new PromptGenerator(
+      jest.fn<Promise<RAGEngine>, []>(),
+      {} as App,
+      createSettings(),
+    )
+
+  it('rejects a multi-tool assistant turn with a missing result', async () => {
+    const messages: ChatMessage[] = [
+      createUserMessage('user-1', 'run both tools'),
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: '',
+        toolCallRequests: [
+          { id: 'tool-1', name: 'first', arguments: '{}' },
+          { id: 'tool-2', name: 'second', arguments: '{}' },
+        ],
+      },
+      {
+        id: 'tool-result-1',
+        role: 'tool',
+        toolCalls: [
+          {
+            request: { id: 'tool-1', name: 'first', arguments: '{}' },
+            response: {
+              status: ToolCallResponseStatus.Success,
+              data: { type: 'text', text: 'first result' },
+            },
+          },
+        ],
+      },
+      createUserMessage('user-2', 'continue'),
+    ]
+
+    await expect(
+      createGenerator().generateRequestMessages({ messages }),
+    ).rejects.toThrow('Missing tool result for tool call tool-2')
+  })
+
+  it('preserves two consecutive saved tool turns and Anthropic metadata', async () => {
+    const thinkingBlocks = [
+      {
+        type: 'thinking' as const,
+        thinking: 'summary',
+        signature: 'signed-summary',
+      },
+    ]
+    const messages: ChatMessage[] = [
+      createUserMessage('user-1', 'start'),
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: '',
+        providerMetadata: { anthropic: { thinkingBlocks } },
+        toolCallRequests: [
+          { id: 'tool-1', name: 'lookup', arguments: '{"step":1}' },
+        ],
+      },
+      createToolMessage('tool-result-1', 'tool-1', 'lookup', 'step one'),
+      {
+        id: 'assistant-2',
+        role: 'assistant',
+        content: '',
+        providerMetadata: { anthropic: { thinkingBlocks } },
+        toolCallRequests: [
+          { id: 'tool-2', name: 'lookup', arguments: '{"step":2}' },
+        ],
+      },
+      createToolMessage('tool-result-2', 'tool-2', 'lookup', 'step two'),
+      createUserMessage('user-2', 'finish'),
+    ]
+
+    const requestMessages = await createGenerator().generateRequestMessages({
+      messages,
+    })
+    const history = requestMessages.filter(
+      (message) => message.role !== 'system',
+    )
+
+    expect(history.map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'assistant',
+      'tool',
+      'user',
+    ])
+    const assistants = history.filter((message) => message.role === 'assistant')
+    expect(assistants).toHaveLength(2)
+    for (const assistant of assistants) {
+      expect(assistant.providerMetadata?.anthropic?.thinkingBlocks).toEqual(
+        thinkingBlocks,
+      )
+      expect(AnthropicProvider.parseRequestMessage(assistant)).toMatchObject({
+        role: 'assistant',
+        content: [
+          expect.objectContaining({
+            type: 'thinking',
+            signature: 'signed-summary',
+          }),
+          expect.objectContaining({ type: 'tool_use' }),
+        ],
+      })
+    }
+  })
+})
+
+function createUserMessage(id: string, promptContent: string): ChatUserMessage {
+  return {
+    id,
+    role: 'user',
+    content: null,
+    promptContent,
+    mentionables: [],
+  }
+}
+
+function createToolMessage(
+  id: string,
+  toolId: string,
+  name: string,
+  text: string,
+): Extract<ChatMessage, { role: 'tool' }> {
+  return {
+    id,
+    role: 'tool',
+    toolCalls: [
+      {
+        request: { id: toolId, name, arguments: '{}' },
+        response: {
+          status: ToolCallResponseStatus.Success,
+          data: { type: 'text', text },
+        },
+      },
+    ],
+  }
+}

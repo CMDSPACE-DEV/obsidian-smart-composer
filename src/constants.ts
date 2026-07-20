@@ -307,18 +307,41 @@ export const DEFAULT_CHAT_MODELS: readonly ChatModel[] = [
   {
     providerType: 'anthropic-plan',
     providerId: PROVIDER_TYPES_INFO['anthropic-plan'].defaultProviderId,
-    id: 'claude-sonnet-4.6 (plan)',
-    model: 'claude-sonnet-4-6',
+    id: 'claude-sonnet-5 (plan)',
+    model: 'claude-sonnet-5',
     thinking: {
       enabled: true,
-      budget_tokens: 8192,
+      mode: 'adaptive',
+      effort: 'high',
+      display: 'summarized',
     },
   },
   {
     providerType: 'openai-plan',
     providerId: PROVIDER_TYPES_INFO['openai-plan'].defaultProviderId,
-    id: 'gpt-5.5 (plan)',
-    model: 'gpt-5.5',
+    id: 'gpt-5.6-sol (plan)',
+    model: 'gpt-5.6-sol',
+    reasoning: {
+      reasoning_effort: 'medium',
+    },
+  },
+  {
+    providerType: 'openai-plan',
+    providerId: PROVIDER_TYPES_INFO['openai-plan'].defaultProviderId,
+    id: 'gpt-5.6-terra (plan)',
+    model: 'gpt-5.6-terra',
+    reasoning: {
+      reasoning_effort: 'low',
+    },
+  },
+  {
+    providerType: 'openai-plan',
+    providerId: PROVIDER_TYPES_INFO['openai-plan'].defaultProviderId,
+    id: 'gpt-5.6-luna (plan)',
+    model: 'gpt-5.6-luna',
+    reasoning: {
+      reasoning_effort: 'none',
+    },
   },
   {
     providerType: 'gemini-plan',

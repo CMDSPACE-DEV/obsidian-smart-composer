@@ -88,13 +88,17 @@ export function PlanConnectionsSection({
           <strong className="smtcmp-settings-desc-warning-title">
             Warning:
           </strong>{' '}
-          Anthropic has restricted third-party OAuth access, and there are
-          reports of account bans when using subscription OAuth via third-party
-          clients. See the{' '}
-          <a href="https://github.com/glowingjade/obsidian-smart-composer?tab=readme-ov-file">
-            README
+          Anthropic recommends API authentication for third-party tools. This
+          unofficial Claude subscription OAuth connection is experimental, may
+          stop working, and may put account access at risk. See{' '}
+          <a
+            href="https://support.claude.com/en/articles/13189465-log-in-to-your-claude-account"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Anthropic&apos;s authentication guidance
           </a>{' '}
-          for full details and use at your own risk.
+          and use it at your own risk.
         </div>
         Use a subscription instead of API-key billing. Connected subscriptions
         consume your plan&apos;s included usage (Codex for OpenAI, Claude Code

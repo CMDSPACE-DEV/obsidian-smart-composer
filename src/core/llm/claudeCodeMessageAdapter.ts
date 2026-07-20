@@ -9,6 +9,10 @@ import {
   CLAUDE_CODE_SYSTEM_MESSAGE,
 } from '../../constants'
 import {
+  AnthropicPlanThinking,
+  ClaudeEffort,
+} from '../../types/chat-model.types'
+import {
   LLMOptions,
   LLMRequest,
   LLMRequestNonStreaming,
@@ -25,6 +29,22 @@ import { parseJsonSseStream } from '../../utils/llm/sse'
 import { AnthropicProvider } from './anthropic'
 
 const DEFAULT_MAX_TOKENS = 8192
+const SONNET_5_DEFAULT_MAX_TOKENS = 32768
+
+export type ClaudeCodeThinkingConfig = AnthropicPlanThinking
+
+type ClaudeCodeRequestBody = Omit<
+  MessageCreateParams,
+  'thinking' | 'temperature' | 'top_p'
+> & {
+  thinking?:
+    | { type: 'enabled'; budget_tokens: number }
+    | { type: 'adaptive'; display: 'summarized' | 'omitted' }
+    | { type: 'disabled' }
+  output_config?: { effort: ClaudeEffort }
+  temperature?: number
+  top_p?: number
+}
 
 type ClaudeCodeAdapterConfig = {
   endpoint?: string
@@ -44,7 +64,7 @@ export class ClaudeCodeMessageAdapter {
     request: LLMRequestNonStreaming,
     options: LLMOptions | undefined,
     headers: Record<string, string>,
-    thinking?: { enabled: boolean; budget_tokens: number },
+    thinking?: ClaudeCodeThinkingConfig,
   ): Promise<LLMResponseNonStreaming> {
     const normalizedRequest = normalizeRequest(request)
     const body = this.buildRequestBody({
@@ -68,7 +88,7 @@ export class ClaudeCodeMessageAdapter {
     request: LLMRequestStreaming,
     options: LLMOptions | undefined,
     headers: Record<string, string>,
-    thinking?: { enabled: boolean; budget_tokens: number },
+    thinking?: ClaudeCodeThinkingConfig,
   ): Promise<AsyncIterable<LLMResponseStreaming>> {
     const normalizedRequest = normalizeRequest(request)
     const body = this.buildRequestBody({
@@ -93,8 +113,8 @@ export class ClaudeCodeMessageAdapter {
   }: {
     request: LLMRequest
     stream: boolean
-    thinking?: { enabled: boolean; budget_tokens: number }
-  }): MessageCreateParams {
+    thinking?: ClaudeCodeThinkingConfig
+  }): ClaudeCodeRequestBody {
     const system = AnthropicProvider.validateSystemMessages(request.messages)
     const messages = request.messages
       .map((m) => AnthropicProvider.parseRequestMessage(m))
@@ -106,28 +126,65 @@ export class ClaudeCodeMessageAdapter {
       ? AnthropicProvider.parseRequestToolChoice(request.tool_choice)
       : undefined
 
-    return {
+    const isSonnet5 = isClaudeSonnet5(request.model)
+    const adaptiveThinking =
+      isSonnet5 && thinking?.enabled !== false
+        ? thinking?.mode === 'adaptive'
+          ? thinking
+          : {
+              enabled: true as const,
+              mode: 'adaptive' as const,
+              effort: 'high' as const,
+              display: 'summarized' as const,
+            }
+        : undefined
+    const manualThinking =
+      !isSonnet5 && thinking?.enabled && thinking.mode !== 'adaptive'
+        ? thinking
+        : undefined
+
+    const body: ClaudeCodeRequestBody = {
       model: request.model,
       messages,
       system,
-      thinking: thinking?.enabled
-        ? {
-            type: 'enabled',
-            budget_tokens: thinking.budget_tokens,
-          }
+      thinking: isSonnet5
+        ? thinking?.enabled === false
+          ? { type: 'disabled' }
+          : adaptiveThinking
+            ? {
+                type: 'adaptive',
+                display: adaptiveThinking.display,
+              }
+            : undefined
+        : manualThinking
+          ? {
+              type: 'enabled',
+              budget_tokens: manualThinking.budget_tokens,
+            }
+          : undefined,
+      output_config: adaptiveThinking
+        ? { effort: adaptiveThinking.effort }
         : undefined,
       tools,
       tool_choice: toolChoice,
       max_tokens:
         request.max_tokens ??
-        (thinking?.enabled
-          ? thinking.budget_tokens + DEFAULT_MAX_TOKENS
-          : DEFAULT_MAX_TOKENS),
-      temperature: request.temperature,
-      top_p: request.top_p,
+        (isSonnet5
+          ? SONNET_5_DEFAULT_MAX_TOKENS
+          : manualThinking
+            ? manualThinking.budget_tokens + DEFAULT_MAX_TOKENS
+            : DEFAULT_MAX_TOKENS),
+      temperature: isSonnet5 ? undefined : request.temperature,
+      top_p: isSonnet5 ? undefined : request.top_p,
       stream,
     }
+
+    return body
   }
+}
+
+function isClaudeSonnet5(model: string): boolean {
+  return model === 'claude-sonnet-5' || model.startsWith('claude-sonnet-5-')
 }
 
 function normalizeRequest<T extends LLMRequest>(request: T): T {

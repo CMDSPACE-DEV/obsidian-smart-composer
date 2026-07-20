@@ -7,10 +7,13 @@ import {
   ImageBlockParam,
   MessageParam,
   MessageStreamEvent,
+  RedactedThinkingBlockParam,
   TextBlockParam,
+  ThinkingBlockParam,
 } from '@anthropic-ai/sdk/resources/messages'
 
 import { ChatModel } from '../../types/chat-model.types'
+import { AnthropicThinkingBlock } from '../../types/llm/provider-metadata'
 import {
   LLMOptions,
   LLMRequestNonStreaming,
@@ -22,6 +25,7 @@ import {
 import {
   LLMResponseNonStreaming,
   LLMResponseStreaming,
+  ResponseProviderMetadata,
   ResponseUsage,
   ToolCall,
 } from '../../types/llm/response'
@@ -33,6 +37,8 @@ import {
   LLMAPIKeyInvalidException,
   LLMAPIKeyNotSetException,
 } from './exception'
+
+type MutableThinkingBlock = AnthropicThinkingBlock
 
 export class AnthropicProvider extends BaseLLMProvider<
   Extract<LLMProvider, { type: 'anthropic' }>
@@ -251,9 +257,13 @@ https://github.com/glowingjade/obsidian-smart-composer/issues/286`,
       completion_tokens: 0,
       total_tokens: 0,
     }
+    const thinkingBlocksByIndex = new Map<number, MutableThinkingBlock>()
+    let messageStarted = false
+    let messageStopped = false
 
     for await (const chunk of stream) {
       if (chunk.type === 'message_start') {
+        messageStarted = true
         messageId = chunk.message.id
         model = chunk.message.model
         usage = {
@@ -267,6 +277,10 @@ https://github.com/glowingjade/obsidian-smart-composer/issues/286`,
         chunk.type === 'content_block_start' ||
         chunk.type === 'content_block_delta'
       ) {
+        AnthropicProvider.captureStreamingThinkingBlock(
+          chunk,
+          thinkingBlocksByIndex,
+        )
         const parsedChunk = AnthropicProvider.parseStreamingResponseChunk(
           chunk,
           messageId,
@@ -276,13 +290,46 @@ https://github.com/glowingjade/obsidian-smart-composer/issues/286`,
           yield parsedChunk
         }
       } else if (chunk.type === 'message_delta') {
+        // message_delta usage is the cumulative output token count, not a
+        // delta. Adding it repeatedly over-counts long streamed responses.
         usage = {
           prompt_tokens: usage.prompt_tokens,
-          completion_tokens:
-            usage.completion_tokens + chunk.usage.output_tokens,
-          total_tokens: usage.total_tokens + chunk.usage.output_tokens,
+          completion_tokens: chunk.usage.output_tokens,
+          total_tokens: usage.prompt_tokens + chunk.usage.output_tokens,
+        }
+      } else if (chunk.type === 'message_stop') {
+        messageStopped = true
+        const thinkingBlocks = AnthropicProvider.finalizeThinkingBlocks(
+          thinkingBlocksByIndex,
+        )
+        if (thinkingBlocks.length > 0) {
+          yield {
+            id: messageId,
+            choices: [
+              {
+                finish_reason: null,
+                delta: {
+                  providerMetadata:
+                    AnthropicProvider.createThinkingProviderMetadata(
+                      thinkingBlocks,
+                    ),
+                },
+              },
+            ],
+            object: 'chat.completion.chunk',
+            model,
+          }
         }
       }
+    }
+
+    if (!messageStarted) {
+      throw new Error('Anthropic stream ended before message_start')
+    }
+    if (!messageStopped) {
+      throw new Error(
+        'Anthropic stream ended before message_stop; thinking signatures and tool calls may be incomplete',
+      )
     }
 
     // After the stream is complete, yield the final usage
@@ -292,6 +339,69 @@ https://github.com/glowingjade/obsidian-smart-composer/issues/286`,
       object: 'chat.completion.chunk',
       model: model,
       usage: usage,
+    }
+  }
+
+  private static captureStreamingThinkingBlock(
+    chunk: Extract<
+      MessageStreamEvent,
+      { type: 'content_block_start' | 'content_block_delta' }
+    >,
+    blocks: Map<number, MutableThinkingBlock>,
+  ): void {
+    if (chunk.type === 'content_block_start') {
+      if (chunk.content_block.type === 'thinking') {
+        blocks.set(chunk.index, {
+          type: 'thinking',
+          thinking: chunk.content_block.thinking,
+          signature: chunk.content_block.signature,
+        })
+      } else if (chunk.content_block.type === 'redacted_thinking') {
+        blocks.set(chunk.index, {
+          type: 'redacted_thinking',
+          data: chunk.content_block.data,
+        })
+      }
+      return
+    }
+
+    if (chunk.delta.type === 'thinking_delta') {
+      const existing = blocks.get(chunk.index)
+      if (existing?.type !== 'thinking') {
+        throw new Error(
+          `Anthropic thinking delta received without a thinking block at index ${chunk.index}`,
+        )
+      }
+      existing.thinking += chunk.delta.thinking
+    } else if (chunk.delta.type === 'signature_delta') {
+      const existing = blocks.get(chunk.index)
+      if (existing?.type !== 'thinking') {
+        throw new Error(
+          `Anthropic signature delta received without a thinking block at index ${chunk.index}`,
+        )
+      }
+      existing.signature += chunk.delta.signature
+    }
+  }
+
+  private static finalizeThinkingBlocks(
+    blocks: Map<number, MutableThinkingBlock>,
+  ): AnthropicThinkingBlock[] {
+    return [...blocks.entries()]
+      .sort(([leftIndex], [rightIndex]) => leftIndex - rightIndex)
+      .map(([, block]) => {
+        AnthropicProvider.validateThinkingBlock(block)
+        return { ...block }
+      })
+  }
+
+  private static createThinkingProviderMetadata(
+    thinkingBlocks: AnthropicThinkingBlock[],
+  ): ResponseProviderMetadata {
+    return {
+      anthropic: {
+        thinkingBlocks,
+      },
     }
   }
 
@@ -326,6 +436,14 @@ https://github.com/glowingjade/obsidian-smart-composer/issues/286`,
         return { role: 'user', content: message.content }
       }
       case 'assistant': {
+        const thinkingBlocks =
+          message.providerMetadata?.anthropic?.thinkingBlocks ?? []
+        const anthropicThinkingBlocks = thinkingBlocks.map(
+          (block): ThinkingBlockParam | RedactedThinkingBlockParam => {
+            AnthropicProvider.validateThinkingBlock(block)
+            return { ...block }
+          },
+        )
         const anthropicToolCalls = message.tool_calls?.map(
           (toolCall): ContentBlockParam => {
             const parsedArgs = (() => {
@@ -349,6 +467,7 @@ https://github.com/glowingjade/obsidian-smart-composer/issues/286`,
         )
 
         const messageContent = [
+          ...anthropicThinkingBlocks,
           ...(message.content.trim() === ''
             ? []
             : [
@@ -400,6 +519,31 @@ https://github.com/glowingjade/obsidian-smart-composer/issues/286`,
         .map((c) => c.thinking)
         .join('') || undefined
 
+    const thinkingBlocks: AnthropicThinkingBlock[] = response.content
+      .filter(
+        (contentBlock) =>
+          contentBlock.type === 'thinking' ||
+          contentBlock.type === 'redacted_thinking',
+      )
+      .map((contentBlock) => {
+        if (contentBlock.type === 'thinking') {
+          const thinkingBlock = {
+            type: 'thinking' as const,
+            thinking: contentBlock.thinking,
+            signature: contentBlock.signature,
+          }
+          AnthropicProvider.validateThinkingBlock(thinkingBlock)
+          return thinkingBlock
+        }
+
+        const redactedThinkingBlock = {
+          type: 'redacted_thinking' as const,
+          data: contentBlock.data,
+        }
+        AnthropicProvider.validateThinkingBlock(redactedThinkingBlock)
+        return redactedThinkingBlock
+      })
+
     const toolCalls: ToolCall[] = response.content
       .filter((c) => c.type === 'tool_use')
       .map((c): ToolCall => {
@@ -423,6 +567,12 @@ https://github.com/glowingjade/obsidian-smart-composer/issues/286`,
             reasoning: reasoningContent,
             tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
             role: response.role,
+            providerMetadata:
+              thinkingBlocks.length > 0
+                ? AnthropicProvider.createThinkingProviderMetadata(
+                    thinkingBlocks,
+                  )
+                : undefined,
           },
         },
       ],
@@ -547,6 +697,40 @@ https://github.com/glowingjade/obsidian-smart-composer/issues/286`,
       )
     }
     return systemMessage
+  }
+
+  private static validateThinkingBlock(
+    block: unknown,
+  ): asserts block is AnthropicThinkingBlock {
+    if (!block || typeof block !== 'object' || !('type' in block)) {
+      throw new Error('Invalid Anthropic thinking block metadata')
+    }
+
+    if (block.type === 'thinking') {
+      if (
+        !('thinking' in block) ||
+        typeof block.thinking !== 'string' ||
+        !('signature' in block) ||
+        typeof block.signature !== 'string' ||
+        block.signature.length === 0
+      ) {
+        throw new Error(
+          'Anthropic thinking block is missing its required signature',
+        )
+      }
+      return
+    }
+
+    if (
+      block.type === 'redacted_thinking' &&
+      'data' in block &&
+      typeof block.data === 'string' &&
+      block.data.length > 0
+    ) {
+      return
+    }
+
+    throw new Error('Invalid Anthropic redacted thinking block metadata')
   }
 
   private static validateImageType(mimeType: string) {
