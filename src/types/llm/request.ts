@@ -6,6 +6,12 @@ import { Reasoning } from 'openai/resources/shared'
 
 import { ToolCallRequest } from '../tool-call.types'
 
+import { LLMProviderMetadata } from './provider-metadata'
+
+// The installed OpenAI SDK predates GPT-5.6 `max`. Keep the shared request
+// surface current and narrow back to SDK types only inside legacy adapters.
+export type LLMReasoningEffort = Exclude<ReasoningEffort, null> | 'max'
+
 export type LLMRequestBase = {
   messages: RequestMessage[]
   model: string
@@ -28,7 +34,7 @@ export type LLMRequestBase = {
   prediction?: ChatCompletionCreateParams['prediction']
 
   // Only available for OpenAI reasoning models
-  reasoning_effort?: ReasoningEffort
+  reasoning_effort?: LLMReasoningEffort
   reasoning_summary?: Reasoning['summary']
 
   // Only available for OpenAI search models and Perplexity
@@ -67,14 +73,7 @@ type RequestUserMessage = {
   role: 'user'
   content: string | ContentPart[]
 }
-export type RequestProviderMetadata = {
-  gemini?: {
-    thoughtSignature?: string
-  }
-  deepseek?: {
-    reasoningContent?: string
-  }
-}
+export type RequestProviderMetadata = LLMProviderMetadata
 
 type RequestAssistantMessage = {
   role: 'assistant'

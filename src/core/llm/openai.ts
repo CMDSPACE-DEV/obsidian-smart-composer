@@ -1,9 +1,9 @@
 import OpenAI from 'openai'
-import { ReasoningEffort } from 'openai/resources/shared'
 
 import { ChatModel } from '../../types/chat-model.types'
 import {
   LLMOptions,
+  LLMReasoningEffort,
   LLMRequestNonStreaming,
   LLMRequestStreaming,
 } from '../../types/llm/request'
@@ -59,7 +59,7 @@ export class OpenAIAuthenticatedProvider extends BaseLLMProvider<
         {
           ...request,
           reasoning_effort: model.reasoning?.enabled
-            ? (model.reasoning.reasoning_effort as ReasoningEffort)
+            ? (model.reasoning.reasoning_effort as LLMReasoningEffort)
             : undefined,
         },
         options,
@@ -120,7 +120,7 @@ export class OpenAIAuthenticatedProvider extends BaseLLMProvider<
         {
           ...request,
           reasoning_effort: model.reasoning?.enabled
-            ? (model.reasoning.reasoning_effort as ReasoningEffort)
+            ? (model.reasoning.reasoning_effort as LLMReasoningEffort)
             : undefined,
         },
         options,

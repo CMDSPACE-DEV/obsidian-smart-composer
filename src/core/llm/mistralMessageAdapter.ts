@@ -32,7 +32,8 @@ export class MistralMessageAdapter extends OpenAIMessageAdapter {
       model: request.model,
       tools: request.tools,
       tool_choice: request.tool_choice,
-      reasoning_effort: request.reasoning_effort,
+      reasoning_effort:
+        request.reasoning_effort as ChatCompletionCreateParamsNonStreaming['reasoning_effort'],
       web_search_options: request.web_search_options,
       messages: request.messages.map((m) => this.parseRequestMessage(m)),
       // TODO: max_tokens is deprecated in the OpenAI API, with max_completion_tokens being the

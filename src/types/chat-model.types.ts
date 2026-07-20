@@ -2,6 +2,42 @@ import { z } from 'zod'
 
 import { PromptLevel } from './prompt-level.types'
 
+export const GPT_5_6_EFFORTS = [
+  'none',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const
+export type Gpt56Effort = (typeof GPT_5_6_EFFORTS)[number]
+
+export const CLAUDE_ADAPTIVE_EFFORTS = [
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const
+export type ClaudeEffort = (typeof CLAUDE_ADAPTIVE_EFFORTS)[number]
+
+const anthropicManualThinkingSchema = z.object({
+  enabled: z.boolean(),
+  mode: z.literal('manual').optional(),
+  budget_tokens: z.number(),
+})
+
+const anthropicAdaptiveThinkingSchema = z.object({
+  enabled: z.boolean(),
+  mode: z.literal('adaptive'),
+  effort: z.enum(CLAUDE_ADAPTIVE_EFFORTS),
+  display: z.enum(['summarized', 'omitted']),
+})
+
+export type AnthropicPlanThinking =
+  | z.infer<typeof anthropicManualThinkingSchema>
+  | z.infer<typeof anthropicAdaptiveThinkingSchema>
+
 const baseChatModelSchema = z.object({
   providerId: z
     .string({
@@ -30,10 +66,7 @@ export const chatModelSchema = z.discriminatedUnion('providerType', [
     providerType: z.literal('anthropic-plan'),
     ...baseChatModelSchema.shape,
     thinking: z
-      .object({
-        enabled: z.boolean(),
-        budget_tokens: z.number(),
-      })
+      .union([anthropicManualThinkingSchema, anthropicAdaptiveThinkingSchema])
       .optional(),
   }),
   z.object({
@@ -41,8 +74,10 @@ export const chatModelSchema = z.discriminatedUnion('providerType', [
     ...baseChatModelSchema.shape,
     reasoning: z
       .object({
-        reasoning_effort: z.string().optional(),
-        reasoning_summary: z.string().optional(),
+        reasoning_effort: z
+          .enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+          .optional(),
+        reasoning_summary: z.enum(['auto', 'concise', 'detailed']).optional(),
       })
       .optional(),
   }),

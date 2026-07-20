@@ -6,6 +6,7 @@ import type {
   ResponseInput,
   ResponseInputItem,
   ResponseInputMessageContentList,
+  ResponseOutputItem,
   ResponseReasoningItem,
   ResponseStreamEvent,
 } from 'openai/resources/responses/responses'
@@ -21,16 +22,94 @@ import {
 import {
   LLMResponseNonStreaming,
   LLMResponseStreaming,
+  ResponseProviderMetadata,
   ResponseUsage,
   ToolCall,
   ToolCallDelta,
 } from '../../types/llm/response'
-import { StreamSource, postStream } from '../../utils/llm/httpTransport'
+import {
+  LLMHttpError,
+  StreamSource,
+  postStream,
+} from '../../utils/llm/httpTransport'
 import { parseJsonSseStream } from '../../utils/llm/sse'
 
 type CodexAdapterConfig = {
   endpoint?: string
   fetchFn?: typeof fetch
+}
+
+type CodexReasoningEffort =
+  | 'none'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max'
+
+type CodexRequest = LLMRequest & {
+  reasoning_effort?: CodexReasoningEffort
+}
+
+type CodexResponseCreateParams = Omit<ResponseCreateParamsBase, 'reasoning'> & {
+  reasoning?: {
+    effort?: CodexReasoningEffort
+    summary?: LLMRequest['reasoning_summary']
+  }
+}
+
+type CodexProviderMetadata = {
+  openaiCodex: {
+    outputItems: unknown[]
+    model: string
+  }
+}
+
+export class CodexRequestError extends Error {
+  readonly model: string
+  readonly reasoningEffort?: string
+  readonly status?: number
+  readonly responseBody?: string
+  readonly requestId?: string
+  readonly code?: string | null
+  readonly param?: string | null
+  readonly originalError?: unknown
+
+  constructor({
+    message,
+    model,
+    reasoningEffort,
+    status,
+    responseBody,
+    requestId,
+    code,
+    param,
+    originalError,
+  }: {
+    message: string
+    model: string
+    reasoningEffort?: string
+    status?: number
+    responseBody?: string
+    requestId?: string
+    code?: string | null
+    param?: string | null
+    originalError?: unknown
+  }) {
+    const effortContext = reasoningEffort ? `, effort=${reasoningEffort}` : ''
+    super(`${message} (model=${model}${effortContext})`)
+    this.name = 'CodexRequestError'
+    this.model = model
+    this.reasoningEffort = reasoningEffort
+    this.status = status
+    this.responseBody = responseBody
+    this.requestId = requestId
+    this.code = code
+    this.param = param
+    this.originalError = originalError
+    Object.setPrototypeOf(this, CodexRequestError.prototype)
+  }
 }
 
 export class CodexMessageAdapter {
@@ -49,22 +128,46 @@ export class CodexMessageAdapter {
   ): Promise<LLMResponseNonStreaming> {
     // Codex Responses require stream: true; build a snapshot from the stream.
     const body = this.buildRequestBody({ request, stream: true })
-    const stream = await postStream(this.endpoint, body, {
-      headers,
-      signal: options?.signal,
-      fetchFn: this.fetchFn,
-    })
+    let stream: StreamSource
+    try {
+      stream = await postStream(this.endpoint, body, {
+        headers,
+        signal: options?.signal,
+        fetchFn: this.fetchFn,
+      })
+    } catch (error) {
+      throw toCodexRequestError(error, request)
+    }
 
-    let summaryText = ''
+    const summaryTextByPart = new Map<string, string>()
     let responsePayload: Response | undefined
+    let receivedTerminalEvent = false
     for await (const chunk of parseJsonSseStream<ResponseStreamEvent>(stream)) {
       if (chunk.type === 'response.created') {
+        assertRequestedCodexModel(request, chunk.response.model)
         responsePayload = chunk.response
         continue
       }
 
       if (chunk.type === 'error') {
-        throw new Error(chunk.message)
+        throw new CodexRequestError({
+          message: chunk.message,
+          model: request.model,
+          reasoningEffort: getCodexReasoningEffort(request),
+          code: chunk.code,
+          param: chunk.param,
+        })
+      }
+
+      if (chunk.type === 'response.failed') {
+        throw responseFailureToError(chunk.response, request)
+      }
+
+      if (
+        chunk.type === 'response.completed' ||
+        chunk.type === 'response.incomplete'
+      ) {
+        receivedTerminalEvent = true
       }
 
       if (!responsePayload) {
@@ -74,13 +177,18 @@ export class CodexMessageAdapter {
       }
 
       if (chunk.type === 'response.reasoning_summary_text.delta') {
-        summaryText += chunk.delta
+        const key = reasoningSummaryPartKey(chunk)
+        summaryTextByPart.set(
+          key,
+          (summaryTextByPart.get(key) ?? '') + chunk.delta,
+        )
         continue
       }
 
       if (chunk.type === 'response.reasoning_summary_text.done') {
-        if (!summaryText.length) {
-          summaryText = chunk.text
+        const key = reasoningSummaryPartKey(chunk)
+        if (!summaryTextByPart.has(key)) {
+          summaryTextByPart.set(key, chunk.text)
         }
         continue
       }
@@ -91,12 +199,20 @@ export class CodexMessageAdapter {
     if (!responsePayload) {
       throw new Error('Stream ended without receiving a response payload')
     }
+    if (!receivedTerminalEvent) {
+      throw new CodexRequestError({
+        message: 'Codex stream ended before a terminal response event',
+        model: request.model,
+        reasoningEffort: getCodexReasoningEffort(request),
+      })
+    }
+    assertRequestedCodexModel(request, responsePayload.model)
 
     const content = extractResponseText(responsePayload)
     const toolCalls = extractToolCalls(responsePayload)
     const reasoningSummary =
       extractReasoningSummary(responsePayload) ??
-      (summaryText.length ? summaryText : undefined)
+      joinReasoningSummaryParts(summaryTextByPart)
 
     return {
       id: responsePayload.id,
@@ -111,6 +227,7 @@ export class CodexMessageAdapter {
             content,
             ...(reasoningSummary ? { reasoning: reasoningSummary } : {}),
             ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+            providerMetadata: buildCodexProviderMetadata(responsePayload),
           },
         },
       ],
@@ -125,21 +242,26 @@ export class CodexMessageAdapter {
     headers?: Record<string, string>,
   ): Promise<AsyncIterable<LLMResponseStreaming>> {
     const body = this.buildRequestBody({ request, stream: true })
-    const stream = await postStream(this.endpoint, body, {
-      headers,
-      signal: options?.signal,
-      fetchFn: this.fetchFn,
-    })
-    return this.streamResponseGenerator(stream, request.model)
+    let stream: StreamSource
+    try {
+      stream = await postStream(this.endpoint, body, {
+        headers,
+        signal: options?.signal,
+        fetchFn: this.fetchFn,
+      })
+    } catch (error) {
+      throw toCodexRequestError(error, request)
+    }
+    return this.streamResponseGenerator(stream, request)
   }
 
   private async *streamResponseGenerator(
     body: StreamSource,
-    model: string,
+    request: LLMRequestStreaming,
   ): AsyncIterable<LLMResponseStreaming> {
     let responseId = ''
     let created = Math.floor(Date.now() / 1000)
-    let resolvedModel = model
+    let resolvedModel = request.model
     let systemFingerprint: string | undefined
     let sentRole = false
     const toolCallInfoByIndex = new Map<
@@ -147,11 +269,14 @@ export class CodexMessageAdapter {
       { id?: string; name?: string }
     >()
     const toolCallHasDelta = new Set<number>()
+    const reasoningSummaryHasDelta = new Set<string>()
+    let receivedTerminalEvent = false
 
     const getChunkId = (itemId?: string) =>
       responseId.length > 0 ? responseId : (itemId ?? 'codex-response')
     for await (const chunk of parseJsonSseStream<ResponseStreamEvent>(body)) {
       if (chunk.type === 'response.created') {
+        assertRequestedCodexModel(request, chunk.response.model)
         responseId = chunk.response.id
         created = chunk.response.created_at
         resolvedModel = chunk.response.model
@@ -237,6 +362,7 @@ export class CodexMessageAdapter {
       }
 
       if (chunk.type === 'response.reasoning_summary_text.delta') {
+        reasoningSummaryHasDelta.add(reasoningSummaryPartKey(chunk))
         yield {
           id: getChunkId(chunk.item_id),
           created,
@@ -256,6 +382,9 @@ export class CodexMessageAdapter {
       }
 
       if (chunk.type === 'response.reasoning_summary_text.done') {
+        if (reasoningSummaryHasDelta.has(reasoningSummaryPartKey(chunk))) {
+          continue
+        }
         yield {
           id: getChunkId(chunk.item_id),
           created,
@@ -344,6 +473,9 @@ export class CodexMessageAdapter {
       }
 
       if (chunk.type === 'response.completed') {
+        receivedTerminalEvent = true
+        assertRequestedCodexModel(request, chunk.response.model)
+        resolvedModel = chunk.response.model
         yield {
           id: getChunkId(),
           created,
@@ -353,7 +485,9 @@ export class CodexMessageAdapter {
           choices: [
             {
               finish_reason: 'stop',
-              delta: {},
+              delta: {
+                providerMetadata: buildCodexProviderMetadata(chunk.response),
+              },
             },
           ],
           usage: mapUsage(chunk.response.usage),
@@ -362,6 +496,9 @@ export class CodexMessageAdapter {
       }
 
       if (chunk.type === 'response.incomplete') {
+        receivedTerminalEvent = true
+        assertRequestedCodexModel(request, chunk.response.model)
+        resolvedModel = chunk.response.model
         yield {
           id: getChunkId(),
           created,
@@ -371,7 +508,9 @@ export class CodexMessageAdapter {
           choices: [
             {
               finish_reason: 'length',
-              delta: {},
+              delta: {
+                providerMetadata: buildCodexProviderMetadata(chunk.response),
+              },
             },
           ],
           usage: mapUsage(chunk.response.usage),
@@ -379,9 +518,27 @@ export class CodexMessageAdapter {
         continue
       }
 
-      if (chunk.type === 'error') {
-        throw new Error(chunk.message)
+      if (chunk.type === 'response.failed') {
+        throw responseFailureToError(chunk.response, request)
       }
+
+      if (chunk.type === 'error') {
+        throw new CodexRequestError({
+          message: chunk.message,
+          model: request.model,
+          reasoningEffort: getCodexReasoningEffort(request),
+          code: chunk.code,
+          param: chunk.param,
+        })
+      }
+    }
+
+    if (!receivedTerminalEvent) {
+      throw new CodexRequestError({
+        message: 'Codex stream ended before a terminal response event',
+        model: request.model,
+        reasoningEffort: getCodexReasoningEffort(request),
+      })
     }
   }
 
@@ -391,7 +548,7 @@ export class CodexMessageAdapter {
   }: {
     request: LLMRequest
     stream: boolean
-  }): ResponseCreateParamsBase {
+  }): CodexResponseCreateParams {
     const { input, instructions } = buildResponsesInput(request.messages)
     const tools = request.tools
       ? request.tools.map(
@@ -404,24 +561,29 @@ export class CodexMessageAdapter {
           }),
         )
       : undefined
+    const reasoningEffort = getCodexReasoningEffort(request)
+    const reasoningSummary =
+      reasoningEffort === 'none' ? undefined : request.reasoning_summary
     const reasoning =
-      request.reasoning_effort || request.reasoning_summary
+      reasoningEffort || reasoningSummary
         ? {
-            ...(request.reasoning_effort && {
-              effort: request.reasoning_effort,
+            ...(reasoningEffort && {
+              effort: reasoningEffort,
             }),
-            ...(request.reasoning_summary && {
-              summary: request.reasoning_summary,
+            ...(reasoningSummary && {
+              summary: reasoningSummary,
             }),
           }
         : undefined
 
-    const body: ResponseCreateParamsBase = {
+    const body: CodexResponseCreateParams = {
       model: request.model,
       input,
       instructions,
       store: false,
       stream,
+      include: ['reasoning.encrypted_content'],
+      max_output_tokens: request.max_tokens,
       tools,
       tool_choice: normalizeToolChoice(request.tool_choice),
       ...(reasoning && {
@@ -458,6 +620,12 @@ function buildResponsesInput(messages: RequestMessage[]): {
     }
 
     if (message.role === 'assistant') {
+      const replayableOutputItems = getReplayableCodexOutputItems(message)
+      if (replayableOutputItems) {
+        input.push(...replayableOutputItems)
+        continue
+      }
+
       input.push({
         role: 'assistant',
         content: message.content,
@@ -489,6 +657,107 @@ function buildResponsesInput(messages: RequestMessage[]): {
     input,
     instructions: instructions.length > 0 ? instructions : undefined,
   }
+}
+
+type AssistantRequestMessage = Extract<RequestMessage, { role: 'assistant' }>
+
+type ReplayableCodexOutputItem = Extract<
+  ResponseOutputItem,
+  { type: 'message' | 'reasoning' | 'function_call' }
+>
+
+function getReplayableCodexOutputItems(
+  message: AssistantRequestMessage,
+): ReplayableCodexOutputItem[] | undefined {
+  const providerMetadata = message.providerMetadata as
+    | (typeof message.providerMetadata & Partial<CodexProviderMetadata>)
+    | undefined
+  const outputItems = providerMetadata?.openaiCodex?.outputItems
+  if (!providerMetadata?.openaiCodex) {
+    return undefined
+  }
+  if (!Array.isArray(outputItems) || outputItems.length === 0) {
+    throw new Error(
+      'Codex continuation metadata has no replayable output items',
+    )
+  }
+
+  // Persisted chat history is an untrusted JSON boundary. Replaying an opaque
+  // value directly would let malformed data alter a Responses request, so reject
+  // the complete metadata set unless every item has a known wire shape.
+  if (!outputItems.every(isReplayableCodexOutputItem)) {
+    throw new Error(
+      'Codex continuation metadata is incomplete or missing encrypted reasoning',
+    )
+  }
+  return outputItems
+}
+
+function isReplayableCodexOutputItem(
+  value: unknown,
+): value is ReplayableCodexOutputItem {
+  if (!isRecord(value) || typeof value.type !== 'string') {
+    return false
+  }
+
+  if (value.type === 'reasoning') {
+    return (
+      typeof value.id === 'string' &&
+      Array.isArray(value.summary) &&
+      value.summary.every(
+        (part) =>
+          isRecord(part) &&
+          part.type === 'summary_text' &&
+          typeof part.text === 'string',
+      ) &&
+      (value.content === undefined ||
+        (Array.isArray(value.content) &&
+          value.content.every(
+            (part) =>
+              isRecord(part) &&
+              part.type === 'reasoning_text' &&
+              typeof part.text === 'string',
+          ))) &&
+      typeof value.encrypted_content === 'string' &&
+      value.encrypted_content.length > 0
+    )
+  }
+
+  if (value.type === 'function_call') {
+    return (
+      typeof value.call_id === 'string' &&
+      typeof value.name === 'string' &&
+      typeof value.arguments === 'string'
+    )
+  }
+
+  if (value.type === 'message') {
+    return (
+      typeof value.id === 'string' &&
+      value.role === 'assistant' &&
+      Array.isArray(value.content) &&
+      value.content.every(isReplayableAssistantContent)
+    )
+  }
+
+  return false
+}
+
+function isReplayableAssistantContent(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false
+  }
+  if (value.type === 'output_text') {
+    return typeof value.text === 'string' && Array.isArray(value.annotations)
+  }
+  if (value.type === 'refusal') {
+    return typeof value.refusal === 'string'
+  }
+  return false
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function normalizeToolChoice(
@@ -573,13 +842,124 @@ function getSystemFingerprint(payload: Response): string | undefined {
   return (payload as { system_fingerprint?: string }).system_fingerprint
 }
 
+function buildCodexProviderMetadata(
+  payload: Response,
+): ResponseProviderMetadata {
+  const metadata: CodexProviderMetadata = {
+    openaiCodex: {
+      // Preserve the response ordering: reasoning items must precede their
+      // corresponding function calls when stateless tool conversations continue.
+      outputItems: payload.output,
+      model: payload.model,
+    },
+  }
+  // Shared metadata intentionally treats provider wire data as opaque. The
+  // request boundary validates each item before replaying it.
+  return metadata as unknown as ResponseProviderMetadata
+}
+
+function getCodexReasoningEffort(
+  request: LLMRequest,
+): CodexReasoningEffort | undefined {
+  const effort = (request as CodexRequest).reasoning_effort
+  if (!effort) {
+    return undefined
+  }
+  if (
+    effort !== 'none' &&
+    effort !== 'minimal' &&
+    effort !== 'low' &&
+    effort !== 'medium' &&
+    effort !== 'high' &&
+    effort !== 'xhigh' &&
+    effort !== 'max'
+  ) {
+    throw new CodexRequestError({
+      message: `Unsupported GPT-5.6 reasoning effort: ${String(effort)}`,
+      model: request.model,
+      reasoningEffort: String(effort),
+    })
+  }
+  return effort
+}
+
+function reasoningSummaryPartKey(event: {
+  item_id: string
+  summary_index: number
+}): string {
+  return `${event.item_id}:${event.summary_index}`
+}
+
+function joinReasoningSummaryParts(
+  parts: Map<string, string>,
+): string | undefined {
+  const summary = Array.from(parts.values()).join('')
+  return summary.length > 0 ? summary : undefined
+}
+
+function responseFailureToError(
+  response: Response,
+  request: LLMRequest,
+): CodexRequestError {
+  return new CodexRequestError({
+    message: response.error?.message ?? 'Codex response failed',
+    model: request.model,
+    reasoningEffort: getCodexReasoningEffort(request),
+    code: response.error?.code,
+  })
+}
+
+function assertRequestedCodexModel(request: LLMRequest, actualModel: string) {
+  if (
+    /^gpt-5\.6-(?:sol|terra|luna)$/.test(request.model) &&
+    actualModel !== request.model
+  ) {
+    throw new CodexRequestError({
+      message: `Codex returned ${actualModel} instead of requested ${request.model}`,
+      model: request.model,
+      reasoningEffort: getCodexReasoningEffort(request),
+      code: 'model_mismatch',
+    })
+  }
+}
+
+function toCodexRequestError(
+  error: unknown,
+  request: LLMRequest,
+): CodexRequestError {
+  if (error instanceof CodexRequestError) {
+    return error
+  }
+  const message = error instanceof Error ? error.message : String(error)
+  const statusMatch = /Request failed:\s*(\d{3})\b/.exec(message)
+  return new CodexRequestError({
+    message,
+    model: request.model,
+    reasoningEffort: getCodexReasoningEffort(request),
+    status:
+      error instanceof LLMHttpError
+        ? error.status
+        : statusMatch
+          ? Number(statusMatch[1])
+          : undefined,
+    responseBody:
+      error instanceof LLMHttpError ? error.responseBody : undefined,
+    requestId: error instanceof LLMHttpError ? error.requestId : undefined,
+    originalError: error,
+  })
+}
+
 function accumulateResponseSnapshot(
   snapshot: Response,
   event: ResponseStreamEvent,
 ): Response {
   switch (event.type) {
     case 'response.output_item.added': {
-      snapshot.output.push(event.item)
+      snapshot.output[event.output_index] = event.item
+      return snapshot
+    }
+    case 'response.output_item.done': {
+      snapshot.output[event.output_index] = event.item
       return snapshot
     }
     case 'response.content_part.added': {

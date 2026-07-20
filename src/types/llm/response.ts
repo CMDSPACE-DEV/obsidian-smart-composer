@@ -1,6 +1,8 @@
 // These types are based on the OpenRouter API specification
 // https://openrouter.ai/docs/api-reference/overview#responses
 
+import { LLMProviderMetadata } from './provider-metadata'
+
 export type LLMResponseBase = {
   id: string
   created?: number
@@ -27,14 +29,7 @@ export type ResponseUsage = {
   total_tokens: number
 }
 
-export type ResponseProviderMetadata = {
-  gemini?: {
-    thoughtSignature?: string
-  }
-  deepseek?: {
-    reasoningContent?: string
-  }
-}
+export type ResponseProviderMetadata = LLMProviderMetadata
 
 type NonStreamingChoice = {
   finish_reason: string | null // Depends on the model. Ex: 'stop' | 'length' | 'content_filter' | 'tool_calls' | 'function_call'
