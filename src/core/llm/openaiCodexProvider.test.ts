@@ -72,6 +72,106 @@ describe('OpenAICodexProvider', () => {
     )
   })
 
+  it('sends a hosted Plan image request and decodes its streamed result', async () => {
+    const imageBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB'
+    const progress: [string, number | undefined][] = []
+    let capturedBody: Record<string, unknown> | undefined
+    const encoder = new TextEncoder()
+    const fetchFn = jest.fn(async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+      const events = [
+        { type: 'response.image_generation_call.in_progress' },
+        { type: 'response.image_generation_call.generating' },
+        {
+          type: 'response.image_generation_call.partial_image',
+          partial_image_index: 1,
+        },
+        {
+          type: 'response.output_item.done',
+          item: {
+            type: 'image_generation_call',
+            result: imageBase64,
+          },
+        },
+        {
+          type: 'response.completed',
+          response: { output: [] },
+        },
+      ]
+      return {
+        ok: true,
+        status: 200,
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                events
+                  .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+                  .join(''),
+              ),
+            )
+            controller.close()
+          },
+        }),
+      } as Response
+    }) as unknown as typeof fetch
+    const imageProvider = new OpenAICodexProvider(
+      {
+        id: 'openai-plan',
+        type: 'openai-plan',
+        oauth: {
+          accessToken: 'access-token',
+          refreshToken: 'refresh-token',
+          expiresAt: Date.now() + 3_600_000,
+        },
+      },
+      undefined,
+      {
+        endpoint: 'https://example.com/codex/responses',
+        fetchFn,
+      },
+    )
+    const model: Extract<ChatModel, { providerType: 'openai-plan' }> = {
+      id: 'gpt-5.6-sol (plan)',
+      model: 'gpt-5.6-sol',
+      providerId: 'openai-plan',
+      providerType: 'openai-plan',
+      reasoning: { reasoning_effort: 'medium' },
+    }
+
+    await expect(
+      imageProvider.generateImage(model, 'Draw a detailed infographic', {
+        quality: 'high',
+        onProgress: (phase, partialImageIndex) =>
+          progress.push([phase, partialImageIndex]),
+      }),
+    ).resolves.toEqual({
+      base64: imageBase64,
+      mimeType: 'image/png',
+    })
+
+    expect(capturedBody).toMatchObject({
+      model: 'gpt-5.6-sol',
+      store: false,
+      stream: true,
+      tools: [
+        {
+          type: 'image_generation',
+          quality: 'high',
+          size: '1536x1024',
+          output_format: 'png',
+        },
+      ],
+      tool_choice: { type: 'image_generation' },
+    })
+    expect(capturedBody).not.toHaveProperty('max_output_tokens')
+    expect(progress).toEqual([
+      ['generating', undefined],
+      ['rendering', undefined],
+      ['receiving', 1],
+    ])
+  })
+
   it('rejects legacy minimal effort for GPT-5.6', () => {
     const model: Extract<ChatModel, { providerType: 'openai-plan' }> = {
       id: 'gpt-5.6-sol (plan)',

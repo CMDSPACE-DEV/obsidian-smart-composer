@@ -194,6 +194,140 @@ describe('CodexMessageAdapter', () => {
     ])
   })
 
+  it('preserves streamed tool output when the terminal response output is empty', async () => {
+    const functionItem = {
+      id: 'function_queued_image',
+      type: 'function_call',
+      status: 'completed',
+      call_id: 'call_queued_image',
+      name: 'enqueue_image_generation',
+      arguments: '{"prompt":"Draw a detailed infographic"}',
+    }
+    const adapter = new CodexMessageAdapter({
+      fetchFn: makeSseFetch([
+        { type: 'response.created', response: responsePayload() },
+        {
+          type: 'response.output_item.added',
+          output_index: 0,
+          item: { ...functionItem, arguments: '' },
+        },
+        {
+          type: 'response.function_call_arguments.delta',
+          item_id: functionItem.id,
+          output_index: 0,
+          delta: functionItem.arguments,
+        },
+        {
+          type: 'response.output_item.done',
+          output_index: 0,
+          item: functionItem,
+        },
+        {
+          type: 'response.completed',
+          response: responsePayload({ output: [] }),
+        },
+      ]),
+    })
+
+    const stream = await adapter.streamResponse({
+      stream: true,
+      model: 'gpt-5.6-sol',
+      messages: [],
+    })
+    const chunks = []
+    for await (const chunk of stream) chunks.push(chunk)
+    const metadata =
+      chunks.at(-1)?.choices[0]?.delta.providerMetadata?.openaiCodex
+
+    expect(metadata).toEqual({
+      model: 'gpt-5.6-sol',
+      outputItems: [functionItem],
+    })
+
+    let replayBody: CapturedBody | undefined
+    const replayAdapter = new CodexMessageAdapter({
+      fetchFn: makeCapturingFetch((body) => {
+        replayBody = body
+      }),
+    })
+    await expect(
+      replayAdapter.generateResponse({
+        model: 'gpt-5.6-sol',
+        messages: [
+          {
+            role: 'assistant',
+            content: '',
+            tool_calls: [
+              {
+                id: functionItem.call_id,
+                name: functionItem.name,
+                arguments: functionItem.arguments,
+              },
+            ],
+            providerMetadata: { openaiCodex: metadata },
+          },
+          {
+            role: 'tool',
+            tool_call: {
+              id: functionItem.call_id,
+              name: functionItem.name,
+              arguments: functionItem.arguments,
+            },
+            content: '{"taskId":"task-1"}',
+          },
+        ],
+      }),
+    ).rejects.toThrow('stop after capture')
+
+    expect(replayBody?.input).toEqual([
+      functionItem,
+      {
+        type: 'function_call_output',
+        call_id: functionItem.call_id,
+        output: '{"taskId":"task-1"}',
+      },
+    ])
+  })
+
+  it('continues legacy chats that saved empty Codex output metadata', async () => {
+    let captured: CapturedBody | undefined
+    const adapter = new CodexMessageAdapter({
+      fetchFn: makeCapturingFetch((body) => {
+        captured = body
+      }),
+    })
+
+    await expect(
+      adapter.generateResponse({
+        model: 'gpt-5.6-sol',
+        messages: [
+          {
+            role: 'assistant',
+            content: 'Earlier streamed answer',
+            providerMetadata: {
+              openaiCodex: {
+                model: 'gpt-5.6-sol',
+                outputItems: [],
+              },
+            },
+          },
+          { role: 'user', content: 'Continue this conversation' },
+        ],
+      }),
+    ).rejects.toThrow('stop after capture')
+
+    expect(captured?.input).toEqual([
+      {
+        role: 'assistant',
+        content: 'Earlier streamed answer',
+      },
+      {
+        role: 'user',
+        content: [{ type: 'input_text', text: 'Continue this conversation' }],
+      },
+    ])
+  })
+
   it('replays two saved Codex tool turns in sequence', async () => {
     const firstOutput = [
       {

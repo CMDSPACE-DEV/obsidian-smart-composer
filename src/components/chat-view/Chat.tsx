@@ -32,6 +32,10 @@ import {
 } from '../../types/mentionable'
 import { ToolCallResponseStatus } from '../../types/tool-call.types'
 import {
+  getImageGenerationPrompt,
+  isImageGenerationRequest,
+} from '../../utils/chat/imageIntent'
+import {
   getMentionableKey,
   serializeMentionable,
 } from '../../utils/chat/mentionable'
@@ -624,19 +628,7 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
                 chatUserInputRef={(ref) =>
                   registerChatUserInputRef(messageOrGroup.id, ref)
                 }
-                onInputChange={(content) => {
-                  setChatMessages((prevChatHistory) =>
-                    prevChatHistory.map((msg) =>
-                      msg.role === 'user' && msg.id === messageOrGroup.id
-                        ? {
-                            ...msg,
-                            content,
-                          }
-                        : msg,
-                    ),
-                  )
-                }}
-                onSubmit={(content, useVaultSearch) => {
+                onSubmit={(content, useVaultSearch, mentionables) => {
                   if (editorStateToPlainText(content).trim() === '') return
                   handleUserMessageSubmit({
                     inputChatMessages: [
@@ -652,7 +644,7 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
                         content: content,
                         promptContent: null,
                         id: messageOrGroup.id,
-                        mentionables: messageOrGroup.mentionables,
+                        mentionables,
                       },
                     ],
                     useVaultSearch,
@@ -661,15 +653,6 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
                 }}
                 onFocus={() => {
                   setFocusedMessageId(messageOrGroup.id)
-                }}
-                onMentionablesChange={(mentionables) => {
-                  setChatMessages((prevChatHistory) =>
-                    prevChatHistory.map((msg) =>
-                      msg.id === messageOrGroup.id
-                        ? { ...msg, mentionables }
-                        : msg,
-                    ),
-                  )
                 }}
               />
               <BackgroundTaskCards
@@ -758,14 +741,8 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
         onSubmit={(content, useVaultSearch, mode = 'chat') => {
           const plainText = editorStateToPlainText(content).trim()
           if (plainText === '') return
-          const imagePrompt = plainText
-            .replace(/^\/image\s*/i, '')
-            .replace(
-              /^(?:이미지를?|그림을?)\s*(?:그려|생성해)(?:줘|주세요)?\s*/i,
-              '',
-            )
-            .trim()
-          const imageCommand = /^\/image\b/i.test(plainText)
+          const detectedImagePrompt = getImageGenerationPrompt(plainText)
+          const imageRequest = isImageGenerationRequest(plainText)
           const selectedModel = settings.chatModels.find(
             (model) => model.id === settings.chatModelId,
           )
@@ -791,7 +768,7 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
           }
           if (
             canGenerateImages &&
-            (mode === 'image' || imageCommand) &&
+            (mode === 'image' || imageRequest) &&
             plugin.backgroundTaskManager
           ) {
             const userMessage = { ...inputMessage, content }
@@ -801,7 +778,7 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
               originMessageId: inputMessage.id,
               kind: 'image-generation',
               payload: {
-                prompt: imagePrompt || plainText,
+                prompt: detectedImagePrompt || plainText,
                 modelId: settings.chatModelId,
               },
             })

@@ -214,6 +214,44 @@ Future full Shadow DOM isolation is blocked until the selected editor stack is
 proven with real Obsidian keyboard, IME, clipboard, selection, mention, and
 portal tests. Static visual screenshots are not sufficient evidence.
 
+### 8.2 Image dispatch and message-density failure (2026-07-23)
+
+The next live 2.0.1 smoke test used a Korean natural-language request for a
+high-quality infographic. No image task was created: the task repository
+contained zero records after the failure. The visible error was:
+
+```text
+Codex continuation metadata has no replayable output items
+```
+
+Two independent defects were involved:
+
+1. the composer dispatched only the explicit Image button and `/image`
+   command directly to the background image queue, so an obvious Korean
+   natural-language image request still entered foreground chat;
+2. Codex streaming stored `response.completed.output` verbatim. The live
+   terminal event can contain an empty output array even after earlier
+   `response.output_item.added` and `response.output_item.done` events carried
+   the function call. A later turn then rejected the empty continuation
+   metadata before making a provider request.
+
+Version 2.0.2 adds tested Korean and English image-intent detection for direct
+background dispatch, accumulates Codex output items across the whole SSE
+stream, and falls back to normalized assistant history for already-persisted
+2.0.0-2.0.1 messages with empty output metadata. A mock hosted-image SSE test
+also confirms that the dedicated request still sends `store: false`,
+`stream: true`, the hosted `image_generation` tool and no
+`max_output_tokens`, then decodes the final image result.
+
+The same smoke test showed that every submitted user message remained a full
+Lexical composer with model, reasoning, attachment, image and submit controls.
+This made short conversations visually much taller than their content.
+Version 2.0.2 renders submitted messages as compact right-aligned bubbles and
+mounts the full editor only after the user activates the edit button. A
+system-Chrome check at 400 px measured 90 px for a long message with an
+attachment summary and 56 px for a short message, with zero horizontal
+overflow in both Hallym light and CMDS dark skins.
+
 The following items remain implementation gates rather than verified product
 behavior:
 

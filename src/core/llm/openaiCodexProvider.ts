@@ -88,6 +88,8 @@ export class OpenAICodexProvider extends BaseLLMProvider<
     providerId: string,
     update: Partial<LLMProvider>,
   ) => void | Promise<void>
+  private imageEndpoint: string
+  private fetchFn?: typeof fetch
 
   constructor(
     provider: Extract<LLMProvider, { type: 'openai-plan' }>,
@@ -95,9 +97,18 @@ export class OpenAICodexProvider extends BaseLLMProvider<
       providerId: string,
       update: Partial<LLMProvider>,
     ) => void | Promise<void>,
+    transport: {
+      endpoint?: string
+      fetchFn?: typeof fetch
+    } = {},
   ) {
     super(provider)
-    this.adapter = new CodexMessageAdapter()
+    this.imageEndpoint = transport.endpoint ?? CODEX_RESPONSES_ENDPOINT
+    this.fetchFn = transport.fetchFn
+    this.adapter = new CodexMessageAdapter({
+      endpoint: this.imageEndpoint,
+      fetchFn: this.fetchFn,
+    })
     this.onProviderUpdate = onProviderUpdate
   }
 
@@ -152,7 +163,7 @@ export class OpenAICodexProvider extends BaseLLMProvider<
   ): Promise<PlanImageResult> {
     return this.withAuthRetry(async (authHeaders) => {
       const stream = await postStream(
-        CODEX_RESPONSES_ENDPOINT,
+        this.imageEndpoint,
         {
           model: model.model,
           input: [
@@ -181,7 +192,11 @@ export class OpenAICodexProvider extends BaseLLMProvider<
           ],
           tool_choice: { type: 'image_generation' },
         },
-        { headers: authHeaders, signal: options.signal },
+        {
+          headers: authHeaders,
+          signal: options.signal,
+          fetchFn: this.fetchFn,
+        },
       )
 
       let result: string | undefined

@@ -259,6 +259,7 @@ export class CodexMessageAdapter {
     body: StreamSource,
     request: LLMRequestStreaming,
   ): AsyncIterable<LLMResponseStreaming> {
+    let responseSnapshot: Response | undefined
     let responseId = ''
     let created = Math.floor(Date.now() / 1000)
     let resolvedModel = request.model
@@ -277,11 +278,16 @@ export class CodexMessageAdapter {
     for await (const chunk of parseJsonSseStream<ResponseStreamEvent>(body)) {
       if (chunk.type === 'response.created') {
         assertRequestedCodexModel(request, chunk.response.model)
+        responseSnapshot = chunk.response
         responseId = chunk.response.id
         created = chunk.response.created_at
         resolvedModel = chunk.response.model
         systemFingerprint = getSystemFingerprint(chunk.response)
         continue
+      }
+
+      if (responseSnapshot) {
+        responseSnapshot = accumulateResponseSnapshot(responseSnapshot, chunk)
       }
 
       if (chunk.type === 'response.output_item.added') {
@@ -474,8 +480,9 @@ export class CodexMessageAdapter {
 
       if (chunk.type === 'response.completed') {
         receivedTerminalEvent = true
-        assertRequestedCodexModel(request, chunk.response.model)
-        resolvedModel = chunk.response.model
+        const completedResponse = responseSnapshot ?? chunk.response
+        assertRequestedCodexModel(request, completedResponse.model)
+        resolvedModel = completedResponse.model
         yield {
           id: getChunkId(),
           created,
@@ -486,19 +493,20 @@ export class CodexMessageAdapter {
             {
               finish_reason: 'stop',
               delta: {
-                providerMetadata: buildCodexProviderMetadata(chunk.response),
+                providerMetadata: buildCodexProviderMetadata(completedResponse),
               },
             },
           ],
-          usage: mapUsage(chunk.response.usage),
+          usage: mapUsage(completedResponse.usage),
         }
         continue
       }
 
       if (chunk.type === 'response.incomplete') {
         receivedTerminalEvent = true
-        assertRequestedCodexModel(request, chunk.response.model)
-        resolvedModel = chunk.response.model
+        const incompleteResponse = responseSnapshot ?? chunk.response
+        assertRequestedCodexModel(request, incompleteResponse.model)
+        resolvedModel = incompleteResponse.model
         yield {
           id: getChunkId(),
           created,
@@ -509,11 +517,12 @@ export class CodexMessageAdapter {
             {
               finish_reason: 'length',
               delta: {
-                providerMetadata: buildCodexProviderMetadata(chunk.response),
+                providerMetadata:
+                  buildCodexProviderMetadata(incompleteResponse),
               },
             },
           ],
-          usage: mapUsage(chunk.response.usage),
+          usage: mapUsage(incompleteResponse.usage),
         }
         continue
       }
@@ -676,9 +685,10 @@ function getReplayableCodexOutputItems(
     return undefined
   }
   if (!Array.isArray(outputItems) || outputItems.length === 0) {
-    throw new Error(
-      'Codex continuation metadata has no replayable output items',
-    )
+    // Versions 2.0.0-2.0.1 could persist an empty terminal snapshot even
+    // though text or tool deltas had already streamed. Fall back to the
+    // normalized assistant message instead of making the conversation unusable.
+    return undefined
   }
 
   // Persisted chat history is an untrusted JSON boundary. Replaying an opaque
@@ -1040,9 +1050,14 @@ function accumulateResponseSnapshot(
       return snapshot
     }
     case 'response.completed':
-      return event.response
     case 'response.incomplete':
-      return event.response
+      return {
+        ...event.response,
+        output:
+          event.response.output.length > 0
+            ? event.response.output
+            : snapshot.output,
+      }
     case 'error':
       return snapshot
   }
