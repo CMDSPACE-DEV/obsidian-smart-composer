@@ -73,6 +73,7 @@ class InlineEditWidget extends WidgetType {
 
     const panel = doc.createElement('section')
     panel.className = 'panel'
+    panel.dataset.status = this.session.status
     panel.setAttribute('aria-live', 'polite')
     panel.setAttribute('aria-label', 'Smart Composer inline edit')
     shadow.appendChild(panel)
@@ -167,7 +168,7 @@ class InlineEditWidget extends WidgetType {
           textContent: 'Preparing a precise Markdown revision',
         }),
       )
-      loading.append(makeOrbitalLoader(doc), copy)
+      loading.append(makeThinkingDots(doc), copy)
       panel.append(loading)
     } else if (this.session.status === 'preview') {
       const diff = doc.createElement('div')
@@ -638,21 +639,16 @@ function makeHeader(doc: Document, session: InlineSession): HTMLElement {
   return header
 }
 
-function makeOrbitalLoader(doc: Document): HTMLElement {
-  const orbital = doc.createElement('span')
-  orbital.className = 'orb'
-  orbital.setAttribute('aria-hidden', 'true')
-  const ring = doc.createElement('span')
-  ring.className = 'orb-ring'
+function makeThinkingDots(doc: Document): HTMLElement {
   const dots = doc.createElement('span')
-  dots.className = 'orb-dots'
+  dots.className = 'thinking-dots'
+  dots.setAttribute('aria-hidden', 'true')
   dots.append(
     doc.createElement('i'),
     doc.createElement('i'),
     doc.createElement('i'),
   )
-  orbital.append(ring, dots)
-  return orbital
+  return dots
 }
 
 export type InlineSkin = 'hallym-light' | 'cmds-dark'
@@ -725,6 +721,43 @@ const INLINE_STYLE = `
 :host([data-skin="cmds-dark"]) .panel{
   border-radius:5px 14px 5px 14px;
   box-shadow:inset 2px 0 0 #b6ff00,0 10px 28px rgba(0,0,0,.6);
+}
+.panel[data-status="loading"]{isolation:isolate}
+.panel[data-status="loading"]::before{
+  position:absolute;
+  z-index:0;
+  top:50%;
+  left:50%;
+  width:160%;
+  aspect-ratio:1;
+  pointer-events:none;
+  content:"";
+  background:conic-gradient(
+    transparent 0 58%,
+    color-mix(in srgb,var(--ach-action) 16%,transparent) 67%,
+    var(--ach-action) 76%,
+    var(--ach-motion) 85%,
+    transparent 94% 100%
+  );
+  filter:drop-shadow(0 0 4px color-mix(in srgb,var(--ach-motion) 36%,transparent));
+  transform:translate(-50%,-50%) rotate(0deg);
+  animation:inline-panel-border-orbit 1.8s linear infinite;
+}
+.panel[data-status="loading"]::after{
+  position:absolute;
+  z-index:1;
+  inset:1.5px;
+  pointer-events:none;
+  content:"";
+  border-radius:inherit;
+  background:var(--ach-surface);
+}
+.panel[data-status="loading"]>*{position:relative;z-index:2}
+:host([data-skin="cmds-dark"]) .panel[data-status="loading"]{
+  box-shadow:0 10px 28px rgba(0,0,0,.6);
+}
+:host([data-skin="cmds-dark"]) .panel[data-status="loading"]::before{
+  filter:drop-shadow(0 0 4px rgba(182,255,0,.38)) drop-shadow(0 0 8px rgba(0,181,173,.16));
 }
 header{
   display:flex;
@@ -827,20 +860,9 @@ kbd{
 .loading-copy{display:flex;min-width:0;flex-direction:column;gap:1px}
 .loading-copy strong{color:var(--ach-heading);font-size:13px;font-weight:650}
 .loading-copy small{overflow:hidden;color:var(--ach-muted);font-size:11px;text-overflow:ellipsis;white-space:nowrap}
-.orb{position:relative;width:28px;height:28px;flex:0 0 auto}
-.orb-ring{
-  position:absolute;
-  inset:0;
-  border-radius:50%;
-  background:conic-gradient(from 0deg,transparent 0 14%,var(--ach-action) 36%,var(--ach-motion) 64%,transparent 88%);
-  filter:drop-shadow(0 0 5px color-mix(in srgb,var(--ach-action) 42%,transparent));
-  -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 calc(100% - 1.5px));
-  mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 calc(100% - 1.5px));
-  animation:orbit 1.15s linear infinite;
-}
-.orb-dots{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:2px}
-.orb-dots i{width:3px;height:3px;border-radius:50%;background:var(--ach-heading);box-shadow:0 0 5px color-mix(in srgb,var(--ach-action) 48%,transparent);animation:pulse 1s ease-in-out infinite}
-.orb-dots i:nth-child(2){animation-delay:.12s}.orb-dots i:nth-child(3){animation-delay:.24s}
+.thinking-dots{display:flex;align-items:center;justify-content:center;gap:3px;width:28px;height:28px;flex:0 0 auto}
+.thinking-dots i{width:4px;height:4px;border-radius:50%;background:var(--ach-heading);box-shadow:0 0 5px color-mix(in srgb,var(--ach-action) 34%,transparent);opacity:.58}
+.thinking-dots i:nth-child(2){opacity:1}
 .diff{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
 .diff section{
   min-width:0;
@@ -875,9 +897,8 @@ kbd{
 .word-diff del{background:var(--ach-before);color:var(--ach-danger);text-decoration:line-through}
 .word-diff ins{background:var(--ach-after);color:var(--ach-after-text);text-decoration:none}
 .error{margin:0;padding:9px 10px;border-left:2px solid var(--ach-danger);background:var(--ach-before);color:var(--ach-danger)}
-@keyframes orbit{to{transform:rotate(360deg)}}
-@keyframes pulse{0%,100%{opacity:.35;transform:translateY(0)}50%{opacity:1;transform:translateY(-1px)}}
+@keyframes inline-panel-border-orbit{to{transform:translate(-50%,-50%) rotate(360deg)}}
 @media(max-width:620px){.diff{grid-template-columns:1fr}.diff section{max-height:240px}.context{display:none}button{min-height:34px}}
-@media(prefers-reduced-motion:reduce){.orb-ring,.orb-dots i{animation:none}}
-@media(forced-colors:active){.panel,.prompt,.diff section,.word-diff,button{border:1px solid CanvasText}.orb-ring{background:CanvasText;filter:none}.spark,.orb-dots i{background:CanvasText;box-shadow:none}}
+@media(prefers-reduced-motion:reduce){.panel[data-status="loading"]::before{animation:none;background:var(--ach-action);opacity:.4}}
+@media(forced-colors:active){.panel,.prompt,.diff section,.word-diff,button{border:1px solid CanvasText}.panel[data-status="loading"]::before{background:CanvasText;filter:none}.spark,.thinking-dots i{background:CanvasText;box-shadow:none}}
 `

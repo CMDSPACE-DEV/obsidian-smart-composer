@@ -378,6 +378,44 @@ entry and Backspace/IME focus behavior still require the next running-vault
 smoke test; static browser checks do not replace CodeMirror integration
 testing.
 
+### 8.6 Composer and inline-perimeter waiting motion (2026-07-23)
+
+The 2.0.5 live visual review clarified that the initial response motion still
+did not match the intended Google AI Mode interaction. The luminous orbit was
+drawn as a small ring around the three dots inside the assistant waiting
+bubble. The intended hierarchy is different:
+
+- the assistant bubble contains only a quiet three-dot status;
+- while the foreground response phase is `waiting`, a short luminous trail
+  moves around the perimeter of the main composer;
+- while an inline edit is generating, the same motion language belongs to the
+  whole inline panel perimeter rather than a small ring around its dots;
+- when the first visible output changes the phase to `streaming`, the composer
+  trail disappears and the existing streaming text tail becomes the only
+  active response cue.
+
+Version 2.0.6 exposes the foreground response phase as a data attribute on the
+chat container. The composer draws its animated perimeter with a masked
+conic-gradient pseudo-element, so no overlay covers Lexical, mentions, buttons,
+or clipboard targets. Hallym Light uses the existing blue-to-teal motion
+language; CMDS Dark uses neon green-to-teal with a restrained terminal glow.
+The three waiting dots remain static, with only the center dot receiving a
+slightly stronger opacity.
+
+The inline ShadowRoot uses the same colors and timing but rotates a physical
+conic-gradient layer behind an inset panel surface. This avoids relying on a
+registered custom-angle property inside Shadow DOM, which the visual harness
+showed did not interpolate. Prompt and preview states remain still; only the
+`loading` panel receives the perimeter layer.
+
+A system-Chrome harness rendered the actual stylesheet in both skins. Computed
+border angles changed from `70deg` to `180deg` in Hallym Light and from `174deg`
+to `267deg` in CMDS Dark, confirming that the perimeter rather than an inner
+icon was moving. The inline harness reported three dots, zero ring elements,
+different transform matrices at two timestamps, and zero horizontal overflow
+in both skins. Reduced-motion replaces each moving trail with a low-opacity
+static perimeter, and forced colors uses `CanvasText`.
+
 The following items remain implementation gates rather than verified product
 behavior:
 

@@ -2472,6 +2472,62 @@ button.smtcmp-chat-input-effort-select {
     0 10px 28px #002e6e12;
 }
 
+@property --smtcmp-composer-orbit-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.smtcmp-shell
+  .smtcmp-chat-container[data-response-phase='waiting']
+  .smtcmp-chat-user-input-container {
+  isolation: isolate;
+}
+
+.smtcmp-shell
+  .smtcmp-chat-container[data-response-phase='waiting']
+  .smtcmp-chat-user-input-container::before {
+  position: absolute;
+  z-index: 5;
+  inset: -2px;
+  padding: 2px;
+  pointer-events: none;
+  content: '';
+  border-radius: 9px;
+  background: conic-gradient(
+    from var(--smtcmp-composer-orbit-angle),
+    transparent 0 56%,
+    color-mix(in srgb, var(--ach-action) 18%, transparent) 66%,
+    var(--ach-action) 75%,
+    var(--ach-motion) 84%,
+    transparent 94% 100%
+  );
+  filter: drop-shadow(
+    0 0 5px color-mix(in srgb, var(--ach-motion) 42%, transparent)
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: smtcmp-composer-border-orbit 1.8s linear infinite;
+}
+
+.smtcmp-shell[data-skin='cmds-dark']
+  .smtcmp-chat-container[data-response-phase='waiting']
+  .smtcmp-chat-user-input-container::before {
+  filter: drop-shadow(0 0 4px #b6ff0070) drop-shadow(0 0 9px #00b5ad2e);
+}
+
+@keyframes smtcmp-composer-border-orbit {
+  to {
+    --smtcmp-composer-orbit-angle: 360deg;
+  }
+}
+
 .smtcmp-orbital-status {
   display: inline-flex;
   align-items: center;
@@ -2589,6 +2645,28 @@ button.smtcmp-chat-input-effort-select {
   background: color-mix(in srgb, var(--ach-surface) 82%, #c3dbef 18%);
   box-shadow: 0 5px 16px #002e6e12;
   animation: smtcmp-pending-arrive 160ms ease-out;
+}
+
+.smtcmp-response-pending__dots {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--ach-action);
+}
+
+.smtcmp-response-pending__dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 5px color-mix(in srgb, currentColor 34%, transparent);
+  opacity: 0.58;
+}
+
+.smtcmp-response-pending__dots i:nth-child(2) {
+  opacity: 1;
 }
 
 .smtcmp-shell[data-skin='cmds-dark'] .smtcmp-response-pending {
@@ -3118,6 +3196,9 @@ button.smtcmp-chat-input-effort-select {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .smtcmp-shell
+    .smtcmp-chat-container[data-response-phase='waiting']
+    .smtcmp-chat-user-input-container::before,
   .smtcmp-orbital-loader__ring,
   .smtcmp-orbital-loader__dots i,
   .smtcmp-task-spinner,
@@ -3128,6 +3209,13 @@ button.smtcmp-chat-input-effort-select {
 
   .smtcmp-streaming-tail {
     opacity: 0.5;
+  }
+
+  .smtcmp-shell
+    .smtcmp-chat-container[data-response-phase='waiting']
+    .smtcmp-chat-user-input-container::before {
+    background: var(--ach-action);
+    opacity: 0.4;
   }
 
   .smtcmp-image-queue-panel__toggle > svg:last-child {
@@ -3144,6 +3232,12 @@ button.smtcmp-chat-input-effort-select {
   }
 
   .smtcmp-orbital-loader__ring {
+    background: CanvasText;
+  }
+
+  .smtcmp-shell
+    .smtcmp-chat-container[data-response-phase='waiting']
+    .smtcmp-chat-user-input-container::before {
     background: CanvasText;
   }
 }

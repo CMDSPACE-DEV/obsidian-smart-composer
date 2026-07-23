@@ -1,9 +1,15 @@
-import { OrbitalLoader } from './OrbitalLoader'
-
 export function ResponsePendingIndicator() {
   return (
-    <div className="smtcmp-response-pending">
-      <OrbitalLoader label="Thinking" showLabel={false} />
+    <div
+      className="smtcmp-response-pending"
+      role="status"
+      aria-label="Thinking"
+    >
+      <span className="smtcmp-response-pending__dots" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </span>
     </div>
   )
 }
