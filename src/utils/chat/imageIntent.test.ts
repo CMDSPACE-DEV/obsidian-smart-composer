@@ -19,6 +19,7 @@ describe('image intent', () => {
     '이미지 생성 기능이 왜 실패했는지 분석해줘',
     '광고 포스터의 구성 요소를 정리해줘',
     'Summarize the image generation documentation',
+    '이미지 큐가 돌고 있는 동안 채팅도 계속 이어지는지 테스트해보자',
   ])('does not hijack an image-related chat request: %s', (request) => {
     expect(isImageGenerationRequest(request)).toBe(false)
   })

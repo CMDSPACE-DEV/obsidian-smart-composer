@@ -252,6 +252,55 @@ system-Chrome check at 400 px measured 90 px for a long message with an
 attachment summary and 56 px for a short message, with zero horizontal
 overflow in both Hallym light and CMDS dark skins.
 
+### 8.3 Background image continuation, destination, and density failures (2026-07-23)
+
+The first successful live image-generation test exposed three follow-on
+defects. Sanitized task and artifact records established the actual boundary:
+
+- both generated images existed as recoverable vault files under
+  `Smart Composer/Generated Images/`;
+- the first image also had a Cloudflare R2 public URL, proving that CMDS Eagle
+  upload succeeded;
+- the first task incorrectly said `Uploaded and inserted` even though Obsidian
+  displayed `Open a Markdown note before inserting the image`;
+- the second task correctly retained only a local artifact, but the task card
+  did not reveal its vault-relative path.
+
+The insertion failure was caused by resolving only
+`workspace.getActiveViewOfType(MarkdownView)`. Clicking a destination button
+activates the Smart Composer side pane, so a visible Markdown note can remain
+open without being the active view. The corrected resolver checks the active
+Markdown view, the active file among all open Markdown leaves, the request
+origin note captured when image generation was queued, and finally a single
+unambiguous open Markdown view.
+
+R2 upload and Markdown insertion are now separate state transitions. Uploading
+stores the returned URL immediately. A failed insertion keeps the local file
+and R2 URL, leaves the task awaiting a destination, and offers `Insert R2 link`
+without uploading the same image again. Legacy 2.0.2 tasks whose phase is only
+`uploaded` are shown as `insertion not verified` and receive the same recovery
+action. The success phase is now `uploaded-inserted` and is written only after
+`editor.replaceSelection` succeeds.
+
+The apparent first-turn image queue blockage had a separate cause. Every GPT
+Plan foreground request exposed a plugin-local `enqueue_image_generation`
+tool, so a normal Korean question about whether an existing image queue blocked
+chat could be misclassified as a new image request. The foreground generator
+then stopped after the tool call and exposed `Continue Response`. Version 2.0.3
+removes that local tool from ordinary foreground chat. Explicit Image mode,
+`/image`, and tested natural-language generation requests still dispatch
+directly to `BackgroundTaskManager`, allowing subsequent text chat to run
+without sharing the image task lifecycle.
+
+The task card now displays the exact vault-relative local path and final R2 URL.
+Assistant replies use a compact left-aligned message surface, while task cards,
+tool cards, and continuation controls use the same 11-13 px visual hierarchy as
+the submitted user bubble. `Stop Generation` is returned to normal document
+flow instead of being absolutely positioned above the composer. A
+system-Chrome layout check at both 400 px and 320 px found zero horizontal
+overflow and no intersection between the stop/continue controls and the
+composer in either Hallym light or CMDS dark.
+
 The following items remain implementation gates rather than verified product
 behavior:
 

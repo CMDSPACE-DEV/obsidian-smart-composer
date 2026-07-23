@@ -102,6 +102,10 @@ export class PlanImageTaskAdapter implements BackgroundTaskAdapter {
       checksum: await sha256(bytes),
     }
     await this.taskManager.saveArtifact(artifact)
+    await context.updateProgress({
+      phase: 'awaiting-destination',
+      message: 'Image ready · choose a destination',
+    })
     return {
       status: 'awaiting-destination',
       artifactIds: [artifact.id],

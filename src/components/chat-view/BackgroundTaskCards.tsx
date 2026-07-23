@@ -1,13 +1,15 @@
 import {
   Check,
+  CircleEllipsis,
   CloudUpload,
   Expand,
+  FolderOpen,
   LoaderCircle,
   RotateCcw,
   Square,
   X,
 } from 'lucide-react'
-import { MarkdownView, Notice, TFile } from 'obsidian'
+import { Notice, TFile } from 'obsidian'
 import { useEffect, useState } from 'react'
 
 import { useApp } from '../../contexts/app-context'
@@ -17,6 +19,7 @@ import {
   ArtifactRecord,
   BackgroundTaskRecord,
 } from '../../types/background-task'
+import { insertMarkdownIntoOpenView } from '../../utils/obsidian/markdownInsertion'
 
 export function BackgroundTaskCards({
   conversationId,
@@ -59,13 +62,15 @@ export function BackgroundTaskCards({
 
   if (!manager || tasks.length === 0) return null
 
-  const insertMarkdown = (markdown: string) => {
-    const view = app.workspace.getActiveViewOfType(MarkdownView)
-    if (!view) {
+  const insertMarkdown = (task: BackgroundTaskRecord, markdown: string) => {
+    const preferredFilePath =
+      typeof task.input.targetFilePath === 'string'
+        ? task.input.targetFilePath
+        : undefined
+    if (!insertMarkdownIntoOpenView(app, markdown, preferredFilePath)) {
       new Notice('Open a Markdown note before inserting the image.')
       return false
     }
-    view.editor.replaceSelection(markdown)
     return true
   }
 
@@ -75,7 +80,7 @@ export function BackgroundTaskCards({
     embed: boolean,
   ) => {
     if (embed && artifact.localPath) {
-      if (!insertMarkdown(`![[${artifact.localPath}]]`)) return
+      if (!insertMarkdown(task, `![[${artifact.localPath}]]`)) return
     }
     await manager.complete(task.id, {
       progress: {
@@ -91,21 +96,33 @@ export function BackgroundTaskCards({
   ) => {
     if (!artifact.localPath || !artifact.mimeType) return
     try {
-      const url = await uploadWithCmdsEagle(
-        app,
-        artifact.localPath,
-        artifact.mimeType,
-      )
+      const url =
+        artifact.remoteUrl ??
+        (await uploadWithCmdsEagle(app, artifact.localPath, artifact.mimeType))
       const updated = { ...artifact, remoteUrl: url }
       await manager.saveArtifact(updated)
       const filename = artifact.localPath.split('/').at(-1) ?? 'image'
-      insertMarkdown(`![${filename}](${url})`)
       setArtifacts((current) => ({ ...current, [updated.id]: updated }))
+      if (!insertMarkdown(task, `![${filename}](${url})`)) {
+        await manager.updateProgress(task.id, {
+          phase: 'uploaded-awaiting-insert',
+          message: 'Uploaded to R2 · select an open note to insert',
+        })
+        return
+      }
       await manager.complete(task.id, {
-        progress: { phase: 'uploaded', message: 'Uploaded and inserted' },
+        progress: {
+          phase: 'uploaded-inserted',
+          message: 'Uploaded to R2 and inserted',
+        },
       })
     } catch (error) {
-      new Notice(error instanceof Error ? error.message : String(error))
+      const message = error instanceof Error ? error.message : String(error)
+      await manager.updateProgress(task.id, {
+        phase: 'upload-failed',
+        message: 'R2 upload failed · local image preserved',
+      })
+      new Notice(message)
     }
   }
 
@@ -118,23 +135,34 @@ export function BackgroundTaskCards({
           : null
         const resourcePath =
           file instanceof TFile ? app.vault.getResourcePath(file) : null
+        const legacyUnverifiedR2Insert =
+          !!artifact?.remoteUrl &&
+          task.status === 'succeeded' &&
+          task.progress?.phase === 'uploaded'
+        const statusMessage = legacyUnverifiedR2Insert
+          ? 'Uploaded to R2 · insertion not verified'
+          : (task.progress?.message ??
+            task.error ??
+            task.status.replace(/-/g, ' '))
         return (
           <section className="smtcmp-task-card" key={task.id}>
             <div className="smtcmp-task-card__status">
-              {['queued', 'running'].includes(task.status) ? (
+              {legacyUnverifiedR2Insert ? (
+                <CloudUpload size={15} />
+              ) : ['queued', 'running'].includes(task.status) ? (
                 <LoaderCircle className="smtcmp-task-spinner" size={16} />
               ) : task.status === 'succeeded' ? (
                 <Check size={16} />
+              ) : ['awaiting-destination', 'awaiting-approval'].includes(
+                  task.status,
+                ) ? (
+                <CircleEllipsis size={15} />
               ) : task.status === 'canceled' ? (
                 <Square size={14} />
               ) : (
                 <X size={16} />
               )}
-              <span>
-                {task.progress?.message ??
-                  task.error ??
-                  task.status.replace(/-/g, ' ')}
-              </span>
+              <span>{statusMessage}</span>
             </div>
             {resourcePath && (
               <button
@@ -151,16 +179,52 @@ export function BackgroundTaskCards({
                 )}
               </button>
             )}
+            {artifact?.localPath && (
+              <div className="smtcmp-task-card__location">
+                <span title={artifact.localPath}>
+                  Vault: {artifact.localPath}
+                </span>
+                {file instanceof TFile && (
+                  <button
+                    aria-label="Open generated image file"
+                    onClick={() =>
+                      void app.workspace.getLeaf('tab').openFile(file)
+                    }
+                  >
+                    <FolderOpen size={13} />
+                  </button>
+                )}
+              </div>
+            )}
+            {artifact?.remoteUrl && (
+              <a
+                className="smtcmp-task-card__remote"
+                href={artifact.remoteUrl}
+                target="_blank"
+                rel="noreferrer"
+                title={artifact.remoteUrl}
+              >
+                R2: {artifact.remoteUrl}
+              </a>
+            )}
             {task.status === 'awaiting-destination' && artifact && (
               <div className="smtcmp-task-card__actions">
                 <button onClick={() => void finishLocal(task, artifact, false)}>
-                  <Check size={14} /> Keep local
+                  <Check size={14} /> Keep in folder
                 </button>
                 <button onClick={() => void finishLocal(task, artifact, true)}>
                   <Check size={14} /> Insert embed
                 </button>
                 <button onClick={() => void uploadR2(task, artifact)}>
-                  <CloudUpload size={14} /> CMDS R2
+                  <CloudUpload size={14} />
+                  {artifact.remoteUrl ? 'Insert R2 link' : 'CMDS R2'}
+                </button>
+              </div>
+            )}
+            {legacyUnverifiedR2Insert && artifact && (
+              <div className="smtcmp-task-card__actions">
+                <button onClick={() => void uploadR2(task, artifact)}>
+                  <CloudUpload size={14} /> Insert R2 link
                 </button>
               </div>
             )}

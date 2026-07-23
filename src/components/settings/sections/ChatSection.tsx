@@ -57,8 +57,8 @@ export function ChatSection() {
       </ObsidianSetting>
 
       <ObsidianSetting
-        name="Generated image folder"
-        desc="Recoverable local images are saved here before destination selection."
+        name="Image output folder"
+        desc="Vault-relative folder used for every generated image before R2 upload or note insertion. The task card shows the exact saved path."
       >
         <ObsidianTextInput
           value={settings.imageGeneration.outputFolder}

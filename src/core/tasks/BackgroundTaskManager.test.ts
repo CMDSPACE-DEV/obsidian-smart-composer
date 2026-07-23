@@ -127,4 +127,30 @@ describe('BackgroundTaskManager', () => {
     expect(canceled.status).toBe('canceled')
     expect(succeeded.status).toBe('succeeded')
   })
+
+  it('updates persisted progress without changing task status', async () => {
+    const manager = new BackgroundTaskManager(createApp())
+    await manager.initialize()
+    const task = await manager.enqueue({
+      conversationId: 'conversation',
+      originMessageId: 'message',
+      kind: 'image-generation',
+      payload: {},
+    })
+
+    await manager.updateProgress(task.id, {
+      phase: 'uploaded-awaiting-insert',
+      message: 'Uploaded to R2 · select an open note to insert',
+    })
+
+    expect(
+      manager.getTasks().find((item) => item.id === task.id),
+    ).toMatchObject({
+      status: 'queued',
+      progress: {
+        phase: 'uploaded-awaiting-insert',
+        message: 'Uploaded to R2 · select an open note to insert',
+      },
+    })
+  })
 })

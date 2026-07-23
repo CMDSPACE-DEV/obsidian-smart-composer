@@ -780,6 +780,7 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
               payload: {
                 prompt: detectedImagePrompt || plainText,
                 modelId: settings.chatModelId,
+                targetFilePath: app.workspace.getActiveFile()?.path,
               },
             })
             setInputMessage(getNewInputMessage(app))

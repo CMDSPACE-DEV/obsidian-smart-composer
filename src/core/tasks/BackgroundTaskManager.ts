@@ -79,6 +79,19 @@ export class BackgroundTaskManager {
     return this.repository.readArtifact(id)
   }
 
+  async updateProgress(
+    id: string,
+    progress: NonNullable<BackgroundTaskRecord['progress']>,
+  ): Promise<void> {
+    const task = this.tasks.get(id)
+    if (!task) return
+    await this.replace({
+      ...task,
+      progress,
+      updatedAt: Date.now(),
+    })
+  }
+
   async complete(
     id: string,
     update: Partial<Pick<BackgroundTaskRecord, 'artifactIds' | 'progress'>>,
