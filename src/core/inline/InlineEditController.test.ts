@@ -3,11 +3,13 @@ import { ChangeSet } from '@codemirror/state'
 import {
   buildInlineInsertion,
   getInlineEditSystemPrompt,
+  getInlineSourceWithoutInsertions,
   isInlineSourceCurrent,
   isShortProseEdit,
   mapInlineEditRange,
   parseInlineResponse,
   rebaseInlineEditSessions,
+  recordAcceptedInlineInsertion,
   resolveInlineEditPlacement,
   resolveInlineSkin,
   updateInlineEditSessionMap,
@@ -209,6 +211,136 @@ describe('inline edit response helpers', () => {
         ChangeSet.of([{ from: 20, insert: 'abc' }], 30),
       ),
     ).toEqual(range)
+  })
+
+  it('moves an insert-below anchor after an accepted sibling insertion', () => {
+    const original = 'AAAAABBBBBCCCCCDDDDD'
+    const before = new Map([
+      [
+        'outer',
+        {
+          id: 'outer',
+          from: 0,
+          to: original.length,
+          insertAt: original.length,
+          ignoredInsertions: [],
+        },
+      ],
+      [
+        'inner',
+        {
+          id: 'inner',
+          from: 5,
+          to: 10,
+          insertAt: 10,
+          ignoredInsertions: [],
+        },
+      ],
+    ])
+    const inserted = '[inner]'
+    const changes = ChangeSet.of(
+      [{ from: 10, insert: inserted }],
+      original.length,
+    )
+    const rebased = updateInlineEditSessionMap(before, changes, [], ['inner'])
+    const tracked = recordAcceptedInlineInsertion(
+      before,
+      rebased,
+      { sessionId: 'inner', at: 10 },
+      changes,
+    )
+    const outer = tracked.get('outer')
+    const documentText = `${original.slice(0, 10)}${inserted}${original.slice(10)}`
+    if (!outer) throw new Error('Outer inline session was not preserved')
+
+    expect(outer).toMatchObject({
+      from: 0,
+      to: original.length + inserted.length,
+      insertAt: original.length + inserted.length,
+      ignoredInsertions: [{ from: 10, to: 10 + inserted.length }],
+    })
+    expect(
+      isInlineSourceCurrent(
+        documentText,
+        outer,
+        original,
+        outer.ignoredInsertions,
+      ),
+    ).toBe(true)
+  })
+
+  it('preserves acceptance order for exact-range insert-below sessions', () => {
+    const original = 'Shared source'
+    const before = new Map([
+      [
+        'first',
+        {
+          id: 'first',
+          from: 0,
+          to: original.length,
+          insertAt: original.length,
+          ignoredInsertions: [],
+        },
+      ],
+      [
+        'second',
+        {
+          id: 'second',
+          from: 0,
+          to: original.length,
+          insertAt: original.length,
+          ignoredInsertions: [],
+        },
+      ],
+    ])
+    const inserted = '\n\nFirst result'
+    const changes = ChangeSet.of(
+      [{ from: original.length, insert: inserted }],
+      original.length,
+    )
+    const rebased = updateInlineEditSessionMap(before, changes, [], ['first'])
+    const tracked = recordAcceptedInlineInsertion(
+      before,
+      rebased,
+      { sessionId: 'first', at: original.length },
+      changes,
+    )
+    const second = tracked.get('second')
+    if (!second) throw new Error('Second inline session was not preserved')
+
+    expect(second).toMatchObject({
+      from: 0,
+      to: original.length,
+      insertAt: original.length + inserted.length,
+      ignoredInsertions: [],
+    })
+    expect(
+      isInlineSourceCurrent(
+        `${original}${inserted}`,
+        second,
+        original,
+        second.ignoredInsertions,
+      ),
+    ).toBe(true)
+  })
+
+  it('removes only tracked sibling insertions from source validation', () => {
+    const documentText = 'alpha [summary]beta changed'
+    const source = getInlineSourceWithoutInsertions(
+      documentText,
+      { from: 0, to: documentText.length },
+      [{ from: 6, to: 15 }],
+    )
+
+    expect(source).toBe('alpha beta changed')
+    expect(
+      isInlineSourceCurrent(
+        documentText,
+        { from: 0, to: documentText.length },
+        'alpha beta',
+        [{ from: 6, to: 15 }],
+      ),
+    ).toBe(false)
   })
 
   it('detects stale source content before applying a concurrent result', () => {

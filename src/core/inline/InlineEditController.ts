@@ -16,6 +16,8 @@ type InlineSession = {
   id: string
   from: number
   to: number
+  insertAt: number
+  ignoredInsertions: InlineEditRange[]
   original: string
   snapshot: string
   filePath: string
@@ -37,6 +39,7 @@ type InlineSessionMap = ReadonlyMap<string, InlineSession>
 
 const upsertInlineSession = StateEffect.define<InlineSession>()
 const removeInlineSession = StateEffect.define<string>()
+const recordInlineInsertion = StateEffect.define<AcceptedInlineInsertion>()
 
 class InlineEditWidget extends WidgetType {
   private themeObserver: MutationObserver | null = null
@@ -297,32 +300,49 @@ const inlineEditField = StateField.define<InlineSessionMap>({
   update(value, transaction) {
     const upserts: InlineSession[] = []
     const removals: string[] = []
+    const insertions: AcceptedInlineInsertion[] = []
     for (const effect of transaction.effects) {
       if (effect.is(upsertInlineSession)) {
         upserts.push(effect.value)
       } else if (effect.is(removeInlineSession)) {
         removals.push(effect.value)
+      } else if (effect.is(recordInlineInsertion)) {
+        insertions.push(effect.value)
       }
     }
-    return updateInlineEditSessionMap(
+    let next = updateInlineEditSessionMap(
       value,
       transaction.changes,
       upserts,
       removals,
     )
+    for (const insertion of insertions) {
+      next = recordAcceptedInlineInsertion(
+        value,
+        next,
+        insertion,
+        transaction.changes,
+      )
+    }
+    return next
   },
   provide: (field) =>
     EditorView.decorations.from(field, (sessions) =>
       Decoration.set(
         Array.from(sessions.values())
-          .sort((a, b) => a.to - b.to || a.id.localeCompare(b.id))
-          .map((session) =>
-            Decoration.widget({
+          .sort(
+            (a, b) =>
+              getInlineWidgetPosition(a) - getInlineWidgetPosition(b) ||
+              a.id.localeCompare(b.id),
+          )
+          .map((session) => {
+            const position = getInlineWidgetPosition(session)
+            return Decoration.widget({
               widget: new InlineEditWidget(session),
               side: 1,
               block: true,
-            }).range(session.to),
-          ),
+            }).range(position)
+          }),
         true,
       ),
     ),
@@ -387,23 +407,40 @@ export class InlineEditController {
       const session = sessions?.get(id)
       if (!session?.replacement) return
       const currentDocument = editorView.state.doc.toString()
-      if (!isInlineSourceCurrent(currentDocument, session, session.original)) {
+      const placement = session.placement ?? 'replace'
+      if (placement === 'replace' && session.ignoredInsertions.length > 0) {
+        new Notice(
+          'Another inline result was inserted inside this source. Use Insert below or retry the replacement.',
+        )
+        return
+      }
+      if (
+        !isInlineSourceCurrent(
+          currentDocument,
+          session,
+          session.original,
+          session.ignoredInsertions,
+        )
+      ) {
         new Notice(
           'Another edit changed this source. The generated preview was kept for review.',
         )
         return
       }
-      const placement = session.placement ?? 'replace'
+      const insertion =
+        placement === 'insert-after'
+          ? buildInlineInsertion(
+              currentDocument,
+              session.insertAt,
+              session.replacement,
+            )
+          : ''
       const change =
         placement === 'insert-after'
           ? {
-              from: session.to,
-              to: session.to,
-              insert: buildInlineInsertion(
-                currentDocument,
-                session.to,
-                session.replacement,
-              ),
+              from: session.insertAt,
+              to: session.insertAt,
+              insert: insertion,
             }
           : {
               from: session.from,
@@ -413,7 +450,16 @@ export class InlineEditController {
       this.controllers.delete(id)
       editorView.dispatch({
         changes: change,
-        effects: removeInlineSession.of(id),
+        effects:
+          placement === 'insert-after' && insertion
+            ? [
+                removeInlineSession.of(id),
+                recordInlineInsertion.of({
+                  sessionId: id,
+                  at: session.insertAt,
+                }),
+              ]
+            : removeInlineSession.of(id),
       })
       editorView.focus()
     }
@@ -449,6 +495,8 @@ export class InlineEditController {
       id,
       from,
       to,
+      insertAt: to,
+      ignoredInsertions: [],
       original,
       snapshot,
       filePath,
@@ -471,6 +519,9 @@ export class InlineEditController {
         ...session,
         from: current?.from ?? session.from,
         to: current?.to ?? session.to,
+        insertAt: current?.insertAt ?? session.insertAt,
+        ignoredInsertions:
+          current?.ignoredInsertions ?? session.ignoredInsertions,
       }),
     })
   }
@@ -494,6 +545,8 @@ export class InlineEditController {
     const placement = resolveInlineEditPlacement(input.prompt, input.mode)
     const base: InlineSession = {
       ...input,
+      insertAt: input.to,
+      ignoredInsertions: [],
       status: 'loading',
       placement,
     }
@@ -604,6 +657,11 @@ export type InlineEditRange = {
   to: number
 }
 
+export type AcceptedInlineInsertion = {
+  sessionId: string
+  at: number
+}
+
 export function mapInlineEditRange(
   range: InlineEditRange,
   changes: Pick<ChangeDesc, 'mapPos'>,
@@ -622,10 +680,26 @@ export function rebaseInlineEditSessions<T extends InlineEditRange>(
 ): Map<string, T> {
   const next = new Map<string, T>()
   for (const [id, session] of sessions) {
-    next.set(id, {
+    const tracked = session as T & {
+      insertAt?: unknown
+      ignoredInsertions?: unknown
+    }
+    const rebased = {
       ...session,
       ...mapInlineEditRange(session, changes),
-    } as T)
+    } as T & {
+      insertAt?: number
+      ignoredInsertions?: InlineEditRange[]
+    }
+    if (typeof tracked.insertAt === 'number') {
+      rebased.insertAt = changes.mapPos(tracked.insertAt, 1)
+    }
+    if (Array.isArray(tracked.ignoredInsertions)) {
+      rebased.ignoredInsertions = tracked.ignoredInsertions.map((range) =>
+        mapInlineEditRange(range as InlineEditRange, changes),
+      )
+    }
+    next.set(id, rebased as T)
   }
   return next
 }
@@ -648,12 +722,80 @@ export function updateInlineEditSessionMap<
   return next
 }
 
+export function recordAcceptedInlineInsertion<
+  T extends InlineEditRange & {
+    id: string
+    ignoredInsertions?: readonly InlineEditRange[]
+  },
+>(
+  previousSessions: ReadonlyMap<string, T>,
+  rebasedSessions: ReadonlyMap<string, T>,
+  insertion: AcceptedInlineInsertion,
+  changes: Pick<ChangeDesc, 'mapPos'>,
+): Map<string, T> {
+  const next = new Map(rebasedSessions)
+  const insertedRange = {
+    from: changes.mapPos(insertion.at, -1),
+    to: changes.mapPos(insertion.at, 1),
+  }
+  if (insertedRange.from === insertedRange.to) return next
+
+  for (const [id, previous] of previousSessions) {
+    if (
+      id === insertion.sessionId ||
+      insertion.at <= previous.from ||
+      insertion.at >= previous.to
+    ) {
+      continue
+    }
+    const current = next.get(id)
+    if (!current) continue
+    next.set(id, {
+      ...current,
+      ignoredInsertions: [...(current.ignoredInsertions ?? []), insertedRange],
+    })
+  }
+  return next
+}
+
 export function isInlineSourceCurrent(
   documentText: string,
   range: InlineEditRange,
   original: string,
+  ignoredInsertions: readonly InlineEditRange[] = [],
 ): boolean {
-  return documentText.slice(range.from, range.to) === original
+  return (
+    getInlineSourceWithoutInsertions(documentText, range, ignoredInsertions) ===
+    original
+  )
+}
+
+export function getInlineSourceWithoutInsertions(
+  documentText: string,
+  range: InlineEditRange,
+  ignoredInsertions: readonly InlineEditRange[],
+): string {
+  const insertions = ignoredInsertions
+    .map((insertion) => ({
+      from: Math.max(range.from, insertion.from),
+      to: Math.min(range.to, insertion.to),
+    }))
+    .filter((insertion) => insertion.from < insertion.to)
+    .sort((a, b) => a.from - b.from || a.to - b.to)
+
+  let cursor = range.from
+  let source = ''
+  for (const insertion of insertions) {
+    if (insertion.to <= cursor) continue
+    source += documentText.slice(cursor, Math.max(cursor, insertion.from))
+    cursor = Math.max(cursor, insertion.to)
+  }
+  source += documentText.slice(cursor, range.to)
+  return source
+}
+
+function getInlineWidgetPosition(session: InlineSession): number {
+  return session.placement === 'insert-after' ? session.insertAt : session.to
 }
 
 export function resolveInlineEditPlacement(

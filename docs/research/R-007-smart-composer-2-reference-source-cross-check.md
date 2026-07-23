@@ -614,6 +614,33 @@ Regression coverage now retains two simultaneous session records with the same
 `from` and `to` coordinates in addition to the prior range-rebasing and
 source-local stale tests.
 
+### 8.14 Order-independent nested Insert below sessions (2026-07-23)
+
+The 2.0.13 running-vault test confirmed that overlapping sessions could
+generate concurrently, but found an acceptance-order defect. When a partial
+selection inserted its result inside a larger active selection, the larger
+session's contiguous source slice included the new result and was rejected as
+changed. This made the primary whole-document plus local-summary workflow
+depend on which result the user accepted first.
+
+Version 2.0.14 gives every session a separately rebased insertion anchor and
+tracks ranges created by accepted inline insertions. Source validation removes
+only those known sibling-result ranges before comparing against the original
+selection. Manual edits and replacements remain visible to conflict detection.
+Consequently a whole-document Insert below and a nested paragraph Insert below
+can both apply in either order. Exact-range insertion sessions also move their
+anchors after earlier accepted results, preserving acceptance order instead of
+placing later results before earlier ones.
+
+Replacement remains intentionally stricter. If another inline result was
+inserted inside a replacement target, the replacement preview is preserved but
+cannot be accepted until retried, because replacing the contiguous range would
+delete the sibling result.
+
+Regression coverage verifies nested partial-first insertion, exact-range
+anchor ordering, safe-insertion source reconstruction, and detection of manual
+changes outside tracked insertion ranges.
+
 The following items remain implementation gates rather than verified product
 behavior:
 
