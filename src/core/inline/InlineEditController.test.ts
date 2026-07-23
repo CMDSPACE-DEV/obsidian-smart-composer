@@ -3,7 +3,6 @@ import { ChangeSet } from '@codemirror/state'
 import {
   buildInlineInsertion,
   getInlineEditSystemPrompt,
-  inlineEditRangesOverlap,
   isInlineSourceCurrent,
   isShortProseEdit,
   mapInlineEditRange,
@@ -179,6 +178,23 @@ describe('inline edit response helpers', () => {
     expect(replacedOne.get('third')).toEqual(third)
   })
 
+  it('keeps concurrent sessions that target the exact same source range', () => {
+    const identityChanges = ChangeSet.empty(30)
+    const first = { id: 'first', from: 5, to: 20, status: 'loading' }
+    const second = { id: 'second', from: 5, to: 20, status: 'prompt' }
+
+    const sessions = updateInlineEditSessionMap(
+      new Map([['first', first]]),
+      identityChanges,
+      [second],
+      [],
+    )
+
+    expect(sessions.size).toBe(2)
+    expect(sessions.get('first')).toEqual(first)
+    expect(sessions.get('second')).toEqual(second)
+  })
+
   it('keeps boundary insertions outside an existing source range', () => {
     const range = { from: 10, to: 20 }
     expect(
@@ -195,16 +211,7 @@ describe('inline edit response helpers', () => {
     ).toEqual(range)
   })
 
-  it('detects overlapping targets and stale source content', () => {
-    expect(
-      inlineEditRangesOverlap({ from: 0, to: 6 }, { from: 5, to: 10 }),
-    ).toBe(true)
-    expect(
-      inlineEditRangesOverlap({ from: 0, to: 5 }, { from: 5, to: 10 }),
-    ).toBe(false)
-    expect(
-      inlineEditRangesOverlap({ from: 5, to: 5 }, { from: 5, to: 5 }),
-    ).toBe(true)
+  it('detects stale source content before applying a concurrent result', () => {
     expect(
       isInlineSourceCurrent('A changed gamma', { from: 2, to: 9 }, 'beta'),
     ).toBe(false)

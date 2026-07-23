@@ -594,6 +594,26 @@ Shadow DOM harness stacked loading, prompt, and preview panels at 320 px in the
 CMDS skin. All panels remained 304 px wide, had ten-pixel vertical separation,
 and produced zero document-level horizontal overflow.
 
+### 8.13 Overlapping inline-edit generation policy correction (2026-07-23)
+
+The first 2.0.12 running-vault test exposed a policy mismatch rather than a
+transport concurrency failure. The controller had independent requests and
+sessions, but `open()` still refused a second session whose source overlapped
+an active range. This also blocked an exact-range second request with the
+notice `An inline edit is already active for this text.`
+
+Version 2.0.13 permits separate session IDs to generate concurrently even when
+their source ranges overlap or match exactly. Conflict safety moves to the
+acceptance boundary: disjoint edits continue to rebase and apply independently;
+multiple insert-below results can retain the unchanged source; and after one
+replacement changes shared source text, another replacement is not applied.
+Its generated preview remains visible and a notice reports the conflict, so a
+late result is never silently discarded or allowed to overwrite changed text.
+
+Regression coverage now retains two simultaneous session records with the same
+`from` and `to` coordinates in addition to the prior range-rebasing and
+source-local stale tests.
+
 The following items remain implementation gates rather than verified product
 behavior:
 

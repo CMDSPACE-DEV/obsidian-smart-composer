@@ -361,16 +361,6 @@ export class InlineEditController {
       from = line.from
       to = line.to
     }
-    const activeSessions = editorView.state.field(inlineEditField, false)
-    if (
-      activeSessions &&
-      Array.from(activeSessions.values()).some((session) =>
-        inlineEditRangesOverlap({ from, to }, session),
-      )
-    ) {
-      new Notice('An inline edit is already active for this text.')
-      return
-    }
     const snapshot = editorView.state.doc.toString()
     const original = snapshot.slice(from, to)
     const filePath = markdownView.file?.path
@@ -399,9 +389,8 @@ export class InlineEditController {
       const currentDocument = editorView.state.doc.toString()
       if (!isInlineSourceCurrent(currentDocument, session, session.original)) {
         new Notice(
-          'The selected source changed while this edit was generated. Review and retry.',
+          'Another edit changed this source. The generated preview was kept for review.',
         )
-        close()
         return
       }
       const placement = session.placement ?? 'replace'
@@ -657,15 +646,6 @@ export function updateInlineEditSessionMap<
     next.delete(id)
   }
   return next
-}
-
-export function inlineEditRangesOverlap(
-  left: InlineEditRange,
-  right: InlineEditRange,
-): boolean {
-  const leftTo = left.to === left.from ? left.to + 1 : left.to
-  const rightTo = right.to === right.from ? right.to + 1 : right.to
-  return left.from < rightTo && leftTo > right.from
 }
 
 export function isInlineSourceCurrent(
