@@ -5,6 +5,7 @@ import {
   Expand,
   FolderOpen,
   LoaderCircle,
+  LocateFixed,
   RotateCcw,
   Square,
   X,
@@ -19,14 +20,19 @@ import {
   ArtifactRecord,
   BackgroundTaskRecord,
 } from '../../types/background-task'
+import { selectVisibleImageTasks } from '../../utils/chat/imageQueue'
 import { insertMarkdownIntoOpenView } from '../../utils/obsidian/markdownInsertion'
 
 export function BackgroundTaskCards({
   conversationId,
   originMessageId,
+  taskScope = 'message',
+  onLocateOrigin,
 }: {
   conversationId: string
-  originMessageId: string
+  originMessageId?: string
+  taskScope?: 'message' | 'image-queue'
+  onLocateOrigin?: (messageId: string) => void
 }) {
   const app = useApp()
   const plugin = usePlugin()
@@ -38,11 +44,15 @@ export function BackgroundTaskCards({
   useEffect(() => {
     if (!manager) return
     return manager.subscribe((allTasks) => {
-      const relevant = allTasks.filter(
-        (task) =>
-          task.conversationId === conversationId &&
-          task.originMessageId === originMessageId,
-      )
+      const relevant =
+        taskScope === 'image-queue'
+          ? selectVisibleImageTasks(allTasks, conversationId)
+          : allTasks.filter(
+              (task) =>
+                task.conversationId === conversationId &&
+                task.originMessageId === originMessageId &&
+                task.kind !== 'image-generation',
+            )
       setTasks(relevant)
       void Promise.all(
         relevant
@@ -58,7 +68,7 @@ export function BackgroundTaskCards({
         )
       })
     })
-  }, [conversationId, manager, originMessageId])
+  }, [conversationId, manager, originMessageId, taskScope])
 
   if (!manager || tasks.length === 0) return null
 
@@ -145,7 +155,11 @@ export function BackgroundTaskCards({
             task.error ??
             task.status.replace(/-/g, ' '))
         return (
-          <section className="smtcmp-task-card" key={task.id}>
+          <section
+            className="smtcmp-task-card"
+            data-task-kind={task.kind}
+            key={task.id}
+          >
             <div className="smtcmp-task-card__status">
               {legacyUnverifiedR2Insert ? (
                 <CloudUpload size={15} />
@@ -163,7 +177,27 @@ export function BackgroundTaskCards({
                 <X size={16} />
               )}
               <span>{statusMessage}</span>
+              {taskScope === 'image-queue' &&
+                task.conversationId === conversationId &&
+                onLocateOrigin && (
+                  <button
+                    className="smtcmp-task-card__locate"
+                    onClick={() => onLocateOrigin(task.originMessageId)}
+                    aria-label="Go to image request"
+                  >
+                    <LocateFixed size={13} />
+                  </button>
+                )}
             </div>
+            {taskScope === 'image-queue' &&
+              typeof task.input.prompt === 'string' && (
+                <div
+                  className="smtcmp-task-card__prompt"
+                  title={task.input.prompt}
+                >
+                  {task.input.prompt}
+                </div>
+              )}
             {resourcePath && (
               <button
                 className="smtcmp-image-preview"

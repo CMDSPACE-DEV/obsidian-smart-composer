@@ -2482,45 +2482,68 @@ button.smtcmp-chat-input-effort-select {
 
 .smtcmp-orbital-loader {
   position: relative;
-  display: inline-block;
-  width: 22px;
-  height: 22px;
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
   border-radius: 50%;
+  color: var(--ach-action);
+}
+
+.smtcmp-orbital-loader__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
   background: conic-gradient(
     from 20deg,
-    transparent 0 42%,
-    var(--ach-motion) 62%,
-    var(--ach-action) 84%,
+    transparent 0 34%,
+    var(--ach-motion) 58%,
+    var(--ach-action) 82%,
     transparent 100%
   );
   mask: radial-gradient(farthest-side, transparent 72%, #000 74%);
   filter: drop-shadow(
-    0 0 4px color-mix(in srgb, var(--ach-motion) 55%, transparent)
+    0 0 5px color-mix(in srgb, var(--ach-motion) 65%, transparent)
   );
   animation: smtcmp-orbit 1.25s linear infinite;
 }
 
-.smtcmp-orbital-loader i {
-  position: absolute;
+.smtcmp-orbital-loader__dots {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.smtcmp-orbital-loader__dots i {
   width: 3px;
   height: 3px;
   border-radius: 50%;
   background: currentColor;
+  box-shadow: 0 0 5px color-mix(in srgb, currentColor 55%, transparent);
+  animation: smtcmp-dot-pulse 1.05s ease-in-out infinite;
 }
 
-.smtcmp-orbital-loader i:nth-child(1) {
-  left: 9px;
-  top: 4px;
+.smtcmp-orbital-loader__dots i:nth-child(2) {
+  animation-delay: 0.14s;
 }
 
-.smtcmp-orbital-loader i:nth-child(2) {
-  right: 5px;
-  bottom: 5px;
+.smtcmp-orbital-loader__dots i:nth-child(3) {
+  animation-delay: 0.28s;
 }
 
-.smtcmp-orbital-loader i:nth-child(3) {
-  left: 5px;
-  bottom: 5px;
+@keyframes smtcmp-dot-pulse {
+  0%,
+  65%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(-1px);
+  }
 }
 
 @keyframes smtcmp-orbit {
@@ -2553,6 +2576,183 @@ button.smtcmp-chat-input-effort-select {
   50% {
     opacity: 0.85;
   }
+}
+
+.smtcmp-response-pending {
+  display: grid;
+  align-self: flex-start;
+  width: 50px;
+  min-height: 42px;
+  place-items: center;
+  border: 1px solid var(--ach-border);
+  border-radius: 17px 17px 17px 5px;
+  background: color-mix(in srgb, var(--ach-surface) 82%, #c3dbef 18%);
+  box-shadow: 0 5px 16px #002e6e12;
+  animation: smtcmp-pending-arrive 160ms ease-out;
+}
+
+.smtcmp-shell[data-skin='cmds-dark'] .smtcmp-response-pending {
+  border-color: #333d2d;
+  border-radius: 5px 14px 14px 5px;
+  background: #121512;
+  box-shadow:
+    inset 2px 0 0 #b6ff00,
+    0 8px 22px #00000070;
+}
+
+@keyframes smtcmp-pending-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.smtcmp-image-queue-panel {
+  position: relative;
+  z-index: 30;
+  flex: 0 0 auto;
+  min-width: 0;
+  margin: 6px 8px 0;
+}
+
+.smtcmp-image-queue-panel__toggle {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 32px;
+  gap: 6px;
+  padding: 5px 8px;
+  border-color: var(--ach-border);
+  background: color-mix(
+    in srgb,
+    var(--ach-surface-raised) 88%,
+    var(--ach-action) 12%
+  );
+  box-shadow: 0 4px 14px #002e6e12;
+  font-size: 11px;
+  text-align: left;
+}
+
+.smtcmp-image-queue-panel__toggle > svg:first-child {
+  flex: 0 0 auto;
+  color: var(--ach-action);
+}
+
+.smtcmp-image-queue-panel__toggle > strong {
+  flex: 0 0 auto;
+  color: var(--ach-heading);
+  font-weight: 650;
+}
+
+.smtcmp-image-queue-panel__summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ach-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.smtcmp-image-queue-panel__count {
+  display: inline-grid;
+  flex: 0 0 auto;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  place-items: center;
+  border: 1px solid var(--ach-border);
+  border-radius: 10px;
+  background: var(--ach-surface);
+  color: var(--ach-action);
+  font:
+    10px/1 ui-monospace,
+    'Cascadia Code',
+    monospace;
+}
+
+.smtcmp-image-queue-panel__toggle > svg:last-child {
+  flex: 0 0 auto;
+  transition: transform 160ms ease;
+}
+
+.smtcmp-image-queue-panel[data-expanded='true']
+  .smtcmp-image-queue-panel__toggle
+  > svg:last-child {
+  transform: rotate(180deg);
+}
+
+.smtcmp-image-queue-panel__body {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  max-height: min(58vh, calc(100vh - 190px), 540px);
+  padding: 4px;
+  overflow: auto;
+  border: 1px solid var(--ach-border);
+  border-radius: 6px;
+  background: var(--ach-canvas);
+  box-shadow: 0 18px 44px #002e6e2b;
+}
+
+.smtcmp-shell[data-skin='cmds-dark'] .smtcmp-image-queue-panel__toggle {
+  border-color: #354029;
+  background: #111610;
+  box-shadow:
+    inset 2px 0 0 #b6ff00,
+    0 8px 20px #00000080;
+}
+
+.smtcmp-shell[data-skin='cmds-dark'] .smtcmp-image-queue-panel__body {
+  border-color: #354029;
+  box-shadow: 0 18px 44px #000000cc;
+}
+
+.smtcmp-image-queue-panel__body .smtcmp-task-list {
+  margin: 0;
+}
+
+.smtcmp-image-queue-panel__body .smtcmp-image-preview,
+.smtcmp-image-queue-panel__body .smtcmp-image-preview img {
+  max-height: 160px;
+}
+
+.smtcmp-task-card__prompt {
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--ach-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.smtcmp-task-card__status > span {
+  flex: 1 1 auto;
+}
+
+.smtcmp-task-card__locate {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  padding: 4px;
+}
+
+.smtcmp-message-anchor {
+  border-radius: 18px;
+  transition:
+    background 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.smtcmp-message-anchor--highlighted {
+  background: color-mix(in srgb, var(--ach-action) 9%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ach-action) 16%, transparent);
 }
 
 .smtcmp-task-list,
@@ -2918,14 +3118,20 @@ button.smtcmp-chat-input-effort-select {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .smtcmp-orbital-loader,
+  .smtcmp-orbital-loader__ring,
+  .smtcmp-orbital-loader__dots i,
   .smtcmp-task-spinner,
-  .smtcmp-streaming-tail {
+  .smtcmp-streaming-tail,
+  .smtcmp-response-pending {
     animation: none;
   }
 
   .smtcmp-streaming-tail {
     opacity: 0.5;
+  }
+
+  .smtcmp-image-queue-panel__toggle > svg:last-child {
+    transition: none;
   }
 }
 
@@ -2937,7 +3143,7 @@ button.smtcmp-chat-input-effort-select {
     filter: none !important;
   }
 
-  .smtcmp-orbital-loader {
+  .smtcmp-orbital-loader__ring {
     background: CanvasText;
   }
 }

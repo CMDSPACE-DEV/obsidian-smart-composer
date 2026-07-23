@@ -301,6 +301,45 @@ system-Chrome layout check at both 400 px and 320 px found zero horizontal
 overflow and no intersection between the stop/continue controls and the
 composer in either Hallym light or CMDS dark.
 
+### 8.4 Pre-response motion and centralized image queue (2026-07-23)
+
+The 2.0.3 live review confirmed that the streaming tail appeared only after
+text arrived, but there was no distinct visual state while the provider was
+thinking. Version 2.0.4 introduces an explicit foreground response phase:
+
+- `waiting` starts when the provider request begins;
+- an empty assistant placeholder does not end the waiting phase;
+- the first non-empty content, reasoning, annotation, or tool event changes the
+  phase to `streaming`;
+- completion, error, or cancellation returns the phase to `idle`.
+
+During `waiting`, a compact assistant-side surface shows three pulsing dots
+inside a luminous conic-gradient orbit. The ring and dots are separate DOM
+layers so the radial mask that hollows out the ring cannot also hide the center
+dots. Once visible output begins, the waiting surface unmounts and the existing
+streaming tail becomes the only motion cue. Reduced-motion and forced-colors
+rules cover both layers.
+
+Image tasks are no longer rendered as large cards beneath each originating
+message. A compact `Image queue` notice sits below the chat header and reports
+generating, queued, destination-ready, failed, and completed counts. It is
+collapsed by default. Expanding it opens an overlay with the prompt, progress,
+preview, exact local/R2 destination, cancel/retry controls, destination actions,
+and a locate-origin command. Current-conversation history remains available;
+running, queued, destination-ready, failed, and interrupted tasks remain
+portable when the user changes conversations.
+
+The queue overlay subscribes to the existing plugin-lifetime task manager and
+does not create a second execution queue. Image concurrency therefore remains
+one while foreground chat continues independently. Non-image artifact cards
+remain anchored to their originating messages.
+
+A system-Chrome visual check covered collapsed and expanded queue states plus
+the waiting and streaming visuals at 400 px and 320 px in both skins. Each
+loader contained three visible dots with the `smtcmp-orbit` animation active;
+the expanded overlay remained inside the chat shell; horizontal overflow and
+stop-button/composer intersections were zero.
+
 The following items remain implementation gates rather than verified product
 behavior:
 

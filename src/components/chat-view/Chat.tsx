@@ -48,8 +48,10 @@ import { BackgroundTaskCards } from './BackgroundTaskCards'
 import ChatUserInput, { ChatUserInputRef } from './chat-input/ChatUserInput'
 import { editorStateToPlainText } from './chat-input/utils/editor-state-to-plain-text'
 import { ChatListDropdown } from './ChatListDropdown'
+import { ImageQueuePanel } from './ImageQueuePanel'
 import QueryProgress, { QueryProgressState } from './QueryProgress'
 import { QueuedPrompts } from './QueuedPrompts'
+import { ResponsePendingIndicator } from './ResponsePendingIndicator'
 import { useAutoScroll } from './useAutoScroll'
 import { useChatStreamManager } from './useChatStreamManager'
 import UserMessageItem from './UserMessageItem'
@@ -169,11 +171,33 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
     scrollContainerRef: chatMessagesRef,
   })
 
-  const { abortActiveStreams, submitChatMutation } = useChatStreamManager({
-    setChatMessages,
-    autoScrollToBottom,
-    promptGenerator,
-  })
+  const { abortActiveStreams, responsePhase, submitChatMutation } =
+    useChatStreamManager({
+      setChatMessages,
+      autoScrollToBottom,
+      promptGenerator,
+    })
+
+  const locateMessage = useCallback((messageId: string) => {
+    const container = chatMessagesRef.current
+    if (!container) return
+    const element = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-message-id]'),
+    ).find((candidate) => candidate.dataset.messageId === messageId)
+    if (!element) return
+    const reducedMotion =
+      element.ownerDocument.defaultView?.matchMedia(
+        '(prefers-reduced-motion: reduce)',
+      ).matches ?? false
+    element.scrollIntoView({
+      behavior: reducedMotion ? 'auto' : 'smooth',
+      block: 'center',
+    })
+    element.classList.add('smtcmp-message-anchor--highlighted')
+    element.ownerDocument.defaultView?.setTimeout(() => {
+      element.classList.remove('smtcmp-message-anchor--highlighted')
+    }, 1400)
+  }, [])
 
   useEffect(() => {
     const manager = plugin.conversationRunManager
@@ -619,10 +643,18 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
           </button>
         </div>
       </div>
+      <ImageQueuePanel
+        conversationId={currentConversationId}
+        onLocateOrigin={locateMessage}
+      />
       <div className="smtcmp-chat-messages" ref={chatMessagesRef}>
         {groupedChatMessages.map((messageOrGroup, index) =>
           !Array.isArray(messageOrGroup) ? (
-            <div key={messageOrGroup.id}>
+            <div
+              className="smtcmp-message-anchor"
+              data-message-id={messageOrGroup.id}
+              key={messageOrGroup.id}
+            >
               <UserMessageItem
                 message={messageOrGroup}
                 chatUserInputRef={(ref) =>
@@ -681,6 +713,9 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
           ),
         )}
         <QueryProgress state={queryProgress} />
+        {submitChatMutation.isPending &&
+          responsePhase === 'waiting' &&
+          queryProgress.type === 'idle' && <ResponsePendingIndicator />}
         {showContinueResponseButton && (
           <div className="smtcmp-continue-response-button-container">
             <button

@@ -1,6 +1,6 @@
 import { UseMutationResult, useMutation } from '@tanstack/react-query'
 import { Notice } from 'obsidian'
-import { useCallback, useMemo, useRef } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { useApp } from '../../contexts/app-context'
 import { useMcp } from '../../contexts/mcp-context'
@@ -15,6 +15,7 @@ import { getChatModelClient } from '../../core/llm/manager'
 import { ChatMessage } from '../../types/chat'
 import { PromptGenerator } from '../../utils/chat/promptGenerator'
 import { ResponseGenerator } from '../../utils/chat/responseGenerator'
+import { hasVisibleResponseOutput } from '../../utils/chat/responseState'
 import { ErrorModal } from '../modals/ErrorModal'
 
 type UseChatStreamManagerParams = {
@@ -25,6 +26,7 @@ type UseChatStreamManagerParams = {
 
 export type UseChatStreamManager = {
   abortActiveStreams: () => void
+  responsePhase: 'idle' | 'waiting' | 'streaming'
   submitChatMutation: UseMutationResult<
     void,
     Error,
@@ -42,6 +44,9 @@ export function useChatStreamManager({
   const { getMcpManager } = useMcp()
 
   const activeStreamAbortControllersRef = useRef<AbortController[]>([])
+  const [responsePhase, setResponsePhase] = useState<
+    'idle' | 'waiting' | 'streaming'
+  >('idle')
 
   const abortActiveStreams = useCallback(() => {
     for (const abortController of activeStreamAbortControllersRef.current) {
@@ -100,6 +105,7 @@ export function useChatStreamManager({
         return
       }
 
+      setResponsePhase('waiting')
       abortActiveStreams()
       const abortController = new AbortController()
       activeStreamAbortControllersRef.current.push(abortController)
@@ -122,6 +128,9 @@ export function useChatStreamManager({
 
         unsubscribeResponseGenerator = responseGenerator.subscribe(
           (responseMessages) => {
+            if (hasVisibleResponseOutput(responseMessages)) {
+              setResponsePhase('streaming')
+            }
             setChatMessages((prevChatMessages) => {
               const lastMessageIndex = prevChatMessages.findIndex(
                 (message) => message.id === lastMessage.id,
@@ -173,10 +182,14 @@ export function useChatStreamManager({
         console.error('Failed to generate response', error)
       }
     },
+    onSettled: () => {
+      setResponsePhase('idle')
+    },
   })
 
   return {
     abortActiveStreams,
+    responsePhase,
     submitChatMutation,
   }
 }
