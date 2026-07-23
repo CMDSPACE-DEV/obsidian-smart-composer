@@ -158,6 +158,7 @@ export function BackgroundTaskCards({
           <section
             className="smtcmp-task-card"
             data-task-kind={task.kind}
+            data-task-status={task.status}
             key={task.id}
           >
             <div className="smtcmp-task-card__status">

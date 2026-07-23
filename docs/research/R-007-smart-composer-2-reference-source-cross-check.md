@@ -453,6 +453,35 @@ restrained muted suffix, while CMDS Dark retains `Chat / OPERATOR`. The
 position, slash, size, spacing, and hierarchy are shared; only the role label
 and skin palette differ.
 
+### 8.9 Active image-queue perimeter language (2026-07-23)
+
+The 2.0.8 live review found that the background image queue still used static
+box borders while foreground chat and inline editing used animated perimeters
+to communicate active work. This made the queue accordion feel visually
+detached from the shared waiting-state language.
+
+Version 2.0.9 exposes aggregate queue activity and each task status as DOM data
+attributes. While an image is `running` or `queued`, the queue header receives
+the same restrained 1.8-second perimeter trail whether the accordion is
+collapsed or expanded. When expanded, only the corresponding active task cards
+receive the second perimeter. Completed, failed, interrupted, canceled, and
+destination-ready cards stay static to prevent motion from spreading across
+historical results.
+
+Hallym Light uses blue-to-teal motion, and CMDS Dark uses neon-green-to-teal.
+The permanent CMDS left inset line is suppressed on the active queue header so
+the moving perimeter remains the single state cue. Both surfaces use
+pointer-transparent masked pseudo-elements, preserving the accordion, cancel,
+locate, and task action hit targets. Reduced-motion freezes the borders at low
+opacity, and forced-colors uses `CanvasText`.
+
+A system-Chrome harness checked collapsed and expanded queue states in both
+skins. The collapsed Hallym header angle changed from `16deg` to `116deg`; the
+expanded header and running card both changed by more than `100deg` between
+samples. The completed card reported no pseudo-element content, all action
+buttons remained present, the perimeter layer reported `pointer-events: none`,
+and horizontal overflow was zero.
+
 The following items remain implementation gates rather than verified product
 behavior:
 

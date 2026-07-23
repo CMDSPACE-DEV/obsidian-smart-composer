@@ -2754,22 +2754,68 @@ button.smtcmp-chat-input-effort-select {
   margin: 6px 8px 0;
 }
 
+@property --smtcmp-queue-orbit-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
 .smtcmp-image-queue-panel__toggle {
+  --smtcmp-queue-toggle-surface: color-mix(
+    in srgb,
+    var(--ach-surface-raised) 88%,
+    var(--ach-action) 12%
+  );
+  position: relative;
   display: flex;
   align-items: center;
   width: 100%;
   min-height: 32px;
   gap: 6px;
   padding: 5px 8px;
+  overflow: hidden;
   border-color: var(--ach-border);
-  background: color-mix(
-    in srgb,
-    var(--ach-surface-raised) 88%,
-    var(--ach-action) 12%
-  );
+  background: var(--smtcmp-queue-toggle-surface);
   box-shadow: 0 4px 14px #002e6e12;
   font-size: 11px;
+  isolation: isolate;
   text-align: left;
+}
+
+.smtcmp-image-queue-panel[data-active='true']
+  .smtcmp-image-queue-panel__toggle::before,
+.smtcmp-image-queue-panel__body
+  .smtcmp-task-card:is(
+    [data-task-status='running'],
+    [data-task-status='queued']
+  )::before {
+  position: absolute;
+  z-index: 4;
+  inset: -1px;
+  padding: 1.5px;
+  pointer-events: none;
+  content: '';
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--smtcmp-queue-orbit-angle),
+    transparent 0 58%,
+    color-mix(in srgb, var(--ach-action) 16%, transparent) 67%,
+    var(--ach-action) 76%,
+    var(--ach-motion) 85%,
+    transparent 94% 100%
+  );
+  filter: drop-shadow(
+    0 0 4px color-mix(in srgb, var(--ach-motion) 36%, transparent)
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: smtcmp-queue-border-orbit 1.8s linear infinite;
 }
 
 .smtcmp-image-queue-panel__toggle > svg:first-child {
@@ -2835,11 +2881,30 @@ button.smtcmp-chat-input-effort-select {
 }
 
 .smtcmp-shell[data-skin='cmds-dark'] .smtcmp-image-queue-panel__toggle {
+  --smtcmp-queue-toggle-surface: #111610;
   border-color: #354029;
-  background: #111610;
+  background: var(--smtcmp-queue-toggle-surface);
   box-shadow:
     inset 2px 0 0 #b6ff00,
     0 8px 20px #00000080;
+}
+
+.smtcmp-shell[data-skin='cmds-dark']
+  .smtcmp-image-queue-panel[data-active='true']
+  .smtcmp-image-queue-panel__toggle {
+  box-shadow: 0 8px 20px #00000080;
+}
+
+.smtcmp-shell[data-skin='cmds-dark']
+  .smtcmp-image-queue-panel[data-active='true']
+  .smtcmp-image-queue-panel__toggle::before,
+.smtcmp-shell[data-skin='cmds-dark']
+  .smtcmp-image-queue-panel__body
+  .smtcmp-task-card:is(
+    [data-task-status='running'],
+    [data-task-status='queued']
+  )::before {
+  filter: drop-shadow(0 0 4px #b6ff0061) drop-shadow(0 0 8px #00b5ad29);
 }
 
 .smtcmp-shell[data-skin='cmds-dark'] .smtcmp-image-queue-panel__body {
@@ -2904,6 +2969,17 @@ button.smtcmp-chat-input-effort-select {
   border-radius: 6px;
   background: var(--ach-surface-raised);
   padding: 8px;
+}
+
+.smtcmp-task-card {
+  position: relative;
+  isolation: isolate;
+}
+
+@keyframes smtcmp-queue-border-orbit {
+  to {
+    --smtcmp-queue-orbit-angle: 360deg;
+  }
 }
 
 .smtcmp-task-card__status,
@@ -3261,6 +3337,13 @@ button.smtcmp-chat-input-effort-select {
   .smtcmp-task-spinner,
   .smtcmp-streaming-tail,
   .smtcmp-response-pending::before,
+  .smtcmp-image-queue-panel[data-active='true']
+    .smtcmp-image-queue-panel__toggle::before,
+  .smtcmp-image-queue-panel__body
+    .smtcmp-task-card:is(
+      [data-task-status='running'],
+      [data-task-status='queued']
+    )::before,
   .smtcmp-response-pending {
     animation: none;
   }
@@ -3277,6 +3360,17 @@ button.smtcmp-chat-input-effort-select {
   }
 
   .smtcmp-response-pending::before {
+    background: var(--ach-action);
+    opacity: 0.4;
+  }
+
+  .smtcmp-image-queue-panel[data-active='true']
+    .smtcmp-image-queue-panel__toggle::before,
+  .smtcmp-image-queue-panel__body
+    .smtcmp-task-card:is(
+      [data-task-status='running'],
+      [data-task-status='queued']
+    )::before {
     background: var(--ach-action);
     opacity: 0.4;
   }
@@ -3305,6 +3399,16 @@ button.smtcmp-chat-input-effort-select {
   }
 
   .smtcmp-response-pending::before {
+    background: CanvasText;
+  }
+
+  .smtcmp-image-queue-panel[data-active='true']
+    .smtcmp-image-queue-panel__toggle::before,
+  .smtcmp-image-queue-panel__body
+    .smtcmp-task-card:is(
+      [data-task-status='running'],
+      [data-task-status='queued']
+    )::before {
     background: CanvasText;
   }
 }

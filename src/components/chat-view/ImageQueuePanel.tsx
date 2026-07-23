@@ -55,6 +55,7 @@ export function ImageQueuePanel({
   return (
     <aside
       className="smtcmp-image-queue-panel"
+      data-active={summary.running + summary.queued > 0}
       data-expanded={expanded}
       aria-label="Image generation queue"
     >
