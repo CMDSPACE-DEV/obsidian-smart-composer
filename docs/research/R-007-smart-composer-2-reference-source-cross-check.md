@@ -557,6 +557,43 @@ rendered Hallym Light at 400 px and CMDS Dark at 320 px. Prompt and preview
 surfaces had zero document, panel-content, and segmented-control horizontal
 overflow; the three placement controls and all actions remained visible.
 
+### 8.12 Parallel inline-edit sessions and range rebasing (2026-07-23)
+
+The 2.0.11 running-vault review found that opening a second inline edit removed
+or silently replaced the first. Source inspection confirmed two independent
+single-session constraints: the CodeMirror field stored one
+`DecorationSet` replaced by `StateEffect<InlineSession | null>`, and the
+controller stored one `AbortController`. Starting another generation therefore
+replaced the widget and aborted the earlier request.
+
+Version 2.0.12 stores inline sessions in a per-editor map keyed by session ID
+and keeps one abort controller per running session. Separate selections can now
+remain in prompt, loading, clarification, preview, or error states
+simultaneously. Each session has independent Generate, Cancel, Reject, Accept,
+and Insert actions. Plugin unload aborts every remaining request.
+
+CodeMirror transaction changes rebase every active source range instead of
+invalidating the whole note snapshot. Mapping uses after-insertion association
+at the source start and before-insertion association at the source end, so an
+accepted edit before another target moves the later target without absorbing
+boundary text. Acceptance compares only the rebased source slice with that
+session's original selection. Unrelated accepted edits therefore remain valid,
+while a direct modification inside the source is rejected as stale. A new
+request that overlaps an active source range is refused without disturbing the
+existing session.
+
+Async loading and preview transitions no longer move keyboard focus. This is
+required for a user to keep typing a second inline prompt while the first
+finishes in the background. Prompt creation still focuses its own textarea;
+completed panels retain keyboard handlers when deliberately focused.
+
+Unit coverage verifies two-session preservation, one-session removal without
+sibling loss, position rebasing after a preceding replacement, exact-boundary
+insertions, overlap detection, and source-local stale checks. A system-Chrome
+Shadow DOM harness stacked loading, prompt, and preview panels at 320 px in the
+CMDS skin. All panels remained 304 px wide, had ten-pixel vertical separation,
+and produced zero document-level horizontal overflow.
+
 The following items remain implementation gates rather than verified product
 behavior:
 

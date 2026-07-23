@@ -1,10 +1,6 @@
 import { StateEffect, StateField } from '@codemirror/state'
-import {
-  Decoration,
-  DecorationSet,
-  EditorView,
-  WidgetType,
-} from '@codemirror/view'
+import type { ChangeDesc } from '@codemirror/state'
+import { Decoration, EditorView, WidgetType } from '@codemirror/view'
 import { Editor, MarkdownRenderer, MarkdownView, Notice } from 'obsidian'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -37,7 +33,10 @@ type InlineSession = {
   renderMarkdown: (content: string, target: HTMLElement) => Promise<void>
 }
 
-const setInlineSession = StateEffect.define<InlineSession | null>()
+type InlineSessionMap = ReadonlyMap<string, InlineSession>
+
+const upsertInlineSession = StateEffect.define<InlineSession>()
+const removeInlineSession = StateEffect.define<string>()
 
 class InlineEditWidget extends WidgetType {
   private themeObserver: MutationObserver | null = null
@@ -206,7 +205,6 @@ class InlineEditWidget extends WidgetType {
           this.session.close()
         }
       })
-      queueMicrotask(() => host.focus({ preventScroll: true }))
     } else if (this.session.status === 'preview') {
       const diff = doc.createElement('div')
       const replacement = this.session.replacement ?? ''
@@ -265,7 +263,6 @@ class InlineEditWidget extends WidgetType {
           this.session.accept()
         }
       })
-      queueMicrotask(() => host.focus({ preventScroll: true }))
     } else {
       const error = doc.createElement('p')
       error.className = 'error'
@@ -295,30 +292,53 @@ class InlineEditWidget extends WidgetType {
   }
 }
 
-const inlineEditField = StateField.define<DecorationSet>({
-  create: () => Decoration.none,
+const inlineEditField = StateField.define<InlineSessionMap>({
+  create: () => new Map(),
   update(value, transaction) {
+    const upserts: InlineSession[] = []
+    const removals: string[] = []
     for (const effect of transaction.effects) {
-      if (effect.is(setInlineSession)) {
-        if (!effect.value) return Decoration.none
-        return Decoration.set([
-          Decoration.widget({
-            widget: new InlineEditWidget(effect.value),
-            side: 1,
-            block: true,
-          }).range(effect.value.to),
-        ])
+      if (effect.is(upsertInlineSession)) {
+        upserts.push(effect.value)
+      } else if (effect.is(removeInlineSession)) {
+        removals.push(effect.value)
       }
     }
-    return value.map(transaction.changes)
+    return updateInlineEditSessionMap(
+      value,
+      transaction.changes,
+      upserts,
+      removals,
+    )
   },
-  provide: (field) => EditorView.decorations.from(field),
+  provide: (field) =>
+    EditorView.decorations.from(field, (sessions) =>
+      Decoration.set(
+        Array.from(sessions.values())
+          .sort((a, b) => a.to - b.to || a.id.localeCompare(b.id))
+          .map((session) =>
+            Decoration.widget({
+              widget: new InlineEditWidget(session),
+              side: 1,
+              block: true,
+            }).range(session.to),
+          ),
+        true,
+      ),
+    ),
 })
 
 export class InlineEditController {
-  private controller: AbortController | null = null
+  private readonly controllers = new Map<string, AbortController>()
 
   constructor(private readonly plugin: SmartComposerPlugin) {}
+
+  cleanup(): void {
+    for (const controller of this.controllers.values()) {
+      controller.abort()
+    }
+    this.controllers.clear()
+  }
 
   open(editor: Editor, markdownView: MarkdownView): void {
     const editorView = (editor as unknown as { cm?: EditorView }).cm
@@ -341,6 +361,16 @@ export class InlineEditController {
       from = line.from
       to = line.to
     }
+    const activeSessions = editorView.state.field(inlineEditField, false)
+    if (
+      activeSessions &&
+      Array.from(activeSessions.values()).some((session) =>
+        inlineEditRangesOverlap({ from, to }, session),
+      )
+    ) {
+      new Notice('An inline edit is already active for this text.')
+      return
+    }
     const snapshot = editorView.state.doc.toString()
     const original = snapshot.slice(from, to)
     const filePath = markdownView.file?.path
@@ -350,38 +380,51 @@ export class InlineEditController {
     }
     const id = uuidv4()
     const close = () => {
-      this.controller?.abort()
-      this.controller = null
-      editorView.dispatch({ effects: setInlineSession.of(null) })
+      this.controllers.get(id)?.abort()
+      this.controllers.delete(id)
+      editorView.dispatch({ effects: removeInlineSession.of(id) })
       editorView.focus()
     }
     const accept = () => {
-      if (
-        markdownView.file?.path !== filePath ||
-        editorView.state.doc.toString() !== snapshot
-      ) {
+      if (markdownView.file?.path !== filePath) {
         new Notice(
-          'The note changed while the edit was generated. Review and retry.',
+          'The target note changed while the edit was generated. Review and retry.',
         )
         close()
         return
       }
-      const current = editorView.state.field(inlineEditField, false)
-      if (!current) return
-      const session = this.currentSession
+      const sessions = editorView.state.field(inlineEditField, false)
+      const session = sessions?.get(id)
       if (!session?.replacement) return
+      const currentDocument = editorView.state.doc.toString()
+      if (!isInlineSourceCurrent(currentDocument, session, session.original)) {
+        new Notice(
+          'The selected source changed while this edit was generated. Review and retry.',
+        )
+        close()
+        return
+      }
       const placement = session.placement ?? 'replace'
       const change =
         placement === 'insert-after'
           ? {
-              from: to,
-              to,
-              insert: buildInlineInsertion(snapshot, to, session.replacement),
+              from: session.to,
+              to: session.to,
+              insert: buildInlineInsertion(
+                currentDocument,
+                session.to,
+                session.replacement,
+              ),
             }
-          : { from, to, insert: session.replacement }
+          : {
+              from: session.from,
+              to: session.to,
+              insert: session.replacement,
+            }
+      this.controllers.delete(id)
       editorView.dispatch({
         changes: change,
-        effects: setInlineSession.of(null),
+        effects: removeInlineSession.of(id),
       })
       editorView.focus()
     }
@@ -430,11 +473,17 @@ export class InlineEditController {
     })
   }
 
-  private currentSession: InlineSession | null = null
-
   private show(editorView: EditorView, session: InlineSession): void {
-    this.currentSession = session
-    editorView.dispatch({ effects: setInlineSession.of(session) })
+    const current = editorView.state
+      .field(inlineEditField, false)
+      ?.get(session.id)
+    editorView.dispatch({
+      effects: upsertInlineSession.of({
+        ...session,
+        from: current?.from ?? session.from,
+        to: current?.to ?? session.to,
+      }),
+    })
   }
 
   private async generate(input: {
@@ -459,10 +508,10 @@ export class InlineEditController {
       status: 'loading',
       placement,
     }
-    this.show(input.editorView, base)
-    this.controller?.abort()
+    this.controllers.get(input.id)?.abort()
     const controller = new AbortController()
-    this.controller = controller
+    this.controllers.set(input.id, controller)
+    this.show(input.editorView, base)
     try {
       const settings = this.plugin.settings
       const modelId = settings.inlineEdit.modelId ?? settings.chatModelId
@@ -501,6 +550,13 @@ export class InlineEditController {
         },
         { signal: controller.signal },
       )
+      if (
+        controller.signal.aborted ||
+        this.controllers.get(input.id) !== controller ||
+        !this.hasSession(input.editorView, input.id)
+      ) {
+        return
+      }
       const content = response.choices[0]?.message.content?.trim() ?? ''
       const parsed = parseInlineResponse(content)
       if (parsed.type === 'clarification') {
@@ -522,13 +578,27 @@ export class InlineEditController {
         })
       }
     } catch (error) {
-      if (controller.signal.aborted) return
+      if (
+        controller.signal.aborted ||
+        this.controllers.get(input.id) !== controller ||
+        !this.hasSession(input.editorView, input.id)
+      ) {
+        return
+      }
       this.show(input.editorView, {
         ...base,
         status: 'error',
         error: error instanceof Error ? error.message : String(error),
       })
+    } finally {
+      if (this.controllers.get(input.id) === controller) {
+        this.controllers.delete(input.id)
+      }
     }
+  }
+
+  private hasSession(editorView: EditorView, id: string): boolean {
+    return editorView.state.field(inlineEditField, false)?.has(id) ?? false
   }
 }
 
@@ -538,6 +608,72 @@ export function isShortProseEdit(before: string, after: string): boolean {
   return !/(?:^|\s)(?:#{1,6}|[-*>]|\d+\.)\s|`{1,3}|\[\[/.test(
     `${before} ${after}`,
   )
+}
+
+export type InlineEditRange = {
+  from: number
+  to: number
+}
+
+export function mapInlineEditRange(
+  range: InlineEditRange,
+  changes: Pick<ChangeDesc, 'mapPos'>,
+): InlineEditRange {
+  const mappedFrom = changes.mapPos(range.from, 1)
+  const mappedTo = changes.mapPos(range.to, -1)
+  return {
+    from: Math.min(mappedFrom, mappedTo),
+    to: Math.max(mappedFrom, mappedTo),
+  }
+}
+
+export function rebaseInlineEditSessions<T extends InlineEditRange>(
+  sessions: ReadonlyMap<string, T>,
+  changes: Pick<ChangeDesc, 'mapPos'>,
+): Map<string, T> {
+  const next = new Map<string, T>()
+  for (const [id, session] of sessions) {
+    next.set(id, {
+      ...session,
+      ...mapInlineEditRange(session, changes),
+    } as T)
+  }
+  return next
+}
+
+export function updateInlineEditSessionMap<
+  T extends InlineEditRange & { id: string },
+>(
+  sessions: ReadonlyMap<string, T>,
+  changes: Pick<ChangeDesc, 'mapPos'>,
+  upserts: readonly T[],
+  removals: readonly string[],
+): Map<string, T> {
+  const next = rebaseInlineEditSessions(sessions, changes)
+  for (const session of upserts) {
+    next.set(session.id, session)
+  }
+  for (const id of removals) {
+    next.delete(id)
+  }
+  return next
+}
+
+export function inlineEditRangesOverlap(
+  left: InlineEditRange,
+  right: InlineEditRange,
+): boolean {
+  const leftTo = left.to === left.from ? left.to + 1 : left.to
+  const rightTo = right.to === right.from ? right.to + 1 : right.to
+  return left.from < rightTo && leftTo > right.from
+}
+
+export function isInlineSourceCurrent(
+  documentText: string,
+  range: InlineEditRange,
+  original: string,
+): boolean {
+  return documentText.slice(range.from, range.to) === original
 }
 
 export function resolveInlineEditPlacement(

@@ -182,6 +182,7 @@ export default class SmartComposerPlugin extends Plugin {
   onunload() {
     void this.backgroundTaskManager?.cleanup()
     this.backgroundTaskManager = null
+    this.inlineEditController?.cleanup()
     this.inlineEditController = null
     this.conversationRunManager = null
     // clear all timers
