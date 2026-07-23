@@ -47,6 +47,13 @@ export class TaskRepository {
     )
   }
 
+  async deleteTask(id: string): Promise<void> {
+    const path = normalizePath(`${TASK_DIR}/v1_${id}.json`)
+    if (await this.app.vault.adapter.exists(path)) {
+      await this.app.vault.adapter.remove(path)
+    }
+  }
+
   async saveArtifact(artifact: ArtifactRecord): Promise<void> {
     await this.initialize()
     await this.app.vault.adapter.write(

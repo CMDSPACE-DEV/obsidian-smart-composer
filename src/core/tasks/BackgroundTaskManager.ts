@@ -162,6 +162,36 @@ export class BackgroundTaskManager {
     void this.pump()
   }
 
+  async dismiss(id: string): Promise<boolean> {
+    const task = this.tasks.get(id)
+    if (
+      !task ||
+      task.kind !== 'image-generation' ||
+      task.status !== 'succeeded'
+    ) {
+      return false
+    }
+    await this.repository.deleteTask(id)
+    this.tasks.delete(id)
+    this.emit()
+    return true
+  }
+
+  async dismissCompletedImageTasks(conversationId: string): Promise<number> {
+    const completedIds = Array.from(this.tasks.values())
+      .filter(
+        (task) =>
+          task.conversationId === conversationId &&
+          task.kind === 'image-generation' &&
+          task.status === 'succeeded',
+      )
+      .map((task) => task.id)
+    for (const id of completedIds) {
+      await this.dismiss(id)
+    }
+    return completedIds.length
+  }
+
   async updateInput(
     id: string,
     input: Record<string, unknown>,

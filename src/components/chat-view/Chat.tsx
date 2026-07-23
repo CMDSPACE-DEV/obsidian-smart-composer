@@ -31,9 +31,12 @@ import {
   MentionableCurrentFile,
 } from '../../types/mentionable'
 import { ToolCallResponseStatus } from '../../types/tool-call.types'
+import { enqueueImageGenerationBatch } from '../../utils/chat/imageBatch'
 import {
+  MAX_IMAGE_BATCH_COUNT,
   getImageGenerationPrompt,
-  isImageGenerationRequest,
+  isImageGenerationContinuation,
+  parseImageGenerationRequest,
 } from '../../utils/chat/imageIntent'
 import {
   getMentionableKey,
@@ -781,20 +784,46 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
         onSubmit={(content, useVaultSearch, mode = 'chat') => {
           const plainText = editorStateToPlainText(content).trim()
           if (plainText === '') return
-          const detectedImagePrompt = getImageGenerationPrompt(plainText)
-          const imageRequest = isImageGenerationRequest(plainText)
           const selectedModel = settings.chatModels.find(
             (model) => model.id === settings.chatModelId,
           )
           const canGenerateImages =
             !!selectedModel &&
             getProviderCapabilities(selectedModel).imageGeneration
+          const taskManager = plugin.backgroundTaskManager
+          const conversationImageTasks =
+            taskManager
+              ?.getTasks(currentConversationId)
+              .filter((task) => task.kind === 'image-generation') ?? []
+          let previousImagePrompt: string | undefined
+          for (
+            let index = conversationImageTasks.length - 1;
+            index >= 0;
+            index--
+          ) {
+            const task = conversationImageTasks[index]
+            if (typeof task.input.batchBasePrompt === 'string') {
+              previousImagePrompt = task.input.batchBasePrompt
+              break
+            }
+            if (
+              typeof task.input.prompt === 'string' &&
+              !isImageGenerationContinuation(task.input.prompt)
+            ) {
+              previousImagePrompt = task.input.prompt
+              break
+            }
+          }
+          const imageRequest = parseImageGenerationRequest(plainText, {
+            force: mode === 'image',
+            previousPrompt: previousImagePrompt,
+          })
           const artifactMatch = matchArtifactRequest(plainText)
-          if (artifactMatch && plugin.backgroundTaskManager) {
+          if (artifactMatch && taskManager) {
             const artifactKind = artifactMatch.kind
             const userMessage = { ...inputMessage, content }
             setChatMessages((messages) => [...messages, userMessage])
-            void plugin.backgroundTaskManager.enqueue({
+            void taskManager.enqueue({
               conversationId: currentConversationId,
               originMessageId: inputMessage.id,
               kind: 'artifact-draft',
@@ -806,23 +835,38 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
             setInputMessage(getNewInputMessage(app))
             return
           }
-          if (
-            canGenerateImages &&
-            (mode === 'image' || imageRequest) &&
-            plugin.backgroundTaskManager
-          ) {
+          if (canGenerateImages && imageRequest && taskManager) {
             const userMessage = { ...inputMessage, content }
             setChatMessages((messages) => [...messages, userMessage])
-            void plugin.backgroundTaskManager.enqueue({
-              conversationId: currentConversationId,
-              originMessageId: inputMessage.id,
-              kind: 'image-generation',
-              payload: {
-                prompt: detectedImagePrompt || plainText,
-                modelId: settings.chatModelId,
-                targetFilePath: app.workspace.getActiveFile()?.path,
-              },
-            })
+            if (imageRequest.requestedCount > MAX_IMAGE_BATCH_COUNT) {
+              new Notice(
+                `A maximum of ${MAX_IMAGE_BATCH_COUNT} images can be queued at once. Queuing ${MAX_IMAGE_BATCH_COUNT}.`,
+              )
+            }
+            const targetFilePath = app.workspace.getActiveFile()?.path
+            void (async () => {
+              const result = await enqueueImageGenerationBatch(
+                taskManager,
+                imageRequest,
+                {
+                  conversationId: currentConversationId,
+                  originMessageId: inputMessage.id,
+                  sourcePrompt:
+                    getImageGenerationPrompt(plainText) || plainText,
+                  modelId: settings.chatModelId,
+                  targetFilePath,
+                },
+              )
+              if (result.error) {
+                new Notice(
+                  `Queued ${result.queuedCount} of ${result.total} images. ${
+                    result.error instanceof Error
+                      ? result.error.message
+                      : String(result.error)
+                  }`,
+                )
+              }
+            })()
             setInputMessage(getNewInputMessage(app))
             return
           }

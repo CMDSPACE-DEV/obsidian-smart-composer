@@ -27,6 +27,9 @@ function createApp(): App {
     write: jest.fn(async (path: string, content: string) => {
       files.set(path, content)
     }),
+    remove: jest.fn(async (path: string) => {
+      files.delete(path)
+    }),
   }
   return { vault: { adapter } } as unknown as App
 }
@@ -152,5 +155,86 @@ describe('BackgroundTaskManager', () => {
         message: 'Uploaded to R2 · select an open note to insert',
       },
     })
+  })
+
+  it('dismisses only completed image tasks and preserves the deletion', async () => {
+    const app = createApp()
+    const manager = new BackgroundTaskManager(app)
+    await manager.initialize()
+    manager.registerAdapter({
+      kind: 'image-generation',
+      run: async () => ({ status: 'succeeded' }),
+    })
+
+    const completed = await manager.enqueue({
+      conversationId: 'conversation',
+      originMessageId: 'completed',
+      kind: 'image-generation',
+      payload: { prompt: 'Completed image' },
+    })
+    await waitForTask(
+      manager,
+      (task) => task.id === completed.id && task.status === 'succeeded',
+    )
+
+    expect(await manager.dismiss(completed.id)).toBe(true)
+    expect(manager.getTasks().find((task) => task.id === completed.id)).toBe(
+      undefined,
+    )
+
+    const reloaded = new BackgroundTaskManager(app)
+    await reloaded.initialize()
+    expect(reloaded.getTasks().find((task) => task.id === completed.id)).toBe(
+      undefined,
+    )
+  })
+
+  it('clears completed images only in the selected conversation', async () => {
+    const manager = new BackgroundTaskManager(createApp())
+    await manager.initialize()
+    manager.registerAdapter({
+      kind: 'image-generation',
+      run: async () => ({ status: 'succeeded' }),
+    })
+
+    const current = await manager.enqueue({
+      conversationId: 'current',
+      originMessageId: 'current',
+      kind: 'image-generation',
+      payload: {},
+    })
+    const other = await manager.enqueue({
+      conversationId: 'other',
+      originMessageId: 'other',
+      kind: 'image-generation',
+      payload: {},
+    })
+    await waitForTask(
+      manager,
+      (task) => task.id === current.id && task.status === 'succeeded',
+    )
+    await waitForTask(
+      manager,
+      (task) => task.id === other.id && task.status === 'succeeded',
+    )
+
+    await expect(manager.dismissCompletedImageTasks('current')).resolves.toBe(1)
+    expect(manager.getTasks().map((task) => task.id)).toEqual([other.id])
+  })
+
+  it('does not dismiss an active image task', async () => {
+    const manager = new BackgroundTaskManager(createApp())
+    await manager.initialize()
+    const queued = await manager.enqueue({
+      conversationId: 'conversation',
+      originMessageId: 'queued',
+      kind: 'image-generation',
+      payload: {},
+    })
+
+    await expect(manager.dismiss(queued.id)).resolves.toBe(false)
+    expect(
+      manager.getTasks().find((task) => task.id === queued.id)?.status,
+    ).toBe('queued')
   })
 })

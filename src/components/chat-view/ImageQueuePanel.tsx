@@ -1,4 +1,4 @@
-import { ChevronDown, Images } from 'lucide-react'
+import { ChevronDown, Images, Trash2 } from 'lucide-react'
 import { useEffect, useId, useMemo, useState } from 'react'
 
 import { usePlugin } from '../../contexts/plugin-context'
@@ -75,6 +75,19 @@ export function ImageQueuePanel({
       </button>
       {expanded && (
         <div className="smtcmp-image-queue-panel__body" id={bodyId}>
+          {summary.completed > 0 && (
+            <div className="smtcmp-image-queue-panel__toolbar">
+              <span>{summary.completed} completed</span>
+              <button
+                onClick={() =>
+                  void manager.dismissCompletedImageTasks(conversationId)
+                }
+              >
+                <Trash2 size={13} />
+                Clear completed
+              </button>
+            </div>
+          )}
           <BackgroundTaskCards
             conversationId={conversationId}
             taskScope="image-queue"

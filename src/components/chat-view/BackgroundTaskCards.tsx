@@ -154,6 +154,12 @@ export function BackgroundTaskCards({
           : (task.progress?.message ??
             task.error ??
             task.status.replace(/-/g, ' '))
+        const displayPrompt =
+          typeof task.input.displayPrompt === 'string'
+            ? task.input.displayPrompt
+            : typeof task.input.prompt === 'string'
+              ? task.input.prompt
+              : null
         return (
           <section
             className="smtcmp-task-card"
@@ -189,16 +195,22 @@ export function BackgroundTaskCards({
                     <LocateFixed size={13} />
                   </button>
                 )}
-            </div>
-            {taskScope === 'image-queue' &&
-              typeof task.input.prompt === 'string' && (
-                <div
-                  className="smtcmp-task-card__prompt"
-                  title={task.input.prompt}
+              {taskScope === 'image-queue' && task.status === 'succeeded' && (
+                <button
+                  className="smtcmp-task-card__dismiss"
+                  onClick={() => void manager.dismiss(task.id)}
+                  aria-label="Dismiss completed image task"
+                  title="Dismiss completed image task"
                 >
-                  {task.input.prompt}
-                </div>
+                  <X size={13} />
+                </button>
               )}
+            </div>
+            {taskScope === 'image-queue' && displayPrompt && (
+              <div className="smtcmp-task-card__prompt" title={displayPrompt}>
+                {displayPrompt}
+              </div>
+            )}
             {resourcePath && (
               <button
                 className="smtcmp-image-preview"

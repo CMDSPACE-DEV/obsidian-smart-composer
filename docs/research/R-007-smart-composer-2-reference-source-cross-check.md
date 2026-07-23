@@ -482,6 +482,42 @@ samples. The completed card reported no pseudo-element content, all action
 buttons remained present, the perimeter layer reported `pointer-events: none`,
 and horizontal overflow was zero.
 
+### 8.10 Natural-language image batches and completed-task cleanup (2026-07-23)
+
+The 2.0.9 running-vault review exposed two functional gaps in the image queue.
+Natural-language requests ending in forms such as `그려보자` could bypass image
+dispatch and receive an ordinary text reply. Even when a request such as
+`2장 연속으로 더 그려보자` reached image dispatch, the submit path called
+`enqueue()` exactly once. Completed image cards also had no dismissal action,
+so a productive session made the queue overlay grow indefinitely.
+
+Version 2.0.10 broadens the deterministic image-intent parser for Korean and
+English request forms and parses Arabic, Korean-word, and English-word image
+counts. A request for N images creates N independently persisted tasks with
+`batchIndex`, `batchTotal`, and a compact `1/N` display label. Each task asks
+the image endpoint for exactly one variation. The existing global image
+concurrency of one remains unchanged, so the tasks run sequentially while
+foreground chat remains available. Ambiguous continuation requests such as
+`3장 더 그려보자` reuse the most recent usable image brief in the current
+conversation. A single submission is capped at eight tasks to avoid accidental
+quota bursts.
+
+Succeeded image cards now have an individual dismiss control, and the expanded
+queue has a `Clear completed` command scoped to the current conversation.
+Dismissal deletes only the persisted task record under
+`.smtcmp_json_db/tasks/`; generated local files, artifact records, checksums,
+R2 URLs, and Markdown insertions remain intact. Running, queued,
+destination-ready, failed, canceled, interrupted, and other-conversation tasks
+cannot be removed by this cleanup path.
+
+Targeted tests verify Korean and English intent forms, count parsing, the
+eight-task cap, continuation prompt reuse, three requests producing three
+distinct enqueue calls, partial enqueue failure reporting, reload-stable
+dismissal, conversation-scoped bulk cleanup, and refusal to dismiss active
+tasks. The existing 300 px and 380 px system-Chrome queue harness was reused to
+confirm that the compact toolbar and per-card dismiss control do not introduce
+horizontal overflow or cover active perimeter hit targets.
+
 The following items remain implementation gates rather than verified product
 behavior:
 
