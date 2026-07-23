@@ -2313,13 +2313,20 @@ button.smtcmp-chat-input-effort-select {
   letter-spacing: 0;
 }
 
-.smtcmp-shell[data-skin='cmds-dark'] .smtcmp-chat-header-title::after {
-  content: ' / OPERATOR';
+.smtcmp-shell .smtcmp-chat-header-title::after {
   color: var(--ach-muted);
   font:
     10px/1.2 ui-monospace,
     'Cascadia Code',
     monospace;
+}
+
+.smtcmp-shell[data-skin='hallym-light'] .smtcmp-chat-header-title::after {
+  content: ' / COWORK';
+}
+
+.smtcmp-shell[data-skin='cmds-dark'] .smtcmp-chat-header-title::after {
+  content: ' / OPERATOR';
 }
 
 .smtcmp-shell .smtcmp-chat-messages {

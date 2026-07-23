@@ -439,6 +439,20 @@ communicates global foreground activity; both disappear when visible
 streaming output begins. Reduced-motion freezes the bubble perimeter at low
 opacity, and forced-colors replaces it with `CanvasText`.
 
+### 8.8 Skin-role header labels (2026-07-23)
+
+The 2.0.7 live review found a small but conceptually important asymmetry in the
+chat header. CMDS Dark displayed `Chat / OPERATOR`, while Hallym Light displayed
+only `Chat`. This weakened the intended distinction between a serious
+terminal-like operator workspace and a polished collaborative web-AI
+workspace.
+
+Version 2.0.8 gives both skins the same header grammar and secondary-label
+typography. Hallym Light now displays `Chat / COWORK` in deep navy with a
+restrained muted suffix, while CMDS Dark retains `Chat / OPERATOR`. The
+position, slash, size, spacing, and hierarchy are shared; only the role label
+and skin palette differ.
+
 The following items remain implementation gates rather than verified product
 behavior:
 
