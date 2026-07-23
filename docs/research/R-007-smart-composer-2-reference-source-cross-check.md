@@ -416,6 +416,29 @@ different transform matrices at two timestamps, and zero horizontal overflow
 in both skins. Reduced-motion replaces each moving trail with a low-opacity
 static perimeter, and forced colors uses `CanvasText`.
 
+### 8.7 Assistant waiting-bubble perimeter correction (2026-07-23)
+
+The 2.0.6 live review exposed an interpretation mismatch in the sidebar. The
+main composer perimeter and inline panel perimeter both animated correctly,
+but the compact assistant waiting bubble still had a static border. The
+intended interaction uses the same perimeter motion in all three waiting
+surfaces: the main composer, the inline panel, and the assistant-side
+three-dot bubble.
+
+Version 2.0.7 keeps the three dots completely still and moves a restrained
+blue-to-teal or neon-green-to-teal trail around the full perimeter of the
+assistant waiting bubble. It uses the same physical conic-gradient layer
+behind an inset surface that was verified for the inline ShadowRoot, avoiding
+an inner circular loader and preventing the animated layer from covering the
+dots. The CMDS bubble no longer carries a permanently bright left inset line
+while waiting, so the moving perimeter remains the single active cue.
+
+The composer perimeter remains active during the same `waiting` phase. The
+assistant bubble therefore communicates response location while the composer
+communicates global foreground activity; both disappear when visible
+streaming output begins. Reduced-motion freezes the bubble perimeter at low
+opacity, and forced-colors replaces it with `CanvasText`.
+
 The following items remain implementation gates rather than verified product
 behavior:
 
