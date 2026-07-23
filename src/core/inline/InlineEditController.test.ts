@@ -1,4 +1,8 @@
-import { isShortProseEdit, parseInlineResponse } from './InlineEditController'
+import {
+  isShortProseEdit,
+  parseInlineResponse,
+  resolveInlineSkin,
+} from './InlineEditController'
 
 describe('inline edit response helpers', () => {
   it('uses an inline word diff for short prose only', () => {
@@ -37,5 +41,14 @@ describe('inline edit response helpers', () => {
       type: 'replacement',
       content: 'Direct replacement',
     })
+  })
+
+  it('maps the owning Obsidian document theme to the matching inline skin', () => {
+    expect(
+      resolveInlineSkin({
+        contains: (className) => className === 'theme-dark',
+      }),
+    ).toBe('cmds-dark')
+    expect(resolveInlineSkin({ contains: () => false })).toBe('hallym-light')
   })
 })

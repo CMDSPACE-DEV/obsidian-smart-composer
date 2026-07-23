@@ -20,6 +20,7 @@ type InlineSession = {
   original: string
   snapshot: string
   filePath: string
+  targetLabel: 'Selection' | 'Current line'
   status: InlineStatus
   prompt?: string
   clarification?: string
@@ -34,6 +35,8 @@ type InlineSession = {
 const setInlineSession = StateEffect.define<InlineSession | null>()
 
 class InlineEditWidget extends WidgetType {
+  private themeObserver: MutationObserver | null = null
+
   constructor(private readonly session: InlineSession) {
     super()
   }
@@ -51,6 +54,18 @@ class InlineEditWidget extends WidgetType {
     const doc = view.dom.ownerDocument
     const host = doc.createElement('div')
     host.className = 'smtcmp-inline-host'
+    const applySkin = () => {
+      host.dataset.skin = resolveInlineSkin(doc.body.classList)
+    }
+    applySkin()
+    const MutationObserverConstructor = doc.defaultView?.MutationObserver
+    if (MutationObserverConstructor) {
+      this.themeObserver = new MutationObserverConstructor(applySkin)
+      this.themeObserver.observe(doc.body, {
+        attributes: true,
+        attributeFilter: ['class'],
+      })
+    }
     const shadow = host.attachShadow({ mode: 'open' })
     const style = doc.createElement('style')
     style.textContent = INLINE_STYLE
@@ -59,7 +74,10 @@ class InlineEditWidget extends WidgetType {
     const panel = doc.createElement('section')
     panel.className = 'panel'
     panel.setAttribute('aria-live', 'polite')
+    panel.setAttribute('aria-label', 'Smart Composer inline edit')
     shadow.appendChild(panel)
+
+    panel.appendChild(makeHeader(doc, this.session))
 
     if (
       this.session.status === 'prompt' ||
@@ -73,6 +91,8 @@ class InlineEditWidget extends WidgetType {
         panel.appendChild(question)
       }
       const input = doc.createElement('textarea')
+      input.className = 'prompt'
+      input.setAttribute('aria-label', 'Inline edit instruction')
       input.placeholder =
         this.session.status === 'clarification'
           ? 'Clarify the change...'
@@ -84,14 +104,27 @@ class InlineEditWidget extends WidgetType {
       input.rows = 2
       const actions = doc.createElement('div')
       actions.className = 'actions'
-      const cancel = makeButton(doc, 'Cancel', () => this.session.close())
-      const submit = makeButton(doc, 'Generate', () => {
-        const value = input.value.trim()
-        if (value) this.session.submit(value)
-      })
+      const cancel = makeButton(
+        doc,
+        'Cancel',
+        () => this.session.close(),
+        'secondary',
+        'Esc',
+      )
+      const submit = makeButton(
+        doc,
+        'Generate',
+        () => {
+          const value = input.value.trim()
+          if (value) this.session.submit(value)
+        },
+        'primary',
+        'Enter',
+      )
       actions.append(cancel, submit)
       panel.append(input, actions)
       input.addEventListener('keydown', (event) => {
+        event.stopPropagation()
         if (event.key === 'Escape') {
           event.preventDefault()
           this.session.close()
@@ -104,17 +137,39 @@ class InlineEditWidget extends WidgetType {
           submit.click()
         }
       })
-      queueMicrotask(() => input.focus())
+      for (const eventName of [
+        'beforeinput',
+        'input',
+        'keyup',
+        'compositionstart',
+        'compositionupdate',
+        'compositionend',
+        'paste',
+        'cut',
+        'copy',
+      ]) {
+        input.addEventListener(eventName, (event) => event.stopPropagation())
+      }
+      queueMicrotask(() => {
+        input.focus({ preventScroll: true })
+        input.setSelectionRange(input.value.length, input.value.length)
+      })
     } else if (this.session.status === 'loading') {
       const loading = doc.createElement('div')
       loading.className = 'loading'
-      loading.innerHTML =
-        '<span class="orb"><i></i><i></i><i></i></span><span>Editing selection</span>'
-      panel.appendChild(loading)
+      const copy = doc.createElement('span')
+      copy.className = 'loading-copy'
+      copy.append(
+        Object.assign(doc.createElement('strong'), {
+          textContent: 'Editing in place',
+        }),
+        Object.assign(doc.createElement('small'), {
+          textContent: 'Preparing a precise Markdown revision',
+        }),
+      )
+      loading.append(makeOrbitalLoader(doc), copy)
+      panel.append(loading)
     } else if (this.session.status === 'preview') {
-      const heading = doc.createElement('div')
-      heading.className = 'heading'
-      heading.textContent = 'Inline edit preview'
       const diff = doc.createElement('div')
       const replacement = this.session.replacement ?? ''
       if (isShortProseEdit(this.session.original, replacement)) {
@@ -131,30 +186,61 @@ class InlineEditWidget extends WidgetType {
       const actions = doc.createElement('div')
       actions.className = 'actions'
       actions.append(
-        makeButton(doc, 'Reject Esc', () => this.session.close()),
-        makeButton(doc, 'Accept Enter', () => this.session.accept()),
+        makeButton(
+          doc,
+          'Reject',
+          () => this.session.close(),
+          'secondary',
+          'Esc',
+        ),
+        makeButton(
+          doc,
+          'Accept',
+          () => this.session.accept(),
+          'primary',
+          'Enter',
+        ),
       )
-      panel.append(heading, diff, actions)
+      panel.append(diff, actions)
       host.tabIndex = 0
       host.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape') this.session.close()
-        if (event.key === 'Enter') this.session.accept()
+        event.stopPropagation()
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          this.session.close()
+        }
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          this.session.accept()
+        }
       })
-      queueMicrotask(() => host.focus())
+      queueMicrotask(() => host.focus({ preventScroll: true }))
     } else {
       const error = doc.createElement('p')
       error.className = 'error'
       error.textContent = this.session.error ?? 'Inline edit failed.'
       panel.append(
         error,
-        makeButton(doc, 'Close', () => this.session.close()),
+        Object.assign(doc.createElement('div'), { className: 'actions' }),
       )
+      panel
+        .querySelector('.actions')
+        ?.append(
+          makeButton(doc, 'Close', () => this.session.close(), 'primary'),
+        )
     }
     return host
   }
 
   ignoreEvent(): boolean {
-    return false
+    // Interactive widgets must own their events. Returning false lets
+    // CodeMirror reinterpret Backspace and IME input as document edits.
+    return true
+  }
+
+  destroy(): void {
+    this.themeObserver?.disconnect()
+    this.themeObserver = null
   }
 }
 
@@ -195,6 +281,8 @@ export class InlineEditController {
       })
     }
     const selection = editorView.state.selection.main
+    const targetLabel =
+      selection.from === selection.to ? 'Current line' : 'Selection'
     let from = selection.from
     let to = selection.to
     if (from === to) {
@@ -245,6 +333,7 @@ export class InlineEditController {
         original,
         snapshot,
         filePath,
+        targetLabel,
         prompt,
         editorView,
         submit,
@@ -270,6 +359,7 @@ export class InlineEditController {
       original,
       snapshot,
       filePath,
+      targetLabel,
       status: 'prompt',
       submit,
       accept,
@@ -292,6 +382,7 @@ export class InlineEditController {
     original: string
     snapshot: string
     filePath: string
+    targetLabel: 'Selection' | 'Current line'
     prompt: string
     editorView: EditorView
     submit: (prompt: string) => void
@@ -511,25 +602,282 @@ function makeButton(
   doc: Document,
   label: string,
   onClick: () => void,
+  variant: 'primary' | 'secondary' = 'secondary',
+  shortcut?: string,
 ): HTMLButtonElement {
   const button = doc.createElement('button')
   button.type = 'button'
-  button.textContent = label
+  button.className = variant
+  const text = doc.createElement('span')
+  text.textContent = label
+  button.append(text)
+  if (shortcut) {
+    const key = doc.createElement('kbd')
+    key.textContent = shortcut
+    button.append(key)
+  }
   button.addEventListener('click', onClick)
   return button
 }
 
+function makeHeader(doc: Document, session: InlineSession): HTMLElement {
+  const header = doc.createElement('header')
+  const identity = doc.createElement('span')
+  identity.className = 'identity'
+  const spark = doc.createElement('i')
+  spark.className = 'spark'
+  spark.setAttribute('aria-hidden', 'true')
+  const title = doc.createElement('strong')
+  title.textContent =
+    session.status === 'preview' ? 'Review inline edit' : 'Inline edit'
+  identity.append(spark, title)
+  const context = doc.createElement('span')
+  context.className = 'context'
+  context.textContent = session.targetLabel
+  header.append(identity, context)
+  return header
+}
+
+function makeOrbitalLoader(doc: Document): HTMLElement {
+  const orbital = doc.createElement('span')
+  orbital.className = 'orb'
+  orbital.setAttribute('aria-hidden', 'true')
+  const ring = doc.createElement('span')
+  ring.className = 'orb-ring'
+  const dots = doc.createElement('span')
+  dots.className = 'orb-dots'
+  dots.append(
+    doc.createElement('i'),
+    doc.createElement('i'),
+    doc.createElement('i'),
+  )
+  orbital.append(ring, dots)
+  return orbital
+}
+
+export type InlineSkin = 'hallym-light' | 'cmds-dark'
+
+export function resolveInlineSkin(classList: {
+  contains: (className: string) => boolean
+}): InlineSkin {
+  return classList.contains('theme-dark') ? 'cmds-dark' : 'hallym-light'
+}
+
 const INLINE_STYLE = `
-:host{display:block;font:13px/1.45 Inter,system-ui,sans-serif;color:#e8edf0}
-.panel{margin:8px 0;padding:10px;border:1px solid #2d7f5e;background:#101512;box-shadow:0 8px 24px #0008}
-textarea{box-sizing:border-box;width:100%;resize:vertical;border:1px solid #3f5550;background:#090c0b;color:#eef8f3;padding:8px;outline:none}
-textarea:focus{border-color:#54ff9a;box-shadow:0 0 0 2px #54ff9a22}
-.actions{display:flex;justify-content:flex-end;gap:6px;margin-top:8px}
-button{border:1px solid #3d6554;background:#17231d;color:#dbf9e7;padding:5px 9px;cursor:pointer}
-button:hover,button:focus{border-color:#54ff9a;outline:none}
-.loading{display:flex;align-items:center;gap:10px}.orb{position:relative;width:20px;height:20px;animation:spin 1.4s linear infinite}
-.orb i{position:absolute;width:4px;height:4px;border-radius:50%;background:#54ff9a;box-shadow:0 0 7px #54ff9a}.orb i:nth-child(1){left:8px}.orb i:nth-child(2){right:1px;bottom:2px}.orb i:nth-child(3){left:1px;bottom:2px}
-.diff{display:grid;grid-template-columns:1fr 1fr;gap:6px}.diff section{overflow:auto;max-height:280px;margin:6px 0;padding:8px}.before{background:#351719;color:#ffced1}.after{background:#12301f;color:#c8ffdc}.rendered{margin-top:6px}.rendered :first-child{margin-top:0}.rendered :last-child{margin-bottom:0}
-.word-diff{margin:7px 0;padding:9px;white-space:pre-wrap;background:#0b0e0c}.word-diff del{background:#6c2429;color:#ffd7da;text-decoration:line-through}.word-diff ins{background:#18512e;color:#d4ffe2;text-decoration:none}
-.heading{font-weight:600}.question{color:#bdeed0}.error{color:#ff9da4}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.orb{animation:none}}
+:host{
+  --ach-canvas:#f7f9fc;
+  --ach-surface:#ffffff;
+  --ach-surface-raised:#f0f5fa;
+  --ach-border:#d7e1ec;
+  --ach-text:#00102e;
+  --ach-muted:#526174;
+  --ach-heading:#002e6e;
+  --ach-action:#0066b3;
+  --ach-action-hover:#00528f;
+  --ach-motion:#00b5ad;
+  --ach-danger:#a52834;
+  --ach-before:#fff5f6;
+  --ach-before-border:#efd3d7;
+  --ach-before-text:#672a31;
+  --ach-after:#effaf6;
+  --ach-after-border:#cce9dd;
+  --ach-after-text:#123f31;
+  display:block;
+  min-width:0;
+  color:var(--ach-text);
+  color-scheme:light;
+  font:13px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  letter-spacing:0;
+}
+:host([data-skin="cmds-dark"]){
+  --ach-canvas:#0a0a0a;
+  --ach-surface:#141414;
+  --ach-surface-raised:#1f1f1f;
+  --ach-border:#333333;
+  --ach-text:#d4d4d4;
+  --ach-muted:#888888;
+  --ach-heading:#b6ff00;
+  --ach-action:#b6ff00;
+  --ach-action-hover:#d0ff5b;
+  --ach-motion:#00b5ad;
+  --ach-danger:#ff6675;
+  --ach-before:#261516;
+  --ach-before-border:#573238;
+  --ach-before-text:#f5c5ca;
+  --ach-after:#101a12;
+  --ach-after-border:#40542d;
+  --ach-after-text:#dfffb3;
+  color-scheme:dark;
+  font-family:"IBM Plex Sans",Inter,ui-sans-serif,system-ui,sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box}
+.panel{
+  position:relative;
+  min-width:0;
+  margin:8px 0 10px;
+  padding:12px;
+  overflow:hidden;
+  border:1px solid var(--ach-border);
+  border-radius:7px;
+  background:var(--ach-surface);
+  box-shadow:0 8px 24px rgba(0,46,110,.09);
+}
+:host([data-skin="cmds-dark"]) .panel{
+  border-radius:5px 14px 5px 14px;
+  box-shadow:inset 2px 0 0 #b6ff00,0 10px 28px rgba(0,0,0,.6);
+}
+header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  min-height:24px;
+  margin:-2px 0 10px;
+  padding:0 0 8px;
+  border-bottom:1px solid var(--ach-border);
+}
+.identity{display:inline-flex;align-items:center;gap:7px;min-width:0;color:var(--ach-heading)}
+.identity strong{font-size:13px;font-weight:650;letter-spacing:0}
+.spark{
+  width:9px;
+  height:9px;
+  flex:0 0 auto;
+  border-radius:2px;
+  background:var(--ach-action);
+  box-shadow:0 0 9px color-mix(in srgb,var(--ach-action) 42%,transparent);
+  transform:rotate(45deg);
+}
+.context{
+  overflow:hidden;
+  color:var(--ach-muted);
+  font:10px/1.2 ui-monospace,"Cascadia Code",monospace;
+  text-overflow:ellipsis;
+  text-transform:uppercase;
+  white-space:nowrap;
+}
+.prompt{
+  display:block;
+  width:100%;
+  min-height:72px;
+  max-height:240px;
+  padding:10px 11px;
+  resize:vertical;
+  color:var(--ach-text);
+  caret-color:var(--ach-action);
+  border:1px solid var(--ach-border);
+  border-radius:6px;
+  outline:none;
+  background:var(--ach-canvas);
+  font:inherit;
+  line-height:1.5;
+}
+.prompt::placeholder{color:var(--ach-muted);opacity:.8}
+.prompt:focus{
+  border-color:var(--ach-action);
+  box-shadow:0 0 0 2px color-mix(in srgb,var(--ach-action) 18%,transparent);
+}
+:host([data-skin="cmds-dark"]) .prompt:focus{
+  box-shadow:0 0 0 1px rgba(182,255,0,.27),0 0 18px rgba(182,255,0,.1);
+}
+.actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;margin-top:10px}
+button{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  min-height:32px;
+  padding:5px 10px;
+  border:1px solid var(--ach-border);
+  border-radius:5px;
+  outline:none;
+  background:transparent;
+  color:var(--ach-muted);
+  font:inherit;
+  font-weight:560;
+  cursor:pointer;
+}
+button:hover,button:focus-visible{
+  border-color:var(--ach-action);
+  color:var(--ach-action);
+  background:var(--ach-surface-raised);
+}
+button:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb,var(--ach-action) 24%,transparent)}
+button.primary{
+  border-color:var(--ach-action);
+  background:var(--ach-action);
+  color:#fff;
+}
+button.primary:hover,button.primary:focus-visible{border-color:var(--ach-action-hover);background:var(--ach-action-hover);color:#fff}
+:host([data-skin="cmds-dark"]) button.primary{color:#0a0a0a}
+kbd{
+  padding:1px 4px;
+  border:1px solid currentColor;
+  border-radius:3px;
+  font:9px/1.25 ui-monospace,"Cascadia Code",monospace;
+  opacity:.67;
+}
+.question{
+  margin:0 0 9px;
+  padding:8px 10px;
+  border-left:2px solid var(--ach-motion);
+  background:var(--ach-surface-raised);
+  color:var(--ach-text);
+}
+.loading{display:flex;align-items:center;gap:12px;min-height:54px;padding:4px 2px}
+.loading-copy{display:flex;min-width:0;flex-direction:column;gap:1px}
+.loading-copy strong{color:var(--ach-heading);font-size:13px;font-weight:650}
+.loading-copy small{overflow:hidden;color:var(--ach-muted);font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+.orb{position:relative;width:28px;height:28px;flex:0 0 auto}
+.orb-ring{
+  position:absolute;
+  inset:0;
+  border-radius:50%;
+  background:conic-gradient(from 0deg,transparent 0 14%,var(--ach-action) 36%,var(--ach-motion) 64%,transparent 88%);
+  filter:drop-shadow(0 0 5px color-mix(in srgb,var(--ach-action) 42%,transparent));
+  -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 calc(100% - 1.5px));
+  mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 calc(100% - 1.5px));
+  animation:orbit 1.15s linear infinite;
+}
+.orb-dots{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:2px}
+.orb-dots i{width:3px;height:3px;border-radius:50%;background:var(--ach-heading);box-shadow:0 0 5px color-mix(in srgb,var(--ach-action) 48%,transparent);animation:pulse 1s ease-in-out infinite}
+.orb-dots i:nth-child(2){animation-delay:.12s}.orb-dots i:nth-child(3){animation-delay:.24s}
+.diff{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+.diff section{
+  min-width:0;
+  max-height:320px;
+  margin:0;
+  padding:10px;
+  overflow:auto;
+  border:1px solid;
+  border-radius:6px;
+  scrollbar-color:var(--ach-border) transparent;
+}
+.diff section>strong{display:block;margin-bottom:7px;font-size:11px;text-transform:uppercase}
+.before{border-color:var(--ach-before-border)!important;background:var(--ach-before);color:var(--ach-before-text)}
+.after{border-color:var(--ach-after-border)!important;background:var(--ach-after);color:var(--ach-after-text)}
+.rendered{overflow-wrap:anywhere}
+.rendered :first-child{margin-top:0}.rendered :last-child{margin-bottom:0}
+.rendered p,.rendered ul,.rendered ol,.rendered blockquote,.rendered pre{margin:0 0 9px}
+.rendered h1,.rendered h2,.rendered h3,.rendered h4{margin:10px 0 6px;color:inherit;font-size:1em}
+.rendered a{color:var(--ach-action)}
+.rendered code{padding:1px 3px;border-radius:3px;background:color-mix(in srgb,var(--ach-surface) 70%,transparent);font:11px/1.4 ui-monospace,"Cascadia Code",monospace}
+.rendered pre{overflow:auto;padding:8px;border-radius:4px;background:var(--ach-canvas)}
+.rendered table{width:100%;border-collapse:collapse}.rendered th,.rendered td{padding:5px;border:1px solid currentColor}
+.word-diff{
+  margin:0;
+  padding:11px;
+  white-space:pre-wrap;
+  border:1px solid var(--ach-border);
+  border-radius:6px;
+  background:var(--ach-canvas);
+  overflow-wrap:anywhere;
+}
+.word-diff del{background:var(--ach-before);color:var(--ach-danger);text-decoration:line-through}
+.word-diff ins{background:var(--ach-after);color:var(--ach-after-text);text-decoration:none}
+.error{margin:0;padding:9px 10px;border-left:2px solid var(--ach-danger);background:var(--ach-before);color:var(--ach-danger)}
+@keyframes orbit{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:.35;transform:translateY(0)}50%{opacity:1;transform:translateY(-1px)}}
+@media(max-width:620px){.diff{grid-template-columns:1fr}.diff section{max-height:240px}.context{display:none}button{min-height:34px}}
+@media(prefers-reduced-motion:reduce){.orb-ring,.orb-dots i{animation:none}}
+@media(forced-colors:active){.panel,.prompt,.diff section,.word-diff,button{border:1px solid CanvasText}.orb-ring{background:CanvasText;filter:none}.spark,.orb-dots i{background:CanvasText;box-shadow:none}}
 `

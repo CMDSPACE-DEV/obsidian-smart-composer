@@ -90,6 +90,19 @@ export default class SmartComposerPlugin extends Plugin {
       },
     })
 
+    this.registerEvent(
+      this.app.workspace.on('editor-menu', (menu, editor, info) => {
+        if (!(info instanceof MarkdownView)) return
+        menu.addItem((item) =>
+          item
+            .setTitle('Smart Composer: Inline edit')
+            .setIcon('wand-sparkles')
+            .setSection('action')
+            .onClick(() => this.inlineEditController?.open(editor, info)),
+        )
+      }),
+    )
+
     this.addCommand({
       id: 'rebuild-vault-index',
       name: 'Rebuild entire vault index',

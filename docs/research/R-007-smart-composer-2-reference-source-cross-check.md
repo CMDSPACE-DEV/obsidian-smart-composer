@@ -340,6 +340,44 @@ loader contained three visible dots with the `smtcmp-orbit` animation active;
 the expanded overlay remained inside the chat shell; horizontal overflow and
 stop-button/composer intersections were zero.
 
+### 8.5 Inline entry, focus ownership, and skin mismatch (2026-07-23)
+
+The first live inline-edit review after 2.0.4 exposed three related defects:
+
+- the command existed in the command palette and at `Mod+Shift+K`, but Smart
+  Composer never registered an Obsidian `editor-menu` item, so right-clicking a
+  Markdown selection offered no visible inline-edit entry;
+- `InlineEditWidget.ignoreEvent()` returned `false`. CodeMirror therefore
+  reinterpreted events originating in the Shadow DOM textarea. Backspace was
+  the clearest failure case because focus and selection could escape from the
+  prompt into the underlying document;
+- the inline surface used one hard-coded dark green palette in both Obsidian
+  modes and did not share the Hallym Light or CMDS Dark hierarchy used by the
+  sidebar.
+
+Version 2.0.5 registers `Smart Composer: Inline edit` in the native Markdown
+editor context menu and routes it to the same controller as the command and
+hotkey. The widget now owns all of its DOM events through
+`ignoreEvent() === true`; textarea keyboard, input, composition, and clipboard
+events also stop at the widget boundary. Escape and unmodified Enter remain
+explicit cancel and submit shortcuts, while Shift+Enter and IME composition
+remain available for prompt text.
+
+The inline ShadowRoot now resolves its skin from its own `ownerDocument`, not
+the main application document, and observes that document's theme class for
+live changes and popout compatibility. It uses the same Hallym and CMDS color
+values, 11-13 px hierarchy, focus rings, button semantics, orbital loading
+state, reduced-motion rule, and forced-colors fallback as the sidebar. Review
+diffs use restrained before/after surfaces instead of the previous large fixed
+terminal panels and collapse from two columns to one below 620 px.
+
+A system-Chrome visual harness checked the real injected inline stylesheet in
+Hallym prompt, CMDS review, and 400 px review states. The narrow state had zero
+horizontal overflow and a single-column diff. The native Obsidian context-menu
+entry and Backspace/IME focus behavior still require the next running-vault
+smoke test; static browser checks do not replace CodeMirror integration
+testing.
+
 The following items remain implementation gates rather than verified product
 behavior:
 
