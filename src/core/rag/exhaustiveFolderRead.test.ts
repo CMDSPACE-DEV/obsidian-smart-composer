@@ -31,12 +31,19 @@ function createSettings(
   overrides: Partial<SmartComposerSettings> = {},
 ): SmartComposerSettings {
   return {
-    version: 19,
+    version: 20,
     providers: [...DEFAULT_PROVIDERS],
     chatModels: [...DEFAULT_CHAT_MODELS],
     embeddingModels: [],
     chatModelId: 'gpt-5.6-sol (plan)',
-    applyModelId: 'gpt-4.1-mini',
+    inlineEdit: { modelId: null, contextCharacters: 4000 },
+    imageGeneration: {
+      modelId: 'gpt-5.6-sol (plan)',
+      outputFolder: 'Smart Composer/Generated Images',
+      quality: 'high',
+      concurrency: 1,
+    },
+    appearance: { skinMode: 'follow-obsidian' },
     embeddingModelId: 'openai/text-embedding-3-small',
     systemPrompt: '',
     ragOptions: {

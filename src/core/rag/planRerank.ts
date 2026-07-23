@@ -9,6 +9,7 @@ import { SmartComposerSettings } from '../../settings/schema/setting.types'
 import { RetrievalMetadata } from '../../types/chat'
 
 import {
+  describePlanRequestError,
   getInternalRagModel,
   shouldSurfacePlanRequestError,
 } from './internalModel'
@@ -108,6 +109,7 @@ export async function processQueryWithPlanRerank({
         candidateChunks: candidates.length,
         selectedChunks: results.length,
         exhaustive: false,
+        fallbackUsed: false,
       },
     }
   } catch (error) {
@@ -132,6 +134,8 @@ export async function processQueryWithPlanRerank({
         candidateChunks: candidates.length,
         selectedChunks: results.length,
         exhaustive: false,
+        fallbackUsed: true,
+        warnings: [describePlanRequestError(error)],
       },
     }
   }

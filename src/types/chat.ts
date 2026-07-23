@@ -20,6 +20,8 @@ export type RetrievalMetadata = {
   candidateChunks: number
   selectedChunks: number
   exhaustive: boolean
+  fallbackUsed?: boolean
+  warnings?: string[]
 }
 
 export type ChatUserMessage = {

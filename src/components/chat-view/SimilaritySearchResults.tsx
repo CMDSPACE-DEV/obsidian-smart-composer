@@ -94,6 +94,14 @@ function RetrievalMetadataSummary({
       <span>{metadata.totalChunksBuilt} chunks</span>
       <span>{metadata.candidateChunks} candidates</span>
       <span>{metadata.selectedChunks} selected</span>
+      {metadata.fallbackUsed && (
+        <span className="smtcmp-retrieval-warning">local fallback</span>
+      )}
+      {metadata.warnings?.map((warning) => (
+        <span className="smtcmp-retrieval-warning" key={warning}>
+          {warning}
+        </span>
+      ))}
     </div>
   )
 }

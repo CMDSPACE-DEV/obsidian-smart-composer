@@ -62,12 +62,18 @@ describe('getInternalRagModel', () => {
 })
 
 describe('shouldSurfacePlanRequestError', () => {
-  it.each([400, 403, 404, 429])('surfaces HTTP %s', (status) => {
-    expect(shouldSurfacePlanRequestError({ status })).toBe(true)
-  })
+  it.each([400, 403, 404, 429])(
+    'allows local fallback for HTTP %s',
+    (status) => {
+      expect(shouldSurfacePlanRequestError({ status })).toBe(false)
+    },
+  )
 
-  it('surfaces tier mismatches but allows parser fallbacks', () => {
-    expect(shouldSurfacePlanRequestError({ code: 'model_mismatch' })).toBe(true)
+  it('surfaces only authentication failures', () => {
+    expect(shouldSurfacePlanRequestError({ status: 401 })).toBe(true)
+    expect(shouldSurfacePlanRequestError({ code: 'model_mismatch' })).toBe(
+      false,
+    )
     expect(shouldSurfacePlanRequestError(new Error('invalid JSON'))).toBe(false)
   })
 })

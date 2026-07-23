@@ -114,4 +114,20 @@ function ObsidianCodeBlock({
   )
 }
 
-export { ObsidianCodeBlock, ObsidianMarkdown }
+function StableObsidianMarkdown({
+  content,
+  scale = 'sm',
+  active = false,
+}: ObsidianMarkdownProps & { active?: boolean }) {
+  const blocks = content.split(/(?<=\n\n)/)
+  return (
+    <div className="smtcmp-streaming-markdown">
+      {blocks.map((block, index) => (
+        <ObsidianMarkdown key={index} content={block} scale={scale} />
+      ))}
+      {active && <span className="smtcmp-streaming-tail" aria-hidden="true" />}
+    </div>
+  )
+}
+
+export { ObsidianCodeBlock, ObsidianMarkdown, StableObsidianMarkdown }

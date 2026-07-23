@@ -46,18 +46,20 @@ export function getInternalRagModel(model: ChatModel): ChatModel {
   return model
 }
 
-/** Plan entitlement/rate/model errors must reach the user instead of a quiet RAG fallback. */
+/** Only authentication failure prevents a useful local retrieval fallback. */
 export function shouldSurfacePlanRequestError(error: unknown): boolean {
   if (!error || typeof error !== 'object') {
     return false
   }
   const status = 'status' in error ? error.status : undefined
-  const code = 'code' in error ? error.code : undefined
-  return (
-    status === 400 ||
-    status === 403 ||
-    status === 404 ||
-    status === 429 ||
-    code === 'model_mismatch'
-  )
+  return status === 401
+}
+
+export function describePlanRequestError(error: unknown): string {
+  if (!error || typeof error !== 'object') {
+    return 'Plan retrieval failed; local ranking was used.'
+  }
+  const status = 'status' in error ? String(error.status) : ''
+  const suffix = status ? ` (HTTP ${status})` : ''
+  return `Plan retrieval failed${suffix}; local ranking was used.`
 }

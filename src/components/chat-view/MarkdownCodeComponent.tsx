@@ -1,4 +1,4 @@
-import { Check, CopyIcon, Eye, Loader2, Play } from 'lucide-react'
+import { Check, CopyIcon, Eye } from 'lucide-react'
 import { PropsWithChildren, useMemo, useState } from 'react'
 
 import { useApp } from '../../contexts/app-context'
@@ -9,14 +9,10 @@ import { ObsidianMarkdown } from './ObsidianMarkdown'
 import { MemoizedSyntaxHighlighterWrapper } from './SyntaxHighlighterWrapper'
 
 export default function MarkdownCodeComponent({
-  onApply,
-  isApplying,
   language,
   filename,
   children,
 }: PropsWithChildren<{
-  onApply: (blockToApply: string) => void
-  isApplying: boolean
   language?: string
   filename?: string
 }>) {
@@ -85,29 +81,6 @@ export default function MarkdownCodeComponent({
               </>
             )}
           </button>
-          <button
-            className="clickable-icon smtcmp-code-block-header-button"
-            onClick={
-              isApplying
-                ? undefined
-                : () => {
-                    onApply(String(children))
-                  }
-            }
-            aria-disabled={isApplying}
-          >
-            {isApplying ? (
-              <>
-                <Loader2 className="spinner" size={14} />
-                <span>Applying...</span>
-              </>
-            ) : (
-              <>
-                <Play size={10} />
-                <span>Apply</span>
-              </>
-            )}
-          </button>
         </div>
       </div>
       {isPreviewMode ? (
@@ -141,29 +114,6 @@ export default function MarkdownCodeComponent({
               <>
                 <CopyIcon size={10} />
                 <span>Copy</span>
-              </>
-            )}
-          </button>
-          <button
-            className="clickable-icon smtcmp-code-block-header-button"
-            onClick={
-              isApplying
-                ? undefined
-                : () => {
-                    onApply(String(children))
-                  }
-            }
-            aria-disabled={isApplying}
-          >
-            {isApplying ? (
-              <>
-                <Loader2 className="spinner" size={14} />
-                <span>Applying...</span>
-              </>
-            ) : (
-              <>
-                <Play size={10} />
-                <span>Apply</span>
               </>
             )}
           </button>

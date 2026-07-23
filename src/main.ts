@@ -1,12 +1,16 @@
 import { Editor, MarkdownView, Notice, Plugin } from 'obsidian'
 
-import { ApplyView } from './ApplyView'
 import { ChatView } from './ChatView'
 import { ChatProps } from './components/chat-view/Chat'
 import { InstallerUpdateRequiredModal } from './components/modals/InstallerUpdateRequiredModal'
-import { APPLY_VIEW_TYPE, CHAT_VIEW_TYPE } from './constants'
+import { CHAT_VIEW_TYPE } from './constants'
+import { ArtifactTaskAdapter } from './core/artifacts/ArtifactTaskAdapter'
+import { ConversationRunManager } from './core/conversation/ConversationRunManager'
+import { PlanImageTaskAdapter } from './core/image/PlanImageTaskAdapter'
+import { InlineEditController } from './core/inline/InlineEditController'
 import { McpManager } from './core/mcp/mcpManager'
 import { RAGEngine } from './core/rag/ragEngine'
+import { BackgroundTaskManager } from './core/tasks/BackgroundTaskManager'
 import { DatabaseManager } from './database/DatabaseManager'
 import { PGLiteAbortedException } from './database/exception'
 import { migrateToJsonDatabase } from './database/json/migrateToJsonDatabase'
@@ -21,11 +25,14 @@ import { SettingsSaveQueue } from './utils/settingsSaveQueue'
 
 export default class SmartComposerPlugin extends Plugin {
   settings: SmartComposerSettings
-  initialChatProps?: ChatProps // TODO: change this to use view state like ApplyView
+  initialChatProps?: ChatProps
   settingsChangeListeners: ((newSettings: SmartComposerSettings) => void)[] = []
   mcpManager: McpManager | null = null
   dbManager: DatabaseManager | null = null
   ragEngine: RAGEngine | null = null
+  backgroundTaskManager: BackgroundTaskManager | null = null
+  inlineEditController: InlineEditController | null = null
+  conversationRunManager: ConversationRunManager | null = null
   private dbManagerInitPromise: Promise<DatabaseManager> | null = null
   private ragEngineInitPromise: Promise<RAGEngine> | null = null
   private settingsSaveQueue: SettingsSaveQueue<SmartComposerSettings> | null =
@@ -34,9 +41,25 @@ export default class SmartComposerPlugin extends Plugin {
 
   async onload() {
     await this.loadSettings()
+    this.backgroundTaskManager = new BackgroundTaskManager(this.app)
+    await this.backgroundTaskManager.initialize()
+    this.register(
+      this.backgroundTaskManager.registerAdapter(
+        new PlanImageTaskAdapter(
+          this.app,
+          this.backgroundTaskManager,
+          () => this.settings,
+          (settings) => this.setSettings(settings),
+        ),
+      ),
+    )
+    this.register(
+      this.backgroundTaskManager.registerAdapter(new ArtifactTaskAdapter(this)),
+    )
+    this.inlineEditController = new InlineEditController(this)
+    this.conversationRunManager = new ConversationRunManager(this.app)
 
     this.registerView(CHAT_VIEW_TYPE, (leaf) => new ChatView(leaf, this))
-    this.registerView(APPLY_VIEW_TYPE, (leaf) => new ApplyView(leaf))
 
     // This creates an icon in the left ribbon.
     this.addRibbonIcon('wand-sparkles', 'Open smart composer', () =>
@@ -55,6 +78,15 @@ export default class SmartComposerPlugin extends Plugin {
       name: 'Add selection to chat',
       editorCallback: (editor: Editor, view: MarkdownView) => {
         this.addSelectionToChat(editor, view)
+      },
+    })
+
+    this.addCommand({
+      id: 'inline-edit',
+      name: 'Inline edit selection',
+      hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'k' }],
+      editorCallback: (editor: Editor, view: MarkdownView) => {
+        this.inlineEditController?.open(editor, view)
       },
     })
 
@@ -135,6 +167,10 @@ export default class SmartComposerPlugin extends Plugin {
   }
 
   onunload() {
+    void this.backgroundTaskManager?.cleanup()
+    this.backgroundTaskManager = null
+    this.inlineEditController = null
+    this.conversationRunManager = null
     // clear all timers
     this.timeoutIds.forEach((id) => clearTimeout(id))
     this.timeoutIds = []

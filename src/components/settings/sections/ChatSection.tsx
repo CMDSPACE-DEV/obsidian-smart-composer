@@ -1,7 +1,4 @@
-import {
-  RECOMMENDED_MODELS_FOR_APPLY,
-  RECOMMENDED_MODELS_FOR_CHAT,
-} from '../../../constants'
+import { RECOMMENDED_MODELS_FOR_CHAT } from '../../../constants'
 import { useSettings } from '../../../contexts/settings-context'
 import { ObsidianDropdown } from '../../common/ObsidianDropdown'
 import { ObsidianSetting } from '../../common/ObsidianSetting'
@@ -40,23 +37,87 @@ export function ChatSection() {
       </ObsidianSetting>
 
       <ObsidianSetting
-        name="Apply model"
-        desc="Choose the model you want to use for apply feature."
+        name="Inline edit context"
+        desc="Characters of surrounding note context sent with an inline edit."
       >
-        <ObsidianDropdown
-          value={settings.applyModelId}
-          options={Object.fromEntries(
-            settings.chatModels
-              .filter(({ enable }) => enable ?? true)
-              .map((chatModel) => [
-                chatModel.id,
-                `${chatModel.id}${RECOMMENDED_MODELS_FOR_APPLY.includes(chatModel.id) ? ' (Recommended)' : ''}`,
-              ]),
-          )}
+        <ObsidianTextInput
+          value={settings.inlineEdit.contextCharacters.toString()}
+          onChange={async (value) => {
+            const parsed = Number.parseInt(value, 10)
+            if (!Number.isFinite(parsed) || parsed < 500) return
+            await setSettings({
+              ...settings,
+              inlineEdit: {
+                ...settings.inlineEdit,
+                contextCharacters: parsed,
+              },
+            })
+          }}
+        />
+      </ObsidianSetting>
+
+      <ObsidianSetting
+        name="Generated image folder"
+        desc="Recoverable local images are saved here before destination selection."
+      >
+        <ObsidianTextInput
+          value={settings.imageGeneration.outputFolder}
           onChange={async (value) => {
             await setSettings({
               ...settings,
-              applyModelId: value,
+              imageGeneration: {
+                ...settings.imageGeneration,
+                outputFolder: value,
+              },
+            })
+          }}
+        />
+      </ObsidianSetting>
+
+      <ObsidianSetting
+        name="Image quality"
+        desc="Plan image generation quality. Higher quality can take longer."
+      >
+        <ObsidianDropdown
+          value={settings.imageGeneration.quality}
+          options={{
+            low: 'Low',
+            medium: 'Medium',
+            high: 'High',
+          }}
+          onChange={async (value) => {
+            await setSettings({
+              ...settings,
+              imageGeneration: {
+                ...settings.imageGeneration,
+                quality: value as 'low' | 'medium' | 'high',
+              },
+            })
+          }}
+        />
+      </ObsidianSetting>
+
+      <ObsidianSetting
+        name="Inline edit model"
+        desc="Inherit the active chat model or choose a faster model for inline edits."
+      >
+        <ObsidianDropdown
+          value={settings.inlineEdit.modelId ?? ''}
+          options={{
+            '': 'Inherit active chat model (Recommended)',
+            ...Object.fromEntries(
+              settings.chatModels
+                .filter(({ enable }) => enable ?? true)
+                .map((chatModel) => [chatModel.id, chatModel.id]),
+            ),
+          }}
+          onChange={async (value) => {
+            await setSettings({
+              ...settings,
+              inlineEdit: {
+                ...settings.inlineEdit,
+                modelId: value || null,
+              },
             })
           }}
         />

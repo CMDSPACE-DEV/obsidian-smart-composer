@@ -15,6 +15,8 @@ import {
   LLMResponseStreaming,
 } from '../../types/llm/response'
 import { LLMProvider } from '../../types/provider.types'
+import { postStream } from '../../utils/llm/httpTransport'
+import { parseJsonSseStream } from '../../utils/llm/sse'
 
 import { BaseLLMProvider } from './base'
 import { extractCodexAccountId, refreshCodexAccessToken } from './codexAuth'
@@ -33,6 +35,28 @@ const GPT_5_6_DEFAULT_EFFORTS: Record<string, Gpt56Effort> = {
   'gpt-5.6-luna': 'none',
 }
 const OAUTH_REFRESH_SKEW_MS = 60_000
+const CODEX_RESPONSES_ENDPOINT =
+  'https://chatgpt.com/backend-api/codex/responses'
+
+type CodexImageStreamEvent = {
+  type: string
+  partial_image_index?: number
+  item?: {
+    type?: string
+    result?: string
+  }
+  response?: {
+    output?: {
+      type?: string
+      result?: string
+    }[]
+  }
+}
+
+export type PlanImageResult = {
+  base64: string
+  mimeType: 'image/png'
+}
 
 function isGpt56Model(model: string): boolean {
   return /^gpt-5\.6-(?:sol|terra|luna)$/.test(model)
@@ -117,6 +141,79 @@ export class OpenAICodexProvider extends BaseLLMProvider<
     )
   }
 
+  async generateImage(
+    model: Extract<ChatModel, { providerType: 'openai-plan' }>,
+    prompt: string,
+    options: {
+      quality: 'low' | 'medium' | 'high'
+      signal?: AbortSignal
+      onProgress?: (phase: string, partialImageIndex?: number) => void
+    },
+  ): Promise<PlanImageResult> {
+    return this.withAuthRetry(async (authHeaders) => {
+      const stream = await postStream(
+        CODEX_RESPONSES_ENDPOINT,
+        {
+          model: model.model,
+          input: [
+            {
+              role: 'user',
+              content: [{ type: 'input_text', text: prompt }],
+            },
+          ],
+          instructions: 'Use the image generation tool exactly once.',
+          store: false,
+          stream: true,
+          include: ['reasoning.encrypted_content'],
+          reasoning: {
+            effort: normalizeGpt56Effort(
+              model.model,
+              model.reasoning?.reasoning_effort,
+            ),
+          },
+          tools: [
+            {
+              type: 'image_generation',
+              quality: options.quality,
+              size: '1536x1024',
+              output_format: 'png',
+            },
+          ],
+          tool_choice: { type: 'image_generation' },
+        },
+        { headers: authHeaders, signal: options.signal },
+      )
+
+      let result: string | undefined
+      for await (const event of parseJsonSseStream<CodexImageStreamEvent>(
+        stream,
+      )) {
+        if (event.type === 'response.image_generation_call.in_progress') {
+          options.onProgress?.('generating')
+        } else if (event.type === 'response.image_generation_call.generating') {
+          options.onProgress?.('rendering')
+        } else if (
+          event.type === 'response.image_generation_call.partial_image'
+        ) {
+          options.onProgress?.('receiving', event.partial_image_index)
+        }
+        if (event.item?.type === 'image_generation_call' && event.item.result) {
+          result = event.item.result
+        }
+        if (event.type === 'response.completed') {
+          result =
+            event.response?.output?.find(
+              (item) => item.type === 'image_generation_call' && item.result,
+            )?.result ?? result
+        }
+      }
+      if (!result) {
+        throw new Error('Plan image generation completed without an image.')
+      }
+      return { base64: result, mimeType: 'image/png' }
+    })
+  }
+
   private async withAuthRetry<T>(
     request: (headers: Record<string, string>) => Promise<T>,
   ): Promise<T> {
@@ -124,7 +221,16 @@ export class OpenAICodexProvider extends BaseLLMProvider<
     try {
       return await request(authHeaders)
     } catch (error) {
-      if (!(error instanceof CodexRequestError) || error.status !== 401) {
+      const status =
+        error instanceof CodexRequestError
+          ? error.status
+          : typeof error === 'object' &&
+              error !== null &&
+              'status' in error &&
+              typeof error.status === 'number'
+            ? error.status
+            : undefined
+      if (status !== 401) {
         throw error
       }
 

@@ -7,7 +7,6 @@ import SmartComposerPlugin from '../../../main'
 import { LLMProvider } from '../../../types/provider.types'
 import { ConfirmModal } from '../../modals/ConfirmModal'
 import { ConnectClaudePlanModal } from '../modals/ConnectClaudePlanModal'
-import { ConnectGeminiPlanModal } from '../modals/ConnectGeminiPlanModal'
 import { ConnectOpenAIPlanModal } from '../modals/ConnectOpenAIPlanModal'
 
 type PlanConnectionsSectionProps = {
@@ -18,8 +17,6 @@ type PlanConnectionsSectionProps = {
 const CLAUDE_PLAN_PROVIDER_ID = PROVIDER_TYPES_INFO['anthropic-plan']
   .defaultProviderId as string
 const OPENAI_PLAN_PROVIDER_ID = PROVIDER_TYPES_INFO['openai-plan']
-  .defaultProviderId as string
-const GEMINI_PLAN_PROVIDER_ID = PROVIDER_TYPES_INFO['gemini-plan']
   .defaultProviderId as string
 
 export function PlanConnectionsSection({
@@ -36,33 +33,21 @@ export function PlanConnectionsSection({
     (p): p is Extract<LLMProvider, { type: 'openai-plan' }> =>
       p.id === OPENAI_PLAN_PROVIDER_ID && p.type === 'openai-plan',
   )
-  const geminiPlanProvider = settings.providers.find(
-    (p): p is Extract<LLMProvider, { type: 'gemini-plan' }> =>
-      p.id === GEMINI_PLAN_PROVIDER_ID && p.type === 'gemini-plan',
-  )
-
   const isClaudeConnected = !!claudePlanProvider?.oauth?.accessToken
   const isOpenAIConnected = !!openAIPlanProvider?.oauth?.accessToken
-  const isGeminiConnected = !!geminiPlanProvider?.oauth?.accessToken
 
-  const disconnect = (
-    providerType: 'anthropic-plan' | 'openai-plan' | 'gemini-plan',
-  ) => {
+  const disconnect = (providerType: 'anthropic-plan' | 'openai-plan') => {
     const providerId =
       providerType === 'anthropic-plan'
         ? CLAUDE_PLAN_PROVIDER_ID
-        : providerType === 'openai-plan'
-          ? OPENAI_PLAN_PROVIDER_ID
-          : GEMINI_PLAN_PROVIDER_ID
+        : OPENAI_PLAN_PROVIDER_ID
 
     new ConfirmModal(app, {
       title: 'Disconnect subscription',
       message:
         providerType === 'anthropic-plan'
           ? 'Disconnect Claude from Smart Composer?'
-          : providerType === 'openai-plan'
-            ? 'Disconnect OpenAI from Smart Composer?'
-            : 'Disconnect Gemini from Smart Composer?',
+          : 'Disconnect OpenAI from Smart Composer?',
       ctaText: 'Disconnect',
       onConfirm: async () => {
         await setSettings({
@@ -101,9 +86,9 @@ export function PlanConnectionsSection({
           and use it at your own risk.
         </div>
         Use a subscription instead of API-key billing. Connected subscriptions
-        consume your plan&apos;s included usage (Codex for OpenAI, Claude Code
-        for Anthropic, Gemini Code Assist for Gemini). Subscriptions aren&apos;t
-        supported on mobile environments.
+        consume your plan&apos;s included usage (Codex for OpenAI and Claude
+        Code for Anthropic). Subscriptions aren&apos;t supported on mobile
+        environments.
         <br />
       </div>
 
@@ -172,32 +157,18 @@ export function PlanConnectionsSection({
           </div>
         </div>
 
-        <div className="smtcmp-plan-connection-card">
+        <div className="smtcmp-plan-connection-card smtcmp-plan-connection-card--unavailable">
           <div className="smtcmp-plan-connection-card-header">
-            <div className="smtcmp-plan-connection-card-title">Gemini</div>
-            <PlanConnectionStatusBadge connected={isGeminiConnected} />
+            <div className="smtcmp-plan-connection-card-title">Gemini Plan</div>
+            <div className="smtcmp-mcp-server-status-badge smtcmp-mcp-server-status-badge--disconnected">
+              Unavailable
+            </div>
           </div>
 
           <div className="smtcmp-plan-connection-card-desc">
-            Uses your Gemini Code Assist usage from your Google AI Plan.
-            <br />
-            Check your limit in Gemini CLI with <code>/stats</code>.
-          </div>
-
-          <div className="smtcmp-plan-connection-card-actions">
-            {!isGeminiConnected && (
-              <button
-                className="mod-cta"
-                onClick={() => new ConnectGeminiPlanModal(app, plugin).open()}
-              >
-                Connect
-              </button>
-            )}
-            {isGeminiConnected && (
-              <button onClick={() => disconnect('gemini-plan')}>
-                Disconnect
-              </button>
-            )}
+            Google ended the consumer Gemini Code Assist OAuth path used by this
+            integration. Existing chat metadata is preserved, but new Plan
+            connections and model selection are disabled.
           </div>
         </div>
       </div>

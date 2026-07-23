@@ -1,4 +1,3 @@
-import { useMutation } from '@tanstack/react-query'
 import { Book, CircleStop, History, Plus } from 'lucide-react'
 import { App, Notice } from 'obsidian'
 import {
@@ -12,18 +11,13 @@ import {
 } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
-import { ApplyViewState } from '../../ApplyView'
-import { APPLY_VIEW_TYPE } from '../../constants'
 import { useApp } from '../../contexts/app-context'
 import { useMcp } from '../../contexts/mcp-context'
+import { usePlugin } from '../../contexts/plugin-context'
 import { useRAG } from '../../contexts/rag-context'
 import { useSettings } from '../../contexts/settings-context'
-import {
-  LLMAPIKeyInvalidException,
-  LLMAPIKeyNotSetException,
-  LLMBaseUrlNotSetException,
-} from '../../core/llm/exception'
-import { getChatModelClient } from '../../core/llm/manager'
+import { QueuedPrompt } from '../../core/conversation/ConversationRunManager'
+import { getProviderCapabilities } from '../../core/llm/providerCapabilities'
 import { useChatHistory } from '../../hooks/useChatHistory'
 import {
   AssistantToolMessageGroup,
@@ -37,22 +31,21 @@ import {
   MentionableCurrentFile,
 } from '../../types/mentionable'
 import { ToolCallResponseStatus } from '../../types/tool-call.types'
-import { applyChangesToFile } from '../../utils/chat/apply'
 import {
   getMentionableKey,
   serializeMentionable,
 } from '../../utils/chat/mentionable'
 import { groupAssistantAndToolMessages } from '../../utils/chat/message-groups'
 import { PromptGenerator } from '../../utils/chat/promptGenerator'
-import { readTFileContent } from '../../utils/obsidian'
-import { ErrorModal } from '../modals/ErrorModal'
 import { TemplateSectionModal } from '../modals/TemplateSectionModal'
 
 import AssistantToolMessageGroupItem from './AssistantToolMessageGroupItem'
+import { BackgroundTaskCards } from './BackgroundTaskCards'
 import ChatUserInput, { ChatUserInputRef } from './chat-input/ChatUserInput'
 import { editorStateToPlainText } from './chat-input/utils/editor-state-to-plain-text'
 import { ChatListDropdown } from './ChatListDropdown'
 import QueryProgress, { QueryProgressState } from './QueryProgress'
+import { QueuedPrompts } from './QueuedPrompts'
 import { useAutoScroll } from './useAutoScroll'
 import { useChatStreamManager } from './useChatStreamManager'
 import UserMessageItem from './UserMessageItem'
@@ -83,8 +76,35 @@ export type ChatProps = {
   selectedBlock?: MentionableBlockData
 }
 
+type ArtifactRequest = {
+  kind: 'canvas' | 'base' | 'excalidraw'
+  prompt: string
+}
+
+function matchArtifactRequest(text: string): ArtifactRequest | null {
+  const command = text.match(/^\/(canvas|base|excalidraw)\b\s*/i)
+  if (command) {
+    return {
+      kind: command[1].toLowerCase() as ArtifactRequest['kind'],
+      prompt: text.slice(command[0].length).trim(),
+    }
+  }
+  const verb = '(?:만들|생성|그려|작성|정리|create|build|make|draw|generate)'
+  const patterns: [ArtifactRequest['kind'], RegExp][] = [
+    ['excalidraw', new RegExp(`(?:excalidraw|엑스칼리드로).*(?:${verb})`, 'i')],
+    [
+      'canvas',
+      new RegExp(`(?:obsidian\\s+)?(?:canvas|캔버스).*(?:${verb})`, 'i'),
+    ],
+    ['base', new RegExp(`(?:obsidian\\s+bases?|베이스).*(?:${verb})`, 'i')],
+  ]
+  const matched = patterns.find(([, pattern]) => pattern.test(text))
+  return matched ? { kind: matched[0], prompt: text } : null
+}
+
 const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
   const app = useApp()
+  const plugin = usePlugin()
   const { settings, setSettings } = useSettings()
   const { getRAGEngine } = useRAG()
   const { getMcpManager } = useMcp()
@@ -130,6 +150,7 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
   const [queryProgress, setQueryProgress] = useState<QueryProgressState>({
     type: 'idle',
   })
+  const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([])
 
   const groupedChatMessages: (ChatUserMessage | AssistantToolMessageGroup)[] =
     useMemo(() => {
@@ -138,6 +159,7 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
 
   const chatUserInputRefs = useRef<Map<string, ChatUserInputRef>>(new Map())
   const chatMessagesRef = useRef<HTMLDivElement>(null)
+  const queueDispatchingRef = useRef(false)
 
   const { autoScrollToBottom, forceScrollToBottom } = useAutoScroll({
     scrollContainerRef: chatMessagesRef,
@@ -148,6 +170,19 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
     autoScrollToBottom,
     promptGenerator,
   })
+
+  useEffect(() => {
+    const manager = plugin.conversationRunManager
+    if (!manager) return
+    setQueuedPrompts(manager.getQueue(currentConversationId))
+    return manager.subscribe((conversationId, queue) => {
+      if (conversationId === currentConversationId) setQueuedPrompts(queue)
+    })
+  }, [currentConversationId, plugin.conversationRunManager])
+
+  useEffect(() => {
+    void plugin.conversationRunManager?.hydrate(currentConversationId)
+  }, [currentConversationId, plugin.conversationRunManager])
 
   const registerChatUserInputRef = (
     id: string,
@@ -284,72 +319,37 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
     ],
   )
 
-  const applyMutation = useMutation({
-    mutationFn: async ({
-      blockToApply,
-      chatMessages,
-    }: {
-      blockToApply: string
-      chatMessages: ChatMessage[]
-    }) => {
-      const activeFile = app.workspace.getActiveFile()
-      if (!activeFile) {
-        throw new Error(
-          'No file is currently open to apply changes. Please open a file and try again.',
-        )
-      }
-      const activeFileContent = await readTFileContent(activeFile, app.vault)
-
-      const { providerClient, model } = getChatModelClient({
-        modelId: settings.applyModelId,
-        settings,
-        setSettings,
+  useEffect(() => {
+    if (
+      submitChatMutation.isPending ||
+      submitChatMutation.isError ||
+      queuedPrompts.length === 0 ||
+      queueDispatchingRef.current
+    ) {
+      return
+    }
+    queueDispatchingRef.current = true
+    void plugin.conversationRunManager
+      ?.shift(currentConversationId)
+      .then(async (next) => {
+        if (!next) return
+        await handleUserMessageSubmit({
+          inputChatMessages: [...chatMessages, next.message],
+          useVaultSearch: next.useVaultSearch,
+        })
       })
-
-      const updatedFileContent = await applyChangesToFile({
-        blockToApply,
-        currentFile: activeFile,
-        currentFileContent: activeFileContent,
-        chatMessages,
-        providerClient,
-        model,
+      .finally(() => {
+        queueDispatchingRef.current = false
       })
-      if (!updatedFileContent) {
-        throw new Error('Failed to apply changes')
-      }
-
-      await app.workspace.getLeaf(true).setViewState({
-        type: APPLY_VIEW_TYPE,
-        active: true,
-        state: {
-          file: activeFile,
-          originalContent: activeFileContent,
-          newContent: updatedFileContent,
-        } satisfies ApplyViewState,
-      })
-    },
-    onError: (error) => {
-      if (
-        error instanceof LLMAPIKeyNotSetException ||
-        error instanceof LLMAPIKeyInvalidException ||
-        error instanceof LLMBaseUrlNotSetException
-      ) {
-        new ErrorModal(app, 'Error', error.message, error.rawError?.message, {
-          showSettingsButton: true,
-        }).open()
-      } else {
-        new Notice(error.message)
-        console.error('Failed to apply changes', error)
-      }
-    },
-  })
-
-  const handleApply = useCallback(
-    (blockToApply: string, chatMessages: ChatMessage[]) => {
-      applyMutation.mutate({ blockToApply, chatMessages })
-    },
-    [applyMutation],
-  )
+  }, [
+    chatMessages,
+    currentConversationId,
+    handleUserMessageSubmit,
+    plugin.conversationRunManager,
+    queuedPrompts.length,
+    submitChatMutation.isPending,
+    submitChatMutation.isError,
+  ])
 
   const handleToolMessageUpdate = useCallback(
     async (toolMessage: ChatToolMessage) => {
@@ -618,60 +618,65 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
       <div className="smtcmp-chat-messages" ref={chatMessagesRef}>
         {groupedChatMessages.map((messageOrGroup, index) =>
           !Array.isArray(messageOrGroup) ? (
-            <UserMessageItem
-              key={messageOrGroup.id}
-              message={messageOrGroup}
-              chatUserInputRef={(ref) =>
-                registerChatUserInputRef(messageOrGroup.id, ref)
-              }
-              onInputChange={(content) => {
-                setChatMessages((prevChatHistory) =>
-                  prevChatHistory.map((msg) =>
-                    msg.role === 'user' && msg.id === messageOrGroup.id
-                      ? {
-                          ...msg,
-                          content,
-                        }
-                      : msg,
-                  ),
-                )
-              }}
-              onSubmit={(content, useVaultSearch) => {
-                if (editorStateToPlainText(content).trim() === '') return
-                handleUserMessageSubmit({
-                  inputChatMessages: [
-                    ...groupedChatMessages
-                      .slice(0, index)
-                      .flatMap((messageOrGroup): ChatMessage[] =>
-                        !Array.isArray(messageOrGroup)
-                          ? [messageOrGroup]
-                          : messageOrGroup,
-                      ),
-                    {
-                      role: 'user',
-                      content: content,
-                      promptContent: null,
-                      id: messageOrGroup.id,
-                      mentionables: messageOrGroup.mentionables,
-                    },
-                  ],
-                  useVaultSearch,
-                })
-                chatUserInputRefs.current.get(inputMessage.id)?.focus()
-              }}
-              onFocus={() => {
-                setFocusedMessageId(messageOrGroup.id)
-              }}
-              onMentionablesChange={(mentionables) => {
-                setChatMessages((prevChatHistory) =>
-                  prevChatHistory.map((msg) =>
-                    msg.id === messageOrGroup.id
-                      ? { ...msg, mentionables }
-                      : msg,
-                  ),
-                )
-              }}
-            />
+            <div key={messageOrGroup.id}>
+              <UserMessageItem
+                message={messageOrGroup}
+                chatUserInputRef={(ref) =>
+                  registerChatUserInputRef(messageOrGroup.id, ref)
+                }
+                onInputChange={(content) => {
+                  setChatMessages((prevChatHistory) =>
+                    prevChatHistory.map((msg) =>
+                      msg.role === 'user' && msg.id === messageOrGroup.id
+                        ? {
+                            ...msg,
+                            content,
+                          }
+                        : msg,
+                    ),
+                  )
+                }}
+                onSubmit={(content, useVaultSearch) => {
+                  if (editorStateToPlainText(content).trim() === '') return
+                  handleUserMessageSubmit({
+                    inputChatMessages: [
+                      ...groupedChatMessages
+                        .slice(0, index)
+                        .flatMap((messageOrGroup): ChatMessage[] =>
+                          !Array.isArray(messageOrGroup)
+                            ? [messageOrGroup]
+                            : messageOrGroup,
+                        ),
+                      {
+                        role: 'user',
+                        content: content,
+                        promptContent: null,
+                        id: messageOrGroup.id,
+                        mentionables: messageOrGroup.mentionables,
+                      },
+                    ],
+                    useVaultSearch,
+                  })
+                  chatUserInputRefs.current.get(inputMessage.id)?.focus()
+                }}
+                onFocus={() => {
+                  setFocusedMessageId(messageOrGroup.id)
+                }}
+                onMentionablesChange={(mentionables) => {
+                  setChatMessages((prevChatHistory) =>
+                    prevChatHistory.map((msg) =>
+                      msg.id === messageOrGroup.id
+                        ? { ...msg, mentionables }
+                        : msg,
+                    ),
+                  )
+                }}
+              />
+              <BackgroundTaskCards
+                conversationId={currentConversationId}
+                originMessageId={messageOrGroup.id}
+              />
+            </div>
           ) : (
             <AssistantToolMessageGroupItem
               key={messageOrGroup.at(0)?.id}
@@ -684,8 +689,10 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
                     : messageOrGroup,
                 )}
               conversationId={currentConversationId}
-              isApplying={applyMutation.isPending}
-              onApply={handleApply}
+              isStreaming={
+                submitChatMutation.isPending &&
+                index === groupedChatMessages.length - 1
+              }
               onToolMessageUpdate={handleToolMessageUpdate}
             />
           ),
@@ -708,6 +715,36 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
           </button>
         )}
       </div>
+      <QueuedPrompts
+        prompts={queuedPrompts}
+        paused={submitChatMutation.isError}
+        onResume={() => submitChatMutation.reset()}
+        onCancel={(prompt) => {
+          void plugin.conversationRunManager?.cancel(
+            currentConversationId,
+            prompt.id,
+          )
+        }}
+        onEdit={(prompt) => {
+          void plugin.conversationRunManager?.cancel(
+            currentConversationId,
+            prompt.id,
+          )
+          setInputMessage(prompt.message)
+        }}
+        onSendNow={(prompt) => {
+          abortActiveStreams()
+          void plugin.conversationRunManager
+            ?.cancel(currentConversationId, prompt.id)
+            .then(() =>
+              plugin.conversationRunManager?.enqueue(
+                currentConversationId,
+                prompt,
+                true,
+              ),
+            )
+        }}
+      />
       <ChatUserInput
         key={inputMessage.id} // this is needed to clear the editor when the user submits a new message
         ref={(ref) => registerChatUserInputRef(inputMessage.id, ref)}
@@ -718,10 +755,72 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
             content,
           }))
         }}
-        onSubmit={(content, useVaultSearch) => {
-          if (editorStateToPlainText(content).trim() === '') return
+        onSubmit={(content, useVaultSearch, mode = 'chat') => {
+          const plainText = editorStateToPlainText(content).trim()
+          if (plainText === '') return
+          const imagePrompt = plainText
+            .replace(/^\/image\s*/i, '')
+            .replace(
+              /^(?:이미지를?|그림을?)\s*(?:그려|생성해)(?:줘|주세요)?\s*/i,
+              '',
+            )
+            .trim()
+          const imageCommand = /^\/image\b/i.test(plainText)
+          const selectedModel = settings.chatModels.find(
+            (model) => model.id === settings.chatModelId,
+          )
+          const canGenerateImages =
+            !!selectedModel &&
+            getProviderCapabilities(selectedModel).imageGeneration
+          const artifactMatch = matchArtifactRequest(plainText)
+          if (artifactMatch && plugin.backgroundTaskManager) {
+            const artifactKind = artifactMatch.kind
+            const userMessage = { ...inputMessage, content }
+            setChatMessages((messages) => [...messages, userMessage])
+            void plugin.backgroundTaskManager.enqueue({
+              conversationId: currentConversationId,
+              originMessageId: inputMessage.id,
+              kind: 'artifact-draft',
+              payload: {
+                prompt: artifactMatch.prompt,
+                artifactKind,
+              },
+            })
+            setInputMessage(getNewInputMessage(app))
+            return
+          }
+          if (
+            canGenerateImages &&
+            (mode === 'image' || imageCommand) &&
+            plugin.backgroundTaskManager
+          ) {
+            const userMessage = { ...inputMessage, content }
+            setChatMessages((messages) => [...messages, userMessage])
+            void plugin.backgroundTaskManager.enqueue({
+              conversationId: currentConversationId,
+              originMessageId: inputMessage.id,
+              kind: 'image-generation',
+              payload: {
+                prompt: imagePrompt || plainText,
+                modelId: settings.chatModelId,
+              },
+            })
+            setInputMessage(getNewInputMessage(app))
+            return
+          }
+          const userMessage = { ...inputMessage, content }
+          if (submitChatMutation.isPending) {
+            void plugin.conversationRunManager?.enqueue(currentConversationId, {
+              id: userMessage.id,
+              message: userMessage,
+              createdAt: Date.now(),
+              useVaultSearch,
+            })
+            setInputMessage(getNewInputMessage(app))
+            return
+          }
           handleUserMessageSubmit({
-            inputChatMessages: [...chatMessages, { ...inputMessage, content }],
+            inputChatMessages: [...chatMessages, userMessage],
             useVaultSearch,
           })
           setInputMessage(getNewInputMessage(app))

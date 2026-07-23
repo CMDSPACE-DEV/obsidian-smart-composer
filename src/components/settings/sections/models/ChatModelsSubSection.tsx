@@ -27,10 +27,11 @@ export function ChatModelsSubSection({
   const { settings, setSettings } = useSettings()
 
   const handleDeleteChatModel = async (modelId: string) => {
-    if (modelId === settings.chatModelId || modelId === settings.applyModelId) {
-      new Notice(
-        'Cannot remove model that is currently selected as Chat Model or Apply Model',
-      )
+    if (
+      modelId === settings.chatModelId ||
+      modelId === settings.inlineEdit.modelId
+    ) {
+      new Notice('Cannot remove a model selected for chat or inline editing')
       return
     }
 
@@ -54,11 +55,10 @@ export function ChatModelsSubSection({
   ) => {
     if (
       !value &&
-      (modelId === settings.chatModelId || modelId === settings.applyModelId)
+      (modelId === settings.chatModelId ||
+        modelId === settings.inlineEdit.modelId)
     ) {
-      new Notice(
-        'Cannot disable model that is currently selected as Chat Model or Apply Model',
-      )
+      new Notice('Cannot disable a model selected for chat or inline editing')
 
       // to trigger re-render
       await setSettings({
@@ -81,7 +81,9 @@ export function ChatModelsSubSection({
   return (
     <div>
       <div className="smtcmp-settings-sub-header">Chat Models</div>
-      <div className="smtcmp-settings-desc">Models used for chat and apply</div>
+      <div className="smtcmp-settings-desc">
+        Models used for chat and inline editing
+      </div>
 
       <div className="smtcmp-settings-table-container">
         <table className="smtcmp-settings-table">

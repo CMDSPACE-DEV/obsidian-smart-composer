@@ -3,7 +3,6 @@ import { EmbeddingModel } from './types/embedding-model.types'
 import { LLMProvider, LLMProviderType } from './types/provider.types'
 
 export const CHAT_VIEW_TYPE = 'smtcmp-chat-view'
-export const APPLY_VIEW_TYPE = 'smtcmp-apply-view'
 
 export const PGLITE_DB_PATH = '.smtcmp_vector_db.tar.gz'
 
@@ -348,12 +347,14 @@ export const DEFAULT_CHAT_MODELS: readonly ChatModel[] = [
     providerId: PROVIDER_TYPES_INFO['gemini-plan'].defaultProviderId,
     id: 'gemini-3-pro-preview (plan)',
     model: 'gemini-3-pro-preview',
+    enable: false,
   },
   {
     providerType: 'gemini-plan',
     providerId: PROVIDER_TYPES_INFO['gemini-plan'].defaultProviderId,
     id: 'gemini-3-flash-preview (plan)',
     model: 'gemini-3-flash-preview',
+    enable: false,
   },
   {
     providerType: 'anthropic',

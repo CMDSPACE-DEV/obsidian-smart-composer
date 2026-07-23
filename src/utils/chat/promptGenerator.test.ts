@@ -94,7 +94,7 @@ function createSettings(
   overrides: Partial<SmartComposerSettings> = {},
 ): SmartComposerSettings {
   return {
-    version: 19,
+    version: 20,
     providers: [...DEFAULT_PROVIDERS],
     chatModels: [...DEFAULT_CHAT_MODELS],
     embeddingModels: [
@@ -107,7 +107,14 @@ function createSettings(
       },
     ],
     chatModelId: 'claude-sonnet-5 (plan)',
-    applyModelId: 'gpt-4.1-mini',
+    inlineEdit: { modelId: null, contextCharacters: 4000 },
+    imageGeneration: {
+      modelId: 'gpt-5.6-sol (plan)',
+      outputFolder: 'Smart Composer/Generated Images',
+      quality: 'high',
+      concurrency: 1,
+    },
+    appearance: { skinMode: 'follow-obsidian' },
     embeddingModelId: 'openai/text-embedding-3-small',
     systemPrompt: '',
     ragOptions: {
@@ -338,7 +345,7 @@ describe('PromptGenerator tool-call history', () => {
       createSettings(),
     )
 
-  it('rejects a multi-tool assistant turn with a missing result', async () => {
+  it('repairs a multi-tool assistant turn with an aborted result', async () => {
     const messages: ChatMessage[] = [
       createUserMessage('user-1', 'run both tools'),
       {
@@ -366,9 +373,18 @@ describe('PromptGenerator tool-call history', () => {
       createUserMessage('user-2', 'continue'),
     ]
 
-    await expect(
-      createGenerator().generateRequestMessages({ messages }),
-    ).rejects.toThrow('Missing tool result for tool call tool-2')
+    const requestMessages = await createGenerator().generateRequestMessages({
+      messages,
+    })
+    expect(requestMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'tool',
+          tool_call: expect.objectContaining({ id: 'tool-2' }),
+          content: expect.stringContaining('aborted'),
+        }),
+      ]),
+    )
   })
 
   it('preserves two consecutive saved tool turns and Anthropic metadata', async () => {

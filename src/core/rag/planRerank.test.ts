@@ -84,12 +84,19 @@ describe('processQueryWithPlanRerank', () => {
     const { results, retrievalMetadata } = await processQueryWithPlanRerank({
       app,
       settings: {
-        version: 19,
+        version: 20,
         providers: [],
         chatModels: [],
         embeddingModels: [],
         chatModelId: 'claude-sonnet-5 (plan)',
-        applyModelId: 'gpt-4.1-mini',
+        inlineEdit: { modelId: null, contextCharacters: 4000 },
+        imageGeneration: {
+          modelId: 'gpt-5.6-sol (plan)',
+          outputFolder: 'Smart Composer/Generated Images',
+          quality: 'high',
+          concurrency: 1,
+        },
+        appearance: { skinMode: 'follow-obsidian' },
         embeddingModelId: 'openai/text-embedding-3-small',
         systemPrompt: '',
         ragOptions: {
@@ -142,7 +149,7 @@ describe('processQueryWithPlanRerank', () => {
     )
   })
 
-  it('surfaces Plan entitlement errors instead of silently reranking locally', async () => {
+  it('falls back locally for Plan entitlement errors', async () => {
     const file = createFile('notes/secure.md', 1)
     const app = {
       vault: {
@@ -165,42 +172,52 @@ describe('processQueryWithPlanRerank', () => {
       },
     } as unknown as ReturnType<typeof getChatModelClient>)
 
-    await expect(
-      processQueryWithPlanRerank({
-        app,
-        settings: {
-          version: 19,
-          providers: [],
-          chatModels: [],
-          embeddingModels: [],
-          chatModelId: 'gpt-5.6-terra (plan)',
-          applyModelId: 'gpt-4.1-mini',
-          embeddingModelId: 'openai/text-embedding-3-small',
-          systemPrompt: '',
-          ragOptions: {
-            retrievalMode: 'plan-rerank',
-            folderReadMode: 'auto',
-            chunkSize: 1000,
-            thresholdTokens: 1,
-            exhaustiveDirectTokenLimit: 60000,
-            minSimilarity: 0,
-            limit: 1,
-            planRerankCandidateLimit: 2,
-            excludePatterns: [],
-            includePatterns: [],
-          },
-          mcp: { servers: [] },
-          chatOptions: {
-            includeCurrentFileContent: true,
-            enableTools: true,
-            maxAutoIterations: 1,
-          },
+    const result = await processQueryWithPlanRerank({
+      app,
+      settings: {
+        version: 20,
+        providers: [],
+        chatModels: [],
+        embeddingModels: [],
+        chatModelId: 'gpt-5.6-terra (plan)',
+        inlineEdit: { modelId: null, contextCharacters: 4000 },
+        imageGeneration: {
+          modelId: 'gpt-5.6-sol (plan)',
+          outputFolder: 'Smart Composer/Generated Images',
+          quality: 'high',
+          concurrency: 1,
         },
-        query: 'secure',
-        files: [file],
-        scopeType: 'folders',
-      }),
-    ).rejects.toBe(entitlementError)
-    expect(consoleWarnSpy).not.toHaveBeenCalled()
+        appearance: { skinMode: 'follow-obsidian' },
+        embeddingModelId: 'openai/text-embedding-3-small',
+        systemPrompt: '',
+        ragOptions: {
+          retrievalMode: 'plan-rerank',
+          folderReadMode: 'auto',
+          chunkSize: 1000,
+          thresholdTokens: 1,
+          exhaustiveDirectTokenLimit: 60000,
+          minSimilarity: 0,
+          limit: 1,
+          planRerankCandidateLimit: 2,
+          excludePatterns: [],
+          includePatterns: [],
+        },
+        mcp: { servers: [] },
+        chatOptions: {
+          includeCurrentFileContent: true,
+          enableTools: true,
+          maxAutoIterations: 1,
+        },
+      },
+      query: 'secure',
+      files: [file],
+      scopeType: 'folders',
+    })
+    expect(result.retrievalMetadata).toMatchObject({
+      fallbackUsed: true,
+      warnings: [expect.stringContaining('HTTP 403')],
+    })
+    expect(result.results).toHaveLength(1)
+    expect(consoleWarnSpy).toHaveBeenCalled()
   })
 })

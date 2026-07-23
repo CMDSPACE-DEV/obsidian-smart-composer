@@ -14,17 +14,15 @@ export type AssistantToolMessageGroupItemProps = {
   messages: AssistantToolMessageGroup
   contextMessages: ChatMessage[]
   conversationId: string
-  isApplying: boolean // TODO: isApplying should be a boolean for each assistant message
-  onApply: (blockToApply: string, chatMessages: ChatMessage[]) => void
+  isStreaming?: boolean
   onToolMessageUpdate: (message: ChatToolMessage) => void
 }
 
 export default function AssistantToolMessageGroupItem({
   messages,
-  contextMessages,
+  contextMessages: _contextMessages,
   conversationId,
-  isApplying,
-  onApply,
+  isStreaming,
   onToolMessageUpdate,
 }: AssistantToolMessageGroupItemProps) {
   return (
@@ -43,9 +41,7 @@ export default function AssistantToolMessageGroupItem({
               )}
               <AssistantMessageContent
                 content={message.content}
-                contextMessages={contextMessages}
-                handleApply={onApply}
-                isApplying={isApplying}
+                isStreaming={isStreaming}
               />
             </div>
           ) : null

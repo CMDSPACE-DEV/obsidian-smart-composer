@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef } from 'react'
 
 import { useApp } from '../../contexts/app-context'
 import { useMcp } from '../../contexts/mcp-context'
+import { usePlugin } from '../../contexts/plugin-context'
 import { useSettings } from '../../contexts/settings-context'
 import {
   LLMAPIKeyInvalidException,
@@ -12,9 +13,14 @@ import {
   LLMModelNotFoundException,
 } from '../../core/llm/exception'
 import { getChatModelClient } from '../../core/llm/manager'
+import { getProviderCapabilities } from '../../core/llm/providerCapabilities'
 import { ChatMessage } from '../../types/chat'
+import { ToolCallResponseStatus } from '../../types/tool-call.types'
 import { PromptGenerator } from '../../utils/chat/promptGenerator'
-import { ResponseGenerator } from '../../utils/chat/responseGenerator'
+import {
+  LocalResponseTool,
+  ResponseGenerator,
+} from '../../utils/chat/responseGenerator'
 import { ErrorModal } from '../modals/ErrorModal'
 
 type UseChatStreamManagerParams = {
@@ -38,6 +44,7 @@ export function useChatStreamManager({
   promptGenerator,
 }: UseChatStreamManagerParams): UseChatStreamManager {
   const app = useApp()
+  const plugin = usePlugin()
   const { settings, setSettings } = useSettings()
   const { getMcpManager } = useMcp()
 
@@ -108,6 +115,60 @@ export function useChatStreamManager({
 
       try {
         const mcpManager = await getMcpManager()
+        const localTools: LocalResponseTool[] =
+          getProviderCapabilities(model).imageGeneration &&
+          plugin.backgroundTaskManager
+            ? [
+                {
+                  definition: {
+                    type: 'function',
+                    function: {
+                      name: 'enqueue_image_generation',
+                      description:
+                        'Create a background image-generation task when the user asks to draw, generate, or make an image. Structure the complete visual request as a standalone prompt. The chat continues while the image renders.',
+                      parameters: {
+                        type: 'object',
+                        properties: {
+                          prompt: {
+                            type: 'string',
+                            description:
+                              'A complete standalone image-generation prompt preserving all requested text and visual constraints.',
+                          },
+                        },
+                        required: ['prompt'],
+                        additionalProperties: false,
+                      },
+                    },
+                  },
+                  call: async (args) => {
+                    const prompt =
+                      typeof args.prompt === 'string' ? args.prompt.trim() : ''
+                    if (!prompt) {
+                      return {
+                        status: ToolCallResponseStatus.Error,
+                        error: 'The image prompt was empty.',
+                      }
+                    }
+                    await plugin.backgroundTaskManager?.enqueue({
+                      conversationId,
+                      originMessageId: lastMessage.id,
+                      kind: 'image-generation',
+                      payload: {
+                        prompt,
+                        modelId: settings.chatModelId,
+                      },
+                    })
+                    return {
+                      status: ToolCallResponseStatus.Success,
+                      data: {
+                        type: 'text',
+                        text: 'Image generation was queued in the background.',
+                      },
+                    }
+                  },
+                },
+              ]
+            : []
         const responseGenerator = new ResponseGenerator({
           providerClient,
           model,
@@ -118,6 +179,7 @@ export function useChatStreamManager({
           promptGenerator,
           mcpManager,
           abortSignal: abortController.signal,
+          localTools,
         })
 
         unsubscribeResponseGenerator = responseGenerator.subscribe(

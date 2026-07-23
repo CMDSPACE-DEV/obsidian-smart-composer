@@ -10,6 +10,7 @@ import { tokenCount } from '../../utils/llm/token'
 import { getChatModelClient } from '../llm/manager'
 
 import {
+  describePlanRequestError,
   getInternalRagModel,
   shouldSurfacePlanRequestError,
 } from './internalModel'
@@ -92,7 +93,7 @@ export async function processQueryWithExhaustiveFolderRead({
     type: 'plan-reranking',
   })
 
-  const batchSummaries = await Promise.all(
+  const batchResults = await Promise.all(
     batches.map((batch, index) =>
       summarizeBatchWithPlan({
         settings,
@@ -104,6 +105,10 @@ export async function processQueryWithExhaustiveFolderRead({
       }),
     ),
   )
+  const batchSummaries = batchResults.map((result) => result.summary)
+  const warnings = batchResults
+    .map((result) => result.warning)
+    .filter((warning): warning is string => !!warning)
   const representativeChunks = chunks.slice(0, settings.ragOptions.limit)
   const similaritySearchResults = toChunkResults(representativeChunks)
 
@@ -118,6 +123,10 @@ export async function processQueryWithExhaustiveFolderRead({
       candidateChunks: chunks.length,
       selectedChunks: similaritySearchResults.length,
       exhaustive: true,
+      fallbackUsed: warnings.length > 0,
+      ...(warnings.length > 0
+        ? { warnings: Array.from(new Set(warnings)) }
+        : {}),
     },
   }
 }
@@ -257,7 +266,7 @@ async function summarizeBatchWithPlan({
   batch: ChunkCandidate[]
   batchIndex: number
   totalBatches: number
-}): Promise<string> {
+}): Promise<{ summary: string; warning?: string }> {
   const { providerClient, model } = getChatModelClient({
     modelId: settings.chatModelId,
     settings,
@@ -288,19 +297,22 @@ ${batch.map(formatChunkForBatch).join('\n\n')}`,
       temperature: 0,
       max_tokens: BATCH_SUMMARY_MAX_TOKENS,
     })
-    return response.choices[0]?.message.content ?? ''
+    return { summary: response.choices[0]?.message.content ?? '' }
   } catch (error) {
     if (shouldSurfacePlanRequestError(error)) {
       throw error
     }
     console.warn('Exhaustive folder batch summary failed:', error)
-    return `Batch ${batchIndex + 1} summary fallback:
+    return {
+      summary: `Batch ${batchIndex + 1} summary fallback:
 ${batch
   .map(
     (chunk) =>
       `- ${chunk.path} (${chunk.metadata.startLine}-${chunk.metadata.endLine}): ${chunk.content.slice(0, 300)}`,
   )
-  .join('\n')}`
+  .join('\n')}`,
+      warning: describePlanRequestError(error),
+    }
   }
 }
 

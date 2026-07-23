@@ -583,7 +583,6 @@ export class CodexMessageAdapter {
       store: false,
       stream,
       include: ['reasoning.encrypted_content'],
-      max_output_tokens: request.max_tokens,
       tools,
       tool_choice: normalizeToolChoice(request.tool_choice),
       ...(reasoning && {

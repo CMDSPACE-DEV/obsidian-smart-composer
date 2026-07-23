@@ -13,6 +13,7 @@ import {
 import { LLMProvider } from '../../types/provider.types'
 import {
   ToolCallRequest,
+  ToolCallResponse,
   ToolCallResponseStatus,
 } from '../../types/tool-call.types'
 
@@ -29,6 +30,25 @@ export type ResponseGeneratorParams = {
   promptGenerator: PromptGenerator
   mcpManager: McpManager
   abortSignal?: AbortSignal
+  localTools?: LocalResponseTool[]
+}
+
+export type LocalResponseTool = {
+  definition: RequestTool
+  call: (
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ) => Promise<
+    Extract<
+      ToolCallResponse,
+      {
+        status:
+          | ToolCallResponseStatus.Success
+          | ToolCallResponseStatus.Error
+          | ToolCallResponseStatus.Aborted
+      }
+    >
+  >
 }
 
 export class ResponseGenerator {
@@ -41,6 +61,7 @@ export class ResponseGenerator {
   private readonly abortSignal?: AbortSignal
   private readonly receivedMessages: ChatMessage[]
   private readonly maxAutoIterations: number
+  private readonly localTools: Map<string, LocalResponseTool>
 
   private responseMessages: ChatMessage[] = [] // Response messages that are generated after the initial messages
   private subscribers: ((messages: ChatMessage[]) => void)[] = []
@@ -55,6 +76,12 @@ export class ResponseGenerator {
     this.promptGenerator = params.promptGenerator
     this.mcpManager = params.mcpManager
     this.abortSignal = params.abortSignal
+    this.localTools = new Map(
+      (params.localTools ?? []).map((tool) => [
+        tool.definition.function.name,
+        tool,
+      ]),
+    )
   }
 
   public subscribe(callback: (messages: ChatMessage[]) => void) {
@@ -78,12 +105,14 @@ export class ResponseGenerator {
         toolCalls: toolCallRequests.map((toolCall) => ({
           request: toolCall,
           response: {
-            status: this.mcpManager.isToolExecutionAllowed({
-              requestToolName: toolCall.name,
-              conversationId: this.conversationId,
-            })
-              ? ToolCallResponseStatus.Running
-              : ToolCallResponseStatus.PendingApproval,
+            status:
+              this.localTools.has(toolCall.name) ||
+              this.mcpManager.isToolExecutionAllowed({
+                requestToolName: toolCall.name,
+                conversationId: this.conversationId,
+              })
+                ? ToolCallResponseStatus.Running
+                : ToolCallResponseStatus.PendingApproval,
           },
         })),
       }
@@ -97,12 +126,7 @@ export class ResponseGenerator {
               toolCall.response.status === ToolCallResponseStatus.Running,
           )
           .map(async (toolCall) => {
-            const response = await this.mcpManager.callTool({
-              name: toolCall.request.name,
-              args: toolCall.request.arguments,
-              id: toolCall.request.id,
-              signal: this.abortSignal,
-            })
+            const response = await this.callTool(toolCall.request)
             this.updateResponseMessages((messages) =>
               messages.map((message) =>
                 message.id === toolMessage.id && message.role === 'tool'
@@ -148,26 +172,30 @@ export class ResponseGenerator {
       messages: [...this.receivedMessages, ...this.responseMessages],
     })
 
-    const availableTools = this.enableTools
+    const availableMcpTools = this.enableTools
       ? await this.mcpManager.listAvailableTools()
       : []
 
     // Set tools to undefined when no tools are available since some providers
     // reject empty tools arrays.
+    const availableTools: RequestTool[] = [...this.localTools.values()].map(
+      (tool) => tool.definition,
+    )
+    availableTools.push(
+      ...availableMcpTools.map((tool) => ({
+        type: 'function' as const,
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: {
+            ...tool.inputSchema,
+            properties: tool.inputSchema.properties ?? {},
+          },
+        },
+      })),
+    )
     const tools: RequestTool[] | undefined =
-      availableTools.length > 0
-        ? availableTools.map((tool) => ({
-            type: 'function',
-            function: {
-              name: tool.name,
-              description: tool.description,
-              parameters: {
-                ...tool.inputSchema,
-                properties: tool.inputSchema.properties ?? {},
-              },
-            },
-          }))
-        : undefined
+      availableTools.length > 0 ? availableTools : undefined
 
     const stream = await this.providerClient.streamResponse(
       this.model,
@@ -309,6 +337,32 @@ export class ResponseGenerator {
 
     return {
       updatedToolCalls,
+    }
+  }
+
+  private async callTool(request: ToolCallRequest) {
+    const localTool = this.localTools.get(request.name)
+    if (!localTool) {
+      return this.mcpManager.callTool({
+        name: request.name,
+        args: request.arguments,
+        id: request.id,
+        signal: this.abortSignal,
+      })
+    }
+    try {
+      const args = request.arguments
+        ? (JSON.parse(request.arguments) as Record<string, unknown>)
+        : {}
+      return await localTool.call(args, this.abortSignal)
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return { status: ToolCallResponseStatus.Aborted } as const
+      }
+      return {
+        status: ToolCallResponseStatus.Error,
+        error: error instanceof Error ? error.message : String(error),
+      } as const
     }
   }
 

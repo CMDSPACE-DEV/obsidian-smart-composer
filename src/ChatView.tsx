@@ -3,6 +3,8 @@ import { ItemView, WorkspaceLeaf } from 'obsidian'
 import React from 'react'
 import { Root, createRoot } from 'react-dom/client'
 
+import smartComposerStyles from '../styles.css'
+
 import Chat, { ChatProps, ChatRef } from './components/chat-view/Chat'
 import { CHAT_VIEW_TYPE } from './constants'
 import { AppProvider } from './contexts/app-context'
@@ -21,6 +23,7 @@ export class ChatView extends ItemView {
   private root: Root | null = null
   private initialChatProps?: ChatProps
   private chatRef: React.RefObject<ChatRef> = React.createRef()
+  private mountEl: HTMLDivElement | null = null
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -51,11 +54,31 @@ export class ChatView extends ItemView {
 
   async onClose() {
     this.root?.unmount()
+    this.root = null
+    this.mountEl = null
   }
 
   async render() {
     if (!this.root) {
-      this.root = createRoot(this.containerEl.children[1])
+      const host = this.containerEl.children[1] as HTMLElement
+      const shadow = host.shadowRoot ?? host.attachShadow({ mode: 'open' })
+      shadow.replaceChildren()
+      const style = host.ownerDocument.createElement('style')
+      style.textContent = smartComposerStyles
+      this.mountEl = host.ownerDocument.createElement('div')
+      this.mountEl.className = 'smtcmp-shell'
+      const applyTheme = () => {
+        this.mountEl?.setAttribute(
+          'data-skin',
+          host.ownerDocument.body.classList.contains('theme-dark')
+            ? 'cmds-dark'
+            : 'hallym-light',
+        )
+      }
+      applyTheme()
+      this.registerEvent(this.app.workspace.on('css-change', applyTheme))
+      shadow.append(style, this.mountEl)
+      this.root = createRoot(this.mountEl)
     }
 
     const queryClient = new QueryClient({
@@ -92,11 +115,7 @@ export class ChatView extends ItemView {
                     >
                       <QueryClientProvider client={queryClient}>
                         <React.StrictMode>
-                          <DialogContainerProvider
-                            container={
-                              this.containerEl.children[1] as HTMLElement
-                            }
-                          >
+                          <DialogContainerProvider container={this.mountEl}>
                             <Chat
                               ref={this.chatRef}
                               {...this.initialChatProps}

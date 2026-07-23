@@ -106,11 +106,11 @@ describe('CodexMessageAdapter', () => {
       stream: true,
       store: false,
       include: ['reasoning.encrypted_content'],
-      max_output_tokens: 4096,
       reasoning:
         effort === 'none' ? { effort: 'none' } : { effort, summary: 'auto' },
     })
     expect(captured).not.toHaveProperty('max_tokens')
+    expect(captured).not.toHaveProperty('max_output_tokens')
   })
 
   it('captures and replays encrypted reasoning output in original order', async () => {

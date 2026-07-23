@@ -161,8 +161,7 @@ export class PromptGenerator {
         }
       })
 
-    validateCompleteToolCallSets(requestMessages)
-    return requestMessages
+    return repairToolCallSets(requestMessages)
   }
 
   private parseAssistantMessage({
@@ -802,54 +801,47 @@ ${transcript.map((t) => `${t.offset}: ${t.text}`).join('\n')}`
   }
 }
 
-function validateCompleteToolCallSets(messages: RequestMessage[]): void {
-  const calls = new Map<string, number>()
-  const results = new Map<string, number>()
+export function repairToolCallSets(
+  messages: RequestMessage[],
+): RequestMessage[] {
+  const results = new Map<string, Extract<RequestMessage, { role: 'tool' }>>()
+  for (const message of messages) {
+    if (message.role === 'tool' && !results.has(message.tool_call.id)) {
+      results.set(message.tool_call.id, message)
+    }
+  }
 
-  messages.forEach((message, index) => {
-    if (message.role === 'assistant') {
-      for (const toolCall of message.tool_calls ?? []) {
-        if (calls.has(toolCall.id)) {
-          throw new Error(
-            `Duplicate tool call ID in chat history: ${toolCall.id}`,
-          )
-        }
-        calls.set(toolCall.id, index)
-      }
-    } else if (message.role === 'tool') {
-      if (results.has(message.tool_call.id)) {
-        throw new Error(
-          `Duplicate tool result ID in chat history: ${message.tool_call.id}`,
-        )
-      }
-      results.set(message.tool_call.id, index)
+  const seenCalls = new Set<string>()
+  const repaired: RequestMessage[] = []
+  for (const message of messages) {
+    if (message.role === 'tool') {
+      continue
     }
-  })
+    if (message.role !== 'assistant' || !message.tool_calls?.length) {
+      repaired.push(message)
+      continue
+    }
 
-  for (const [toolCallId, callIndex] of calls) {
-    const resultIndex = results.get(toolCallId)
-    if (resultIndex === undefined) {
-      throw new Error(`Missing tool result for tool call ${toolCallId}`)
-    }
-    if (resultIndex <= callIndex) {
-      throw new Error(`Tool result precedes its tool call ${toolCallId}`)
-    }
-    if (
-      messages
-        .slice(callIndex + 1, resultIndex)
-        .some((message) => message.role !== 'tool')
-    ) {
-      throw new Error(
-        `Tool result for ${toolCallId} is not adjacent to its assistant tool call`,
+    const toolCalls = message.tool_calls.filter((toolCall) => {
+      if (seenCalls.has(toolCall.id)) return false
+      seenCalls.add(toolCall.id)
+      return true
+    })
+    repaired.push({
+      ...message,
+      tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+    })
+    for (const toolCall of toolCalls) {
+      repaired.push(
+        results.get(toolCall.id) ?? {
+          role: 'tool',
+          tool_call: toolCall,
+          content: `Tool call ${toolCall.id} is aborted`,
+        },
       )
     }
   }
-
-  for (const toolResultId of results.keys()) {
-    if (!calls.has(toolResultId)) {
-      throw new Error(`Orphan tool result in chat history: ${toolResultId}`)
-    }
-  }
+  return repaired
 }
 
 function isExhaustiveReadIntent(query: string): boolean {

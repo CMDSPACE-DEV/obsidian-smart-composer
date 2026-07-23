@@ -27,19 +27,18 @@ export class ChatManager extends AbstractJsonRepository<
 
   protected parseFileName(fileName: string): ChatConversationMetadata | null {
     // Parse: v{schemaVersion}_{title}_{updatedAt}_{id}.json
-    const regex = new RegExp(
-      `^v${CHAT_SCHEMA_VERSION}_(.+)_(\\d+)_([0-9a-f-]+)\\.json$`,
-    )
+    const regex = /^v(1|2)_(.+)_(\d+)_([0-9a-f-]+)\.json$/
     const match = fileName.match(regex)
     if (!match) return null
 
-    const title = decodeURIComponent(match[1])
-    const updatedAt = parseInt(match[2], 10)
-    const id = match[3]
+    const schemaVersion = parseInt(match[1], 10)
+    const title = decodeURIComponent(match[2])
+    const updatedAt = parseInt(match[3], 10)
+    const id = match[4]
 
     return {
       id,
-      schemaVersion: CHAT_SCHEMA_VERSION,
+      schemaVersion,
       title,
       updatedAt,
     }
@@ -57,6 +56,7 @@ export class ChatManager extends AbstractJsonRepository<
       id: uuidv4(),
       title: 'New chat',
       messages: [],
+      queuedPrompts: [],
       createdAt: now,
       updatedAt: now,
       schemaVersion: CHAT_SCHEMA_VERSION,
@@ -73,7 +73,22 @@ export class ChatManager extends AbstractJsonRepository<
 
     if (!targetMetadata) return null
 
-    return this.read(targetMetadata.fileName)
+    const chat = await this.read(targetMetadata.fileName)
+    if (!chat) return null
+    if (chat.schemaVersion === CHAT_SCHEMA_VERSION) {
+      return {
+        ...chat,
+        queuedPrompts: chat.queuedPrompts ?? [],
+      }
+    }
+
+    const migrated: ChatConversation = {
+      ...chat,
+      schemaVersion: CHAT_SCHEMA_VERSION,
+      queuedPrompts: [],
+    }
+    await this.update(chat, migrated)
+    return migrated
   }
 
   public async updateChat(

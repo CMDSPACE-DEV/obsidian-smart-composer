@@ -75,6 +75,9 @@ const context = await esbuild.context({
   minify: prod,
   metafile: true,
   plugins: [pgliteShimPlugin],
+  loader: {
+    '.css': 'text',
+  },
 })
 
 if (prod) {

@@ -1,7 +1,6 @@
 import { z } from 'zod'
 
 import {
-  DEFAULT_APPLY_MODEL_ID,
   DEFAULT_CHAT_MODELS,
   DEFAULT_CHAT_MODEL_ID,
   DEFAULT_EMBEDDING_MODELS,
@@ -49,13 +48,39 @@ export const smartComposerSettingsSchema = z.object({
       DEFAULT_CHAT_MODELS.find((v) => v.id === DEFAULT_CHAT_MODEL_ID)?.id ??
         DEFAULT_CHAT_MODELS[0].id,
     ), // model for default chat feature
-  applyModelId: z
-    .string()
-    .catch(
-      DEFAULT_CHAT_MODELS.find((v) => v.id === DEFAULT_APPLY_MODEL_ID)?.id ??
-        DEFAULT_CHAT_MODELS[0].id,
-    ), // model for apply feature
   embeddingModelId: z.string().catch(DEFAULT_EMBEDDING_MODELS[0].id), // model for embedding
+
+  inlineEdit: z
+    .object({
+      modelId: z.string().nullable(),
+      contextCharacters: z.number().int().positive(),
+    })
+    .catch({
+      modelId: null,
+      contextCharacters: 4000,
+    }),
+
+  imageGeneration: z
+    .object({
+      modelId: z.string(),
+      outputFolder: z.string(),
+      quality: z.enum(['low', 'medium', 'high']),
+      concurrency: z.literal(1),
+    })
+    .catch({
+      modelId: 'gpt-5.6-sol (plan)',
+      outputFolder: 'Smart Composer/Generated Images',
+      quality: 'high',
+      concurrency: 1,
+    }),
+
+  appearance: z
+    .object({
+      skinMode: z.literal('follow-obsidian'),
+    })
+    .catch({
+      skinMode: 'follow-obsidian',
+    }),
 
   // System Prompt
   systemPrompt: z.string().catch(''),

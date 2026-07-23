@@ -1,5 +1,4 @@
 import {
-  DEFAULT_APPLY_MODEL_ID,
   DEFAULT_CHAT_MODELS,
   DEFAULT_CHAT_MODEL_ID,
   DEFAULT_EMBEDDING_MODELS,
@@ -21,8 +20,20 @@ describe('parseSmartComposerSettings', () => {
       embeddingModels: [...DEFAULT_EMBEDDING_MODELS],
 
       chatModelId: DEFAULT_CHAT_MODEL_ID,
-      applyModelId: DEFAULT_APPLY_MODEL_ID,
       embeddingModelId: 'openai/text-embedding-3-small',
+      inlineEdit: {
+        modelId: null,
+        contextCharacters: 4000,
+      },
+      imageGeneration: {
+        modelId: 'gpt-5.6-sol (plan)',
+        outputFolder: 'Smart Composer/Generated Images',
+        quality: 'high',
+        concurrency: 1,
+      },
+      appearance: {
+        skinMode: 'follow-obsidian',
+      },
 
       systemPrompt: '',
 
@@ -111,9 +122,9 @@ describe('parseSmartComposerSettings', () => {
     const result = parseSmartComposerSettings(input)
 
     expect(input).toEqual(before)
-    expect(result.version).toBe(19)
+    expect(result.version).toBe(20)
     expect(result.chatModelId).toBe('gpt-5.6-sol (plan)')
-    expect(result.applyModelId).toBe('claude-sonnet-5 (plan)')
+    expect(result.inlineEdit.modelId).toBe('claude-sonnet-5 (plan)')
     expect(result.providers).toEqual(input.providers)
     expect(result.chatModels).toContainEqual(
       expect.objectContaining({

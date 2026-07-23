@@ -1,5 +1,6 @@
 import { SelectEmbedding } from '../../database/schema'
-import DotLoader from '../common/DotLoader'
+
+import { OrbitalLoader } from './OrbitalLoader'
 
 export type QueryProgressState =
   | {
@@ -44,19 +45,15 @@ export default function QueryProgress({
     case 'reading-mentionables':
       return (
         <div className="smtcmp-query-progress">
-          <p>
-            Reading mentioned files
-            <DotLoader />
-          </p>
+          <OrbitalLoader label="Reading mentioned files" />
         </div>
       )
     case 'indexing':
       return (
         <div className="smtcmp-query-progress">
-          <p>
-            {`Indexing ${state.indexProgress.totalFiles} file`}
-            <DotLoader />
-          </p>
+          <OrbitalLoader
+            label={`Indexing ${state.indexProgress.totalFiles} file`}
+          />
           <p className="smtcmp-query-progress-detail">{`${state.indexProgress.completedChunks}/${state.indexProgress.totalChunks} chunks indexed`}</p>
           {state.indexProgress.waitingForRateLimit && (
             <p className="smtcmp-query-progress-detail">
@@ -68,28 +65,19 @@ export default function QueryProgress({
     case 'querying':
       return (
         <div className="smtcmp-query-progress">
-          <p>
-            Querying the vault
-            <DotLoader />
-          </p>
+          <OrbitalLoader label="Querying the vault" />
         </div>
       )
     case 'plan-reranking':
       return (
         <div className="smtcmp-query-progress">
-          <p>
-            Selecting relevant chunks
-            <DotLoader />
-          </p>
+          <OrbitalLoader label="Selecting relevant chunks" />
         </div>
       )
     case 'querying-done':
       return (
         <div className="smtcmp-query-progress">
-          <p>
-            Reading related files
-            <DotLoader />
-          </p>
+          <OrbitalLoader label="Reading related files" />
           {state.queryResult.map((result) => (
             <div key={result.path}>
               <p>{result.path}</p>

@@ -2156,3 +2156,493 @@ button.smtcmp-chat-input-effort-select {
 .smtcmp-setting-item--nested {
   padding-left: var(--size-4-4);
 }
+
+/* Achmage 2.0 isolated conversation shell */
+.smtcmp-shell {
+  --size-2-1: 2px;
+  --size-4-1: 4px;
+  --size-4-2: 8px;
+  --size-4-3: 12px;
+  --size-4-4: 16px;
+  --size-4-6: 24px;
+  --size-4-8: 32px;
+  --size-4-10: 40px;
+  --font-ui-smaller: 11px;
+  --font-ui-small: 13px;
+  --font-ui-medium: 15px;
+  --font-ui-large: 18px;
+  --font-ui-smallest: 10px;
+  --font-medium: 560;
+  --line-height-normal: 1.58;
+  --icon-l: 18px;
+  --icon-stroke: 1.7;
+  --radius-s: 4px;
+  --radius-m: 7px;
+  --input-radius: 7px;
+  --code-radius: 4px;
+  --code-size: 12px;
+  --blockquote-style: normal;
+  --blockquote-border-thickness: 2px;
+  box-sizing: border-box;
+  height: 100%;
+  min-width: 0;
+  color: var(--ach-text);
+  background: var(--ach-canvas);
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+  letter-spacing: 0;
+  color-scheme: light;
+  isolation: isolate;
+}
+
+.smtcmp-shell[data-skin='hallym-light'] {
+  --ach-canvas: #f7f9fc;
+  --ach-surface: #ffffff;
+  --ach-surface-raised: #f0f5fa;
+  --ach-selected: #c3dbef;
+  --ach-border: #d7e1ec;
+  --ach-text: #00102e;
+  --ach-muted: #526174;
+  --ach-heading: #002e6e;
+  --ach-action: #0066b3;
+  --ach-motion: #00b5ad;
+  --ach-danger: #a52834;
+  --background-primary: #ffffff;
+  --background-secondary: #f0f5fa;
+  --background-modifier-border: #d7e1ec;
+  --background-modifier-hover: #e4edf6;
+  --background-modifier-active-hover: #c3dbef;
+  --text-normal: #00102e;
+  --text-muted: #526174;
+  --text-accent: #0066b3;
+  --interactive-accent: #0066b3;
+  --interactive-accent-hover: #00528f;
+  --code-normal: #002e6e;
+  --code-background: #edf3f8;
+  --blockquote-background-color: #f0f5fa;
+  --blockquote-border-color: #0066b3;
+  color-scheme: light;
+}
+
+.smtcmp-shell[data-skin='cmds-dark'] {
+  --ach-canvas: #0a0a0a;
+  --ach-surface: #141414;
+  --ach-surface-raised: #1f1f1f;
+  --ach-selected: #334c00;
+  --ach-border: #333333;
+  --ach-text: #d4d4d4;
+  --ach-muted: #888888;
+  --ach-heading: #b6ff00;
+  --ach-action: #b6ff00;
+  --ach-motion: #00b5ad;
+  --ach-danger: #ff6675;
+  --background-primary: #141414;
+  --background-secondary: #1f1f1f;
+  --background-modifier-border: #333333;
+  --background-modifier-hover: #263500;
+  --background-modifier-active-hover: #334c00;
+  --text-normal: #d4d4d4;
+  --text-muted: #888888;
+  --text-accent: #b6ff00;
+  --interactive-accent: #b6ff00;
+  --interactive-accent-hover: #d0ff5b;
+  --code-normal: #caff51;
+  --code-background: #080a08;
+  --blockquote-background-color: #10150c;
+  --blockquote-border-color: #b6ff00;
+  color-scheme: dark;
+  font-family: 'IBM Plex Sans', Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.smtcmp-shell *,
+.smtcmp-shell *::before,
+.smtcmp-shell *::after {
+  box-sizing: border-box;
+}
+
+.smtcmp-shell button,
+.smtcmp-shell input,
+.smtcmp-shell textarea,
+.smtcmp-shell select {
+  font: inherit;
+  color: inherit;
+}
+
+.smtcmp-shell button,
+.smtcmp-shell .clickable-icon {
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ach-muted);
+  cursor: pointer;
+}
+
+.smtcmp-shell button:hover,
+.smtcmp-shell button:focus-visible,
+.smtcmp-shell .clickable-icon:hover {
+  color: var(--ach-action);
+  border-color: var(--ach-border);
+  background: var(--ach-surface-raised);
+  outline: none;
+}
+
+.smtcmp-shell button:focus-visible,
+.smtcmp-shell [contenteditable='true']:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ach-action) 30%, transparent);
+}
+
+.smtcmp-shell .smtcmp-chat-container {
+  background: var(--ach-canvas);
+  padding: 12px 10px 10px;
+}
+
+.smtcmp-shell .smtcmp-chat-header {
+  min-height: 38px;
+  padding: 0 4px 8px;
+  border-bottom: 1px solid var(--ach-border);
+}
+
+.smtcmp-shell .smtcmp-chat-header-title {
+  color: var(--ach-heading);
+  letter-spacing: 0;
+}
+
+.smtcmp-shell[data-skin='cmds-dark'] .smtcmp-chat-header-title::after {
+  content: ' / OPERATOR';
+  color: var(--ach-muted);
+  font:
+    10px/1.2 ui-monospace,
+    'Cascadia Code',
+    monospace;
+}
+
+.smtcmp-shell .smtcmp-chat-messages {
+  gap: 10px;
+  padding: 12px 8px 22px;
+  margin: 0;
+  scrollbar-color: var(--ach-border) transparent;
+}
+
+.smtcmp-shell .smtcmp-chat-messages-user {
+  align-self: flex-end;
+  max-width: min(88%, 680px);
+}
+
+.smtcmp-shell .smtcmp-chat-messages-user > div:first-child,
+.smtcmp-shell .smtcmp-chat-user-input-container {
+  border: 1px solid var(--ach-border);
+  background: var(--ach-surface);
+  box-shadow: 0 8px 24px rgba(0, 46, 110, 0.07);
+}
+
+.smtcmp-shell[data-skin='cmds-dark']
+  .smtcmp-chat-messages-user
+  > div:first-child,
+.smtcmp-shell[data-skin='cmds-dark'] .smtcmp-chat-user-input-container {
+  box-shadow:
+    0 0 0 1px #000000,
+    0 10px 28px #00000099;
+}
+
+.smtcmp-shell .smtcmp-chat-user-input-container {
+  margin: 0;
+  border-radius: 7px;
+  padding: 8px;
+  flex: 0 0 auto;
+}
+
+.smtcmp-shell[data-skin='cmds-dark']
+  .smtcmp-chat-user-input-container:focus-within {
+  border-color: #b6ff00;
+  box-shadow:
+    0 0 0 1px #b6ff0044,
+    0 0 18px #b6ff0018;
+}
+
+.smtcmp-shell[data-skin='hallym-light']
+  .smtcmp-chat-user-input-container:focus-within {
+  border-color: #0066b3;
+  box-shadow:
+    0 0 0 2px #0066b31d,
+    0 10px 28px #002e6e12;
+}
+
+.smtcmp-orbital-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ach-muted);
+  min-height: 24px;
+}
+
+.smtcmp-orbital-loader {
+  position: relative;
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 20deg,
+    transparent 0 42%,
+    var(--ach-motion) 62%,
+    var(--ach-action) 84%,
+    transparent 100%
+  );
+  mask: radial-gradient(farthest-side, transparent 72%, #000 74%);
+  filter: drop-shadow(
+    0 0 4px color-mix(in srgb, var(--ach-motion) 55%, transparent)
+  );
+  animation: smtcmp-orbit 1.25s linear infinite;
+}
+
+.smtcmp-orbital-loader i {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.smtcmp-orbital-loader i:nth-child(1) {
+  left: 9px;
+  top: 4px;
+}
+
+.smtcmp-orbital-loader i:nth-child(2) {
+  right: 5px;
+  bottom: 5px;
+}
+
+.smtcmp-orbital-loader i:nth-child(3) {
+  left: 5px;
+  bottom: 5px;
+}
+
+@keyframes smtcmp-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.smtcmp-streaming-markdown {
+  position: relative;
+}
+
+.smtcmp-streaming-tail {
+  display: inline-block;
+  width: 4px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--ach-motion);
+  opacity: 0;
+  box-shadow: 0 0 8px var(--ach-motion);
+  animation: smtcmp-tail 1.1s ease-in-out infinite;
+}
+
+@keyframes smtcmp-tail {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+.smtcmp-task-list,
+.smtcmp-prompt-queue {
+  display: grid;
+  gap: 6px;
+  margin: 6px 4px;
+}
+
+.smtcmp-task-card,
+.smtcmp-prompt-queue {
+  border: 1px solid var(--ach-border);
+  border-radius: 6px;
+  background: var(--ach-surface-raised);
+  padding: 8px;
+}
+
+.smtcmp-task-card__status,
+.smtcmp-task-card__actions,
+.smtcmp-prompt-queue__item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.smtcmp-task-card__actions {
+  flex-wrap: wrap;
+  margin-top: 7px;
+}
+
+.smtcmp-artifact-preview {
+  display: grid;
+  gap: 3px;
+  max-height: 260px;
+  margin: 8px 0 0;
+  padding: 9px;
+  overflow: auto;
+  border: 1px solid var(--ach-border);
+  background: var(--code-background);
+  color: var(--code-normal);
+  font:
+    11px/1.5 ui-monospace,
+    'Cascadia Code',
+    monospace;
+  white-space: pre-wrap;
+}
+
+.smtcmp-artifact-preview > span:last-child {
+  color: var(--ach-muted);
+}
+
+.smtcmp-task-card__actions button,
+.smtcmp-task-card > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+}
+
+.smtcmp-task-spinner {
+  color: var(--ach-action);
+  animation: smtcmp-orbit 1.1s linear infinite;
+}
+
+.smtcmp-image-preview {
+  position: relative;
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  margin-top: 8px;
+  padding: 0;
+  overflow: hidden;
+  background: #000;
+}
+
+.smtcmp-image-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: 320px;
+  object-fit: contain;
+}
+
+.smtcmp-image-preview svg {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 3px;
+  background: #000a;
+  color: #fff;
+}
+
+.smtcmp-image-preview > span {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  padding: 3px 5px;
+  border-radius: 3px;
+  background: #000a;
+  color: #fff;
+  font-size: 10px;
+}
+
+.smtcmp-image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: #000e;
+}
+
+.smtcmp-image-lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.smtcmp-image-lightbox button {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  color: #fff;
+}
+
+.smtcmp-prompt-queue__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--ach-heading);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.smtcmp-prompt-queue__title button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.smtcmp-prompt-queue__item > div {
+  flex: 1;
+  min-width: 0;
+  color: var(--ach-muted);
+  font-size: 12px;
+}
+
+.smtcmp-prompt-queue__item button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
+@media (max-width: 400px) {
+  .smtcmp-shell .smtcmp-chat-container {
+    padding-inline: 6px;
+  }
+
+  .smtcmp-shell .smtcmp-chat-messages-user {
+    max-width: 94%;
+  }
+
+  .smtcmp-task-card__actions button span {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .smtcmp-orbital-loader,
+  .smtcmp-task-spinner,
+  .smtcmp-streaming-tail {
+    animation: none;
+  }
+
+  .smtcmp-streaming-tail {
+    opacity: 0.5;
+  }
+}
+
+@media (forced-colors: active) {
+  .smtcmp-shell *,
+  .smtcmp-shell *::before,
+  .smtcmp-shell *::after {
+    box-shadow: none !important;
+    filter: none !important;
+  }
+
+  .smtcmp-orbital-loader {
+    background: CanvasText;
+  }
+}

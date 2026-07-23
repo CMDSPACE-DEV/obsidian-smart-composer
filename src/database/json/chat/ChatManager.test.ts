@@ -58,6 +58,7 @@ describe('ChatManager', () => {
         id: '123e4567-e89b-12d3-a456-426614174000',
         title,
         messages: [],
+        queuedPrompts: [],
         createdAt: 1620000000000,
         updatedAt: 1620000000000,
         schemaVersion: CHAT_SCHEMA_VERSION,

@@ -11,6 +11,8 @@ import {
 } from 'react'
 
 import { useApp } from '../../../contexts/app-context'
+import { useSettings } from '../../../contexts/settings-context'
+import { getProviderCapabilities } from '../../../core/llm/providerCapabilities'
 import {
   Mentionable,
   MentionableImage,
@@ -25,6 +27,7 @@ import { fileToMentionableImage } from '../../../utils/llm/image'
 import { openMarkdownFile, readTFileContent } from '../../../utils/obsidian'
 import { ObsidianMarkdown } from '../ObsidianMarkdown'
 
+import { ImageGenerationButton } from './ImageGenerationButton'
 import { ImageUploadButton } from './ImageUploadButton'
 import LexicalContentEditable from './LexicalContentEditable'
 import MentionableBadge from './MentionableBadge'
@@ -43,7 +46,11 @@ export type ChatUserInputRef = {
 export type ChatUserInputProps = {
   initialSerializedEditorState: SerializedEditorState | null
   onChange: (content: SerializedEditorState) => void
-  onSubmit: (content: SerializedEditorState, useVaultSearch?: boolean) => void
+  onSubmit: (
+    content: SerializedEditorState,
+    useVaultSearch?: boolean,
+    mode?: 'chat' | 'image',
+  ) => void
   onFocus: () => void
   mentionables: Mentionable[]
   setMentionables: (mentionables: Mentionable[]) => void
@@ -66,6 +73,12 @@ const ChatUserInput = forwardRef<ChatUserInputRef, ChatUserInputProps>(
     ref,
   ) => {
     const app = useApp()
+    const { settings } = useSettings()
+    const selectedModel = settings.chatModels.find(
+      (model) => model.id === settings.chatModelId,
+    )
+    const canGenerateImages =
+      !!selectedModel && getProviderCapabilities(selectedModel).imageGeneration
 
     const editorRef = useRef<LexicalEditor | null>(null)
     const contentEditableRef = useRef<HTMLDivElement>(null)
@@ -201,6 +214,11 @@ const ChatUserInput = forwardRef<ChatUserInputRef, ChatUserInputProps>(
       content && onSubmit(content, options.useVaultSearch)
     }
 
+    const handleImageGeneration = () => {
+      const content = editorRef.current?.getEditorState()?.toJSON()
+      content && onSubmit(content, false, 'image')
+    }
+
     return (
       <div className="smtcmp-chat-user-input-container" ref={containerRef}>
         <div className="smtcmp-chat-user-input-files">
@@ -279,6 +297,9 @@ const ChatUserInput = forwardRef<ChatUserInputRef, ChatUserInputProps>(
           </div>
           <div className="smtcmp-chat-user-input-controls__buttons">
             <ImageUploadButton onUpload={handleUploadImages} />
+            {canGenerateImages && (
+              <ImageGenerationButton onClick={handleImageGeneration} />
+            )}
             <SubmitButton onClick={() => handleSubmit()} />
             <VaultChatButton
               onClick={() => {
