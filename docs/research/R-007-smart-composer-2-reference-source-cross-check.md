@@ -180,11 +180,45 @@ cards, the orbital loader, and the fixed composer. All six combinations had
 zero document-width overflow and no button left the viewport. Reduced-motion
 emulation disabled the orbital animation as intended.
 
+### 8.1 Shadow DOM input failure and 2.0.1 fallback (2026-07-23)
+
+The first 2.0.0 vault smoke test found a release-blocking regression before any
+provider request was attempted: the Lexical chat composer accepted neither
+keyboard input nor `Ctrl+V`.
+
+The failure was caused by mounting Lexical 0.17.1 inside the chat ShadowRoot.
+That Lexical line uses document-level focus and selection checks, including
+`document.activeElement === editor.getRootElement()`. Chromium retargets the
+active element to the shadow host, so Lexical cannot reliably synchronize its
+selection, keyboard, or clipboard state.
+
+Version 2.0.1 therefore keeps the Hallym/CMDS visual system strongly scoped
+under `.smtcmp-shell`, but mounts the interactive chat tree in light DOM. When
+upgrading an already-open 2.0.0 view, the existing ShadowRoot is converted to a
+transparent default slot and the real editable tree remains a light-DOM child.
+This preserves the visible surface while restoring document-level editor
+semantics.
+
+A system-Chrome regression check bundled the repository's actual React and
+Lexical 0.17.1 dependencies in the 2.0.1 mount topology and confirmed:
+
+- Korean keyboard input and `Ctrl+V` produced
+  `한글 Lexical 입력 + 붙여넣기`;
+- the rendered DOM and Lexical editor state contained the same text;
+- one paste event fired and Lexical reported no runtime error;
+- `document.activeElement` was the actual contenteditable element;
+- the contenteditable remained a light-DOM descendant even when projected
+  through the previous 2.0.0 shadow host.
+
+Future full Shadow DOM isolation is blocked until the selected editor stack is
+proven with real Obsidian keyboard, IME, clipboard, selection, mention, and
+portal tests. Static visual screenshots are not sufficient evidence.
+
 The following items remain implementation gates rather than verified product
 behavior:
 
-- Obsidian Markdown, Lexical, Radix portals, embeds, and popouts inside the new
-  Shadow DOM host;
+- Obsidian Markdown, Radix portals, embeds, and popouts inside the scoped
+  light-DOM chat surface;
 - CMDS Eagle runtime upload through a running Obsidian instance;
 - ExcalidrawAutomate create and existing-view mutation against the installed
   plugin;

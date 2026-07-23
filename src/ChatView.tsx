@@ -3,8 +3,6 @@ import { ItemView, WorkspaceLeaf } from 'obsidian'
 import React from 'react'
 import { Root, createRoot } from 'react-dom/client'
 
-import smartComposerStyles from '../styles.css'
-
 import Chat, { ChatProps, ChatRef } from './components/chat-view/Chat'
 import { CHAT_VIEW_TYPE } from './constants'
 import { AppProvider } from './contexts/app-context'
@@ -18,6 +16,7 @@ import { RAGProvider } from './contexts/rag-context'
 import { SettingsProvider } from './contexts/settings-context'
 import SmartComposerPlugin from './main'
 import { MentionableBlockData } from './types/mentionable'
+import { prepareChatMountSurface } from './utils/chat/chatMountSurface'
 
 export class ChatView extends ItemView {
   private root: Root | null = null
@@ -61,12 +60,7 @@ export class ChatView extends ItemView {
   async render() {
     if (!this.root) {
       const host = this.containerEl.children[1] as HTMLElement
-      const shadow = host.shadowRoot ?? host.attachShadow({ mode: 'open' })
-      shadow.replaceChildren()
-      const style = host.ownerDocument.createElement('style')
-      style.textContent = smartComposerStyles
-      this.mountEl = host.ownerDocument.createElement('div')
-      this.mountEl.className = 'smtcmp-shell'
+      this.mountEl = prepareChatMountSurface(host)
       const applyTheme = () => {
         this.mountEl?.setAttribute(
           'data-skin',
@@ -77,7 +71,6 @@ export class ChatView extends ItemView {
       }
       applyTheme()
       this.registerEvent(this.app.workspace.on('css-change', applyTheme))
-      shadow.append(style, this.mountEl)
       this.root = createRoot(this.mountEl)
     }
 
