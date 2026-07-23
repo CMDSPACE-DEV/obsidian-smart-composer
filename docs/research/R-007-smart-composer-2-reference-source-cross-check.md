@@ -518,6 +518,45 @@ tasks. The existing 300 px and 380 px system-Chrome queue harness was reused to
 confirm that the compact toolbar and per-card dismiss control do not introduce
 horizontal overflow or cover active perimeter hit targets.
 
+### 8.11 Large-selection inline insertion contract (2026-07-23)
+
+The 2.0.10 running-vault review used a 16,714-byte, 11,090-character Markdown
+note and selected most of the body before asking the inline editor to summarize
+the selection and add the result below it. The request remained in the loading
+state. Increasing `Inline edit context` to 99,999 did not help because that
+setting controls surrounding characters read outside the selection; it is not
+an output-token allowance.
+
+Source inspection confirmed that inline edit had only one operation contract:
+the model always had to return a complete replacement for the selected range.
+An instruction to append a short summary therefore still required the model to
+repeat roughly 11,000 source characters plus the summary inside JSON. This
+created unnecessary latency and could exceed a provider's practical output
+limit even though the input fitted comfortably in context.
+
+Version 2.0.11 separates source scope from result placement. The prompt surface
+offers `Auto`, `Replace`, and `Insert below`. Auto deterministically recognizes
+Korean and English append-after wording. Insert mode sends the selected
+Markdown as read-only source material and explicitly requires only the new
+Markdown in an `insertion` response; the source must not be repeated, rewritten,
+or quoted. Acceptance inserts at the captured selection end with stable
+Markdown blank-line spacing. The existing document snapshot and file-path
+checks still reject stale edits.
+
+Insertion preview does not render the large source twice. It reports that the
+selection remains unchanged, shows its character count, and renders only the
+new Markdown under `Insert below`. Loading identifies the active operation and
+now provides a working `Cancel generation` button plus Escape handling. The
+settings label was clarified to state that surrounding context does not
+increase generated output length.
+
+Unit coverage verifies exact Korean and English intent resolution, explicit
+mode overrides, insertion JSON, large-source non-repetition, Markdown spacing,
+and the insertion-only system contract. A system-Chrome Shadow DOM harness
+rendered Hallym Light at 400 px and CMDS Dark at 320 px. Prompt and preview
+surfaces had zero document, panel-content, and segmented-control horizontal
+overflow; the three placement controls and all actions remained visible.
+
 The following items remain implementation gates rather than verified product
 behavior:
 

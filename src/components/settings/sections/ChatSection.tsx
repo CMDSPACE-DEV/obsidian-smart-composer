@@ -37,8 +37,8 @@ export function ChatSection() {
       </ObsidianSetting>
 
       <ObsidianSetting
-        name="Inline edit context"
-        desc="Characters of surrounding note context sent with an inline edit."
+        name="Inline edit surrounding context"
+        desc="Maximum characters read outside the selection. The selected text is always included; this does not increase generated output length."
       >
         <ObsidianTextInput
           value={settings.inlineEdit.contextCharacters.toString()}

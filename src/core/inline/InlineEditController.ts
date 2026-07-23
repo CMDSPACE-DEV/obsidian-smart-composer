@@ -13,6 +13,9 @@ import { getChatModelClient } from '../llm/manager'
 
 type InlineStatus = 'prompt' | 'loading' | 'clarification' | 'preview' | 'error'
 
+export type InlineEditMode = 'auto' | 'replace' | 'insert-after'
+export type InlineEditPlacement = 'replace' | 'insert-after'
+
 type InlineSession = {
   id: string
   from: number
@@ -22,11 +25,13 @@ type InlineSession = {
   filePath: string
   targetLabel: 'Selection' | 'Current line'
   status: InlineStatus
+  mode: InlineEditMode
+  placement?: InlineEditPlacement
   prompt?: string
   clarification?: string
   replacement?: string
   error?: string
-  submit: (prompt: string) => void
+  submit: (prompt: string, mode: InlineEditMode) => void
   accept: () => void
   close: () => void
   renderMarkdown: (content: string, target: HTMLElement) => Promise<void>
@@ -45,6 +50,8 @@ class InlineEditWidget extends WidgetType {
     return (
       other.session.id === this.session.id &&
       other.session.status === this.session.status &&
+      other.session.mode === this.session.mode &&
+      other.session.placement === this.session.placement &&
       other.session.replacement === this.session.replacement &&
       other.session.error === this.session.error
     )
@@ -103,6 +110,10 @@ class InlineEditWidget extends WidgetType {
           ? ''
           : (this.session.prompt ?? '')
       input.rows = 2
+      let selectedMode = this.session.mode
+      const modeControl = makeModeControl(doc, selectedMode, (nextMode) => {
+        selectedMode = nextMode
+      })
       const actions = doc.createElement('div')
       actions.className = 'actions'
       const cancel = makeButton(
@@ -117,13 +128,13 @@ class InlineEditWidget extends WidgetType {
         'Generate',
         () => {
           const value = input.value.trim()
-          if (value) this.session.submit(value)
+          if (value) this.session.submit(value, selectedMode)
         },
         'primary',
         'Enter',
       )
       actions.append(cancel, submit)
-      panel.append(input, actions)
+      panel.append(input, modeControl, actions)
       input.addEventListener('keydown', (event) => {
         event.stopPropagation()
         if (event.key === 'Escape') {
@@ -162,18 +173,57 @@ class InlineEditWidget extends WidgetType {
       copy.className = 'loading-copy'
       copy.append(
         Object.assign(doc.createElement('strong'), {
-          textContent: 'Editing in place',
+          textContent:
+            this.session.placement === 'insert-after'
+              ? 'Writing below selection'
+              : 'Editing in place',
         }),
         Object.assign(doc.createElement('small'), {
-          textContent: 'Preparing a precise Markdown revision',
+          textContent:
+            this.session.placement === 'insert-after'
+              ? 'The selected source will remain unchanged'
+              : 'Preparing a precise Markdown revision',
         }),
       )
       loading.append(makeThinkingDots(doc), copy)
-      panel.append(loading)
+      const actions = doc.createElement('div')
+      actions.className = 'actions'
+      actions.append(
+        makeButton(
+          doc,
+          'Cancel generation',
+          () => this.session.close(),
+          'secondary',
+          'Esc',
+        ),
+      )
+      panel.append(loading, actions)
+      host.tabIndex = 0
+      host.addEventListener('keydown', (event) => {
+        event.stopPropagation()
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          this.session.close()
+        }
+      })
+      queueMicrotask(() => host.focus({ preventScroll: true }))
     } else if (this.session.status === 'preview') {
       const diff = doc.createElement('div')
       const replacement = this.session.replacement ?? ''
-      if (isShortProseEdit(this.session.original, replacement)) {
+      const isInsertion = this.session.placement === 'insert-after'
+      if (isInsertion) {
+        diff.className = 'insert-preview'
+        const source = doc.createElement('div')
+        source.className = 'source-preserved'
+        const sourceTitle = doc.createElement('strong')
+        sourceTitle.textContent = 'Selection remains unchanged'
+        const sourceDetail = doc.createElement('small')
+        sourceDetail.textContent = `${this.session.original.length.toLocaleString()} source characters`
+        source.append(sourceTitle, sourceDetail)
+        const after = makeRenderedDiffPane(doc, 'Insert below', 'after')
+        diff.append(source, after.pane)
+        void this.session.renderMarkdown(replacement, after.content)
+      } else if (isShortProseEdit(this.session.original, replacement)) {
         diff.className = 'word-diff'
         renderWordDiff(doc, this.session.original, replacement, diff)
       } else {
@@ -196,7 +246,7 @@ class InlineEditWidget extends WidgetType {
         ),
         makeButton(
           doc,
-          'Accept',
+          isInsertion ? 'Insert' : 'Accept',
           () => this.session.accept(),
           'primary',
           'Enter',
@@ -320,13 +370,22 @@ export class InlineEditController {
       if (!current) return
       const session = this.currentSession
       if (!session?.replacement) return
+      const placement = session.placement ?? 'replace'
+      const change =
+        placement === 'insert-after'
+          ? {
+              from: to,
+              to,
+              insert: buildInlineInsertion(snapshot, to, session.replacement),
+            }
+          : { from, to, insert: session.replacement }
       editorView.dispatch({
-        changes: { from, to, insert: session.replacement },
+        changes: change,
         effects: setInlineSession.of(null),
       })
       editorView.focus()
     }
-    const submit = (prompt: string) => {
+    const submit = (prompt: string, mode: InlineEditMode) => {
       void this.generate({
         id,
         from,
@@ -336,6 +395,7 @@ export class InlineEditController {
         filePath,
         targetLabel,
         prompt,
+        mode,
         editorView,
         submit,
         accept,
@@ -362,6 +422,7 @@ export class InlineEditController {
       filePath,
       targetLabel,
       status: 'prompt',
+      mode: 'auto',
       submit,
       accept,
       close,
@@ -385,15 +446,18 @@ export class InlineEditController {
     filePath: string
     targetLabel: 'Selection' | 'Current line'
     prompt: string
+    mode: InlineEditMode
     editorView: EditorView
-    submit: (prompt: string) => void
+    submit: (prompt: string, mode: InlineEditMode) => void
     accept: () => void
     close: () => void
     renderMarkdown: (content: string, target: HTMLElement) => Promise<void>
   }): Promise<void> {
+    const placement = resolveInlineEditPlacement(input.prompt, input.mode)
     const base: InlineSession = {
       ...input,
       status: 'loading',
+      placement,
     }
     this.show(input.editorView, base)
     this.controller?.abort()
@@ -413,6 +477,7 @@ export class InlineEditController {
         input.from,
       )
       const after = input.snapshot.slice(input.to, input.to + contextLimit)
+      const systemPrompt = getInlineEditSystemPrompt(placement)
       const response = await providerClient.generateResponse(
         model,
         {
@@ -420,8 +485,7 @@ export class InlineEditController {
           messages: [
             {
               role: 'system',
-              content:
-                'Edit the selected Markdown in place. Return JSON only: {"type":"replacement","content":"..."} or, only when essential information is missing, {"type":"clarification","content":"question"}. Preserve formatting and do not include fences.',
+              content: systemPrompt,
             },
             {
               role: 'user',
@@ -430,6 +494,7 @@ export class InlineEditController {
                 selection: input.original,
                 contextBefore: before,
                 contextAfter: after,
+                placement,
               }),
             },
           ],
@@ -444,7 +509,10 @@ export class InlineEditController {
           status: 'clarification',
           clarification: parsed.content,
           submit: (answer) =>
-            input.submit(`${input.prompt}\n\nClarification answer: ${answer}`),
+            input.submit(
+              `${input.prompt}\n\nClarification answer: ${answer}`,
+              input.mode,
+            ),
         })
       } else {
         this.show(input.editorView, {
@@ -470,6 +538,52 @@ export function isShortProseEdit(before: string, after: string): boolean {
   return !/(?:^|\s)(?:#{1,6}|[-*>]|\d+\.)\s|`{1,3}|\[\[/.test(
     `${before} ${after}`,
   )
+}
+
+export function resolveInlineEditPlacement(
+  prompt: string,
+  mode: InlineEditMode,
+): InlineEditPlacement {
+  if (mode !== 'auto') return mode
+  const koreanInsertAfter =
+    /(?:아래|밑|뒤|다음|하단|끝)\s*(?:에|로|으로)?\s*(?:추가|삽입|붙여|덧붙|작성|써|넣)|(?:추가|삽입|붙여|덧붙|작성|써|넣)\S*\s*(?:아래|밑|뒤|다음|하단|끝)/i
+  const englishInsertAfter =
+    /\b(?:append|add|insert|write|place)\b[\s\S]{0,48}\b(?:below|after|under|at the end)\b|\b(?:below|after|under)\b[\s\S]{0,48}\b(?:append|add|insert|write|place)\b/i
+  return koreanInsertAfter.test(prompt) || englishInsertAfter.test(prompt)
+    ? 'insert-after'
+    : 'replace'
+}
+
+export function buildInlineInsertion(
+  documentText: string,
+  position: number,
+  content: string,
+): string {
+  const normalized = content.trim()
+  if (!normalized) return ''
+  const before = documentText.slice(0, position)
+  const after = documentText.slice(position)
+  const prefix =
+    before.length === 0 || before.endsWith('\n\n')
+      ? ''
+      : before.endsWith('\n')
+        ? '\n'
+        : '\n\n'
+  const suffix =
+    after.length === 0 || after.startsWith('\n\n')
+      ? ''
+      : after.startsWith('\n')
+        ? '\n'
+        : '\n\n'
+  return `${prefix}${normalized}${suffix}`
+}
+
+export function getInlineEditSystemPrompt(
+  placement: InlineEditPlacement,
+): string {
+  return placement === 'insert-after'
+    ? 'Use the selected Markdown as read-only source material. Generate only the new Markdown to insert immediately after the selection; never repeat, rewrite, or quote the source. Return JSON only: {"type":"insertion","content":"..."} or, only when essential information is missing, {"type":"clarification","content":"question"}. Preserve useful Markdown formatting and do not include fences.'
+    : 'Edit the selected Markdown in place. Return JSON only: {"type":"replacement","content":"..."} or, only when essential information is missing, {"type":"clarification","content":"question"}. Preserve formatting and do not include fences.'
 }
 
 function makeRenderedDiffPane(
@@ -575,7 +689,7 @@ function appendDiffTokens(
 }
 
 export function parseInlineResponse(value: string): {
-  type: 'replacement' | 'clarification'
+  type: 'replacement' | 'insertion' | 'clarification'
   content: string
 } {
   const stripped = value.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
@@ -585,7 +699,9 @@ export function parseInlineResponse(value: string): {
       content?: string
     }
     if (
-      (parsed.type === 'replacement' || parsed.type === 'clarification') &&
+      (parsed.type === 'replacement' ||
+        parsed.type === 'insertion' ||
+        parsed.type === 'clarification') &&
       typeof parsed.content === 'string'
     ) {
       return {
@@ -597,6 +713,50 @@ export function parseInlineResponse(value: string): {
     // Older and custom models may return the replacement directly.
   }
   return { type: 'replacement', content: stripped }
+}
+
+function makeModeControl(
+  doc: Document,
+  initialMode: InlineEditMode,
+  onChange: (mode: InlineEditMode) => void,
+): HTMLElement {
+  const row = doc.createElement('div')
+  row.className = 'mode-row'
+  const label = doc.createElement('span')
+  label.className = 'mode-label'
+  label.textContent = 'Result placement'
+  const group = doc.createElement('div')
+  group.className = 'mode-control'
+  group.setAttribute('role', 'radiogroup')
+  group.setAttribute('aria-label', 'Inline edit result placement')
+  const options: { mode: InlineEditMode; label: string }[] = [
+    { mode: 'auto', label: 'Auto' },
+    { mode: 'replace', label: 'Replace' },
+    { mode: 'insert-after', label: 'Insert below' },
+  ]
+  const buttons: HTMLButtonElement[] = []
+  const selectMode = (mode: InlineEditMode) => {
+    for (const button of buttons) {
+      const active = button.dataset.mode === mode
+      button.dataset.active = active ? 'true' : 'false'
+      button.setAttribute('aria-checked', active ? 'true' : 'false')
+    }
+    onChange(mode)
+  }
+  for (const option of options) {
+    const button = doc.createElement('button')
+    button.type = 'button'
+    button.className = 'mode-option'
+    button.dataset.mode = option.mode
+    button.setAttribute('role', 'radio')
+    button.textContent = option.label
+    button.addEventListener('click', () => selectMode(option.mode))
+    buttons.push(button)
+    group.append(button)
+  }
+  row.append(label, group)
+  selectMode(initialMode)
+  return row
 }
 
 function makeButton(
@@ -630,11 +790,18 @@ function makeHeader(doc: Document, session: InlineSession): HTMLElement {
   spark.setAttribute('aria-hidden', 'true')
   const title = doc.createElement('strong')
   title.textContent =
-    session.status === 'preview' ? 'Review inline edit' : 'Inline edit'
+    session.status === 'preview'
+      ? session.placement === 'insert-after'
+        ? 'Review insertion'
+        : 'Review inline edit'
+      : 'Inline edit'
   identity.append(spark, title)
   const context = doc.createElement('span')
   context.className = 'context'
-  context.textContent = session.targetLabel
+  context.textContent =
+    session.placement === 'insert-after'
+      ? `${session.targetLabel} · insert below`
+      : session.targetLabel
   header.append(identity, context)
   return header
 }
@@ -812,6 +979,40 @@ header{
 :host([data-skin="cmds-dark"]) .prompt:focus{
   box-shadow:0 0 0 1px rgba(182,255,0,.27),0 0 18px rgba(182,255,0,.1);
 }
+.mode-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-top:8px;
+}
+.mode-label{
+  color:var(--ach-muted);
+  font:10px/1.2 ui-monospace,"Cascadia Code",monospace;
+  text-transform:uppercase;
+}
+.mode-control{
+  display:inline-grid;
+  grid-auto-flow:column;
+  overflow:hidden;
+  border:1px solid var(--ach-border);
+  border-radius:5px;
+  background:var(--ach-canvas);
+}
+button.mode-option{
+  min-height:27px;
+  padding:4px 8px;
+  border:0;
+  border-left:1px solid var(--ach-border);
+  border-radius:0;
+  font-size:11px;
+}
+button.mode-option:first-child{border-left:0}
+button.mode-option[data-active="true"]{
+  background:var(--ach-action);
+  color:#fff;
+}
+:host([data-skin="cmds-dark"]) button.mode-option[data-active="true"]{color:#0a0a0a}
 .actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;margin-top:10px}
 button{
   display:inline-flex;
@@ -864,7 +1065,8 @@ kbd{
 .thinking-dots i{width:4px;height:4px;border-radius:50%;background:var(--ach-heading);box-shadow:0 0 5px color-mix(in srgb,var(--ach-action) 34%,transparent);opacity:.58}
 .thinking-dots i:nth-child(2){opacity:1}
 .diff{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
-.diff section{
+.insert-preview{display:grid;grid-template-columns:minmax(145px,.42fr) minmax(0,1fr);gap:8px}
+.diff section,.insert-preview section{
   min-width:0;
   max-height:320px;
   margin:0;
@@ -874,7 +1076,21 @@ kbd{
   border-radius:6px;
   scrollbar-color:var(--ach-border) transparent;
 }
-.diff section>strong{display:block;margin-bottom:7px;font-size:11px;text-transform:uppercase}
+.diff section>strong,.insert-preview section>strong{display:block;margin-bottom:7px;font-size:11px;text-transform:uppercase}
+.source-preserved{
+  display:flex;
+  min-width:0;
+  flex-direction:column;
+  align-items:flex-start;
+  justify-content:center;
+  gap:3px;
+  padding:10px;
+  border:1px solid var(--ach-border);
+  border-radius:6px;
+  background:var(--ach-surface-raised);
+}
+.source-preserved strong{color:var(--ach-heading);font-size:12px}
+.source-preserved small{color:var(--ach-muted);font-size:10px}
 .before{border-color:var(--ach-before-border)!important;background:var(--ach-before);color:var(--ach-before-text)}
 .after{border-color:var(--ach-after-border)!important;background:var(--ach-after);color:var(--ach-after-text)}
 .rendered{overflow-wrap:anywhere}
@@ -898,7 +1114,7 @@ kbd{
 .word-diff ins{background:var(--ach-after);color:var(--ach-after-text);text-decoration:none}
 .error{margin:0;padding:9px 10px;border-left:2px solid var(--ach-danger);background:var(--ach-before);color:var(--ach-danger)}
 @keyframes inline-panel-border-orbit{to{transform:translate(-50%,-50%) rotate(360deg)}}
-@media(max-width:620px){.diff{grid-template-columns:1fr}.diff section{max-height:240px}.context{display:none}button{min-height:34px}}
+@media(max-width:620px){.diff,.insert-preview{grid-template-columns:1fr}.diff section,.insert-preview section{max-height:240px}.context{display:none}.mode-row{align-items:flex-start;flex-direction:column}.mode-control{width:100%;grid-auto-columns:1fr}button{min-height:34px}}
 @media(prefers-reduced-motion:reduce){.panel[data-status="loading"]::before{animation:none;background:var(--ach-action);opacity:.4}}
-@media(forced-colors:active){.panel,.prompt,.diff section,.word-diff,button{border:1px solid CanvasText}.panel[data-status="loading"]::before{background:CanvasText;filter:none}.spark,.thinking-dots i{background:CanvasText;box-shadow:none}}
+@media(forced-colors:active){.panel,.prompt,.mode-control,.diff section,.insert-preview section,.source-preserved,.word-diff,button{border:1px solid CanvasText}.panel[data-status="loading"]::before{background:CanvasText;filter:none}.spark,.thinking-dots i{background:CanvasText;box-shadow:none}}
 `
