@@ -222,3 +222,34 @@ The target-PC launch, 320/400/800 px visual inspection, popout behavior,
 tooltip/popover positioning, Korean IME and paste, one-shot Vault/Image modes,
 foreground prompt Queue, background Image Queue, and light/dark skin checks
 remain live smoke-test items.
+
+## 10. Target-PC Visual Smoke And Release Decision
+
+On 2026-07-24, the user tested the Dropbox-synced 2.1.1 candidate on another
+desktop PC and reported that inline editing and sidebar chat remained
+functional after the refactor. Five user-provided screenshots were inspected
+at their original resolution without copying private note content into this
+repository.
+
+The screenshots verify:
+
+- CMDS Dark and Hallym Light both retain their intended visual identity and
+  shared control positions;
+- compact and wider sidebars keep the model, reasoning, attachment, Vault,
+  image, tools, and send controls on one coherent row without visible overlap;
+- the foreground-active send state changes to the Queue action while image
+  generation continues independently;
+- collapsed and expanded Image Queue states show multiple queued/running tasks,
+  readable status controls, and the active border treatment;
+- the three-dot waiting state, streaming response, stop control, and composer
+  activity border are visible in the same live conversation;
+- dark and light inline `Insert below` review surfaces render correctly and do
+  not replace the selected source;
+- exhaustive folder metadata and referenced-document results remain visible in
+  the light chat, supporting the R-004 retrieval regression boundary.
+
+No release-blocking clipping, theme leakage, or foreground/background task
+collision is visible in the supplied evidence. This satisfies the agreed
+target-PC visual smoke gate for publishing 2.1.1. Mobile, popout, hover-tooltip
+positioning, and the longer three-day soak remain follow-up observations rather
+than claims made from these screenshots.
