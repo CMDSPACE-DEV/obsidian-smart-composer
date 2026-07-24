@@ -253,3 +253,43 @@ collision is visible in the supplied evidence. This satisfies the agreed
 target-PC visual smoke gate for publishing 2.1.1. Mobile, popout, hover-tooltip
 positioning, and the longer three-day soak remain follow-up observations rather
 than claims made from these screenshots.
+
+## 11. 2.1.2 Terminal Image Task Dismissal Hotfix
+
+The 2.1.2 candidate fixes a Queue contract discovered during live image
+generation testing:
+
+- the leading `X` on a failed image card was a passive status glyph, not a
+  close control;
+- `BackgroundTaskManager.dismiss` accepted only succeeded image tasks, so
+  failed, canceled, and interrupted records could not be removed from the Queue
+  or its persisted task store;
+- the last progress message could take precedence over the terminal error,
+  leaving a failed card labeled `Generating image`.
+
+The hotfix gives failed and interrupted tasks a distinct warning status glyph
+and adds a separate accessible dismiss button to every terminal image state:
+`succeeded`, `failed`, `canceled`, and `interrupted`. Dismissal removes the task
+record but does not delete a generated local artifact. Failed and interrupted
+cards show the provider error detail so a safety refusal, transient provider
+failure, or network error can be distinguished during testing.
+
+No image-provider request, moderation behavior, queue concurrency, schema,
+provider routing, or artifact format changes in this hotfix.
+
+Automated verification of the 2.1.2 candidate on 2026-07-24 produced:
+
+```text
+test suites: 55 passed
+tests: 378 passed
+type check: passed
+repository-wide Prettier and ESLint: passed
+production build: passed
+production main.js: 4,725,321 bytes
+styles.css: 85,909 bytes
+manifest.json: 365 bytes
+bundle budget: passed (<= 5.2 MiB)
+```
+
+Clicking the new dismiss control in live Obsidian remains the target-PC smoke
+gate before tagging and publishing 2.1.2.

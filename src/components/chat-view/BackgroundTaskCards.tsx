@@ -1,5 +1,6 @@
 import {
   Check,
+  CircleAlert,
   CircleEllipsis,
   CloudUpload,
   Expand,
@@ -129,11 +130,36 @@ export function BackgroundTaskCards({
           !!artifact?.remoteUrl &&
           task.status === 'succeeded' &&
           task.progress?.phase === 'uploaded'
+        const terminalError =
+          ['failed', 'interrupted'].includes(task.status) && task.error
+            ? task.error
+            : null
         const statusMessage = legacyUnverifiedR2Insert
           ? 'Uploaded to R2 · insertion not verified'
-          : (task.progress?.message ??
-            task.error ??
-            task.status.replace(/-/g, ' '))
+          : task.status === 'failed'
+            ? task.kind === 'image-generation'
+              ? 'Image generation failed'
+              : 'Task failed'
+            : task.status === 'interrupted'
+              ? task.kind === 'image-generation'
+                ? 'Image generation interrupted'
+                : 'Task interrupted'
+              : task.status === 'canceled'
+                ? task.kind === 'image-generation'
+                  ? 'Image generation canceled'
+                  : 'Task canceled'
+                : (task.progress?.message ??
+                  task.error ??
+                  task.status.replace(/-/g, ' '))
+        const dismissibleImageTask =
+          task.kind === 'image-generation' &&
+          ['succeeded', 'failed', 'canceled', 'interrupted'].includes(
+            task.status,
+          )
+        const dismissLabel =
+          task.status === 'succeeded'
+            ? 'Dismiss completed image task'
+            : `Dismiss ${task.status} image task`
         const displayPrompt =
           typeof task.input.displayPrompt === 'string'
             ? task.input.displayPrompt
@@ -160,6 +186,8 @@ export function BackgroundTaskCards({
                 <CircleEllipsis size={15} />
               ) : task.status === 'canceled' ? (
                 <Square size={14} />
+              ) : ['failed', 'interrupted'].includes(task.status) ? (
+                <CircleAlert size={15} />
               ) : (
                 <X size={16} />
               )}
@@ -175,12 +203,13 @@ export function BackgroundTaskCards({
                     <LocateFixed size={13} />
                   </button>
                 )}
-              {taskScope === 'image-queue' && task.status === 'succeeded' && (
+              {taskScope === 'image-queue' && dismissibleImageTask && (
                 <button
+                  type="button"
                   className="smtcmp-task-card__dismiss"
                   onClick={() => void manager.dismiss(task.id)}
-                  aria-label="Dismiss completed image task"
-                  title="Dismiss completed image task"
+                  aria-label={dismissLabel}
+                  title={dismissLabel}
                 >
                   <X size={13} />
                 </button>
@@ -189,6 +218,11 @@ export function BackgroundTaskCards({
             {taskScope === 'image-queue' && displayPrompt && (
               <div className="smtcmp-task-card__prompt" title={displayPrompt}>
                 {displayPrompt}
+              </div>
+            )}
+            {taskScope === 'image-queue' && terminalError && (
+              <div className="smtcmp-task-card__error" title={terminalError}>
+                {terminalError}
               </div>
             )}
             {resourcePath && (

@@ -3237,6 +3237,21 @@ button.smtcmp-chat-input-effort-select {
   white-space: nowrap;
 }
 
+.smtcmp-task-card__error {
+  display: -webkit-box;
+  margin-top: 5px;
+  overflow: hidden;
+  border-left: 2px solid var(--ach-danger);
+  background: color-mix(in srgb, var(--ach-danger) 8%, transparent);
+  padding: 4px 6px;
+  color: var(--ach-danger);
+  font-size: 10.5px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
 .smtcmp-task-card__status > span {
   flex: 1 1 auto;
 }
@@ -3255,6 +3270,11 @@ button.smtcmp-chat-input-effort-select {
 
 .smtcmp-task-card__dismiss {
   color: var(--ach-muted);
+}
+
+.smtcmp-task-card__dismiss:hover,
+.smtcmp-task-card__dismiss:focus-visible {
+  color: var(--ach-danger);
 }
 
 .smtcmp-message-anchor {

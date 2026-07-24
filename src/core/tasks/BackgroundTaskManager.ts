@@ -184,11 +184,7 @@ export class BackgroundTaskManager {
 
   async dismiss(id: string): Promise<boolean> {
     const task = this.tasks.get(id)
-    if (
-      !task ||
-      task.kind !== 'image-generation' ||
-      task.status !== 'succeeded'
-    ) {
+    if (!task || task.kind !== 'image-generation' || !isTerminal(task.status)) {
       return false
     }
     await this.repository.deleteTask(id)

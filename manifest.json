@@ -1,7 +1,7 @@
 {
   "id": "smart-composer",
   "name": "Smart Composer",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "minAppVersion": "1.10.0",
   "description": "Isolated AI chat, Plan image generation, inline editing, and typed vault artifacts.",
   "author": "Heesu Suh",

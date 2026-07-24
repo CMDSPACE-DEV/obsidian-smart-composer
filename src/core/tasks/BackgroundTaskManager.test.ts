@@ -161,7 +161,7 @@ describe('BackgroundTaskManager', () => {
     })
   })
 
-  it('dismisses only completed image tasks and preserves the deletion', async () => {
+  it('dismisses completed image tasks and preserves the deletion', async () => {
     const app = createApp()
     const manager = new BackgroundTaskManager(app)
     await manager.initialize()
@@ -189,6 +189,40 @@ describe('BackgroundTaskManager', () => {
     const reloaded = new BackgroundTaskManager(app)
     await reloaded.initialize()
     expect(reloaded.getTasks().find((task) => task.id === completed.id)).toBe(
+      undefined,
+    )
+  })
+
+  it('dismisses failed image tasks and preserves the deletion', async () => {
+    const app = createApp()
+    const manager = new BackgroundTaskManager(app)
+    await manager.initialize()
+    manager.registerAdapter({
+      kind: 'image-generation',
+      run: async () => {
+        throw new Error('Image request rejected')
+      },
+    })
+
+    const failed = await manager.enqueue({
+      conversationId: 'conversation',
+      originMessageId: 'failed',
+      kind: 'image-generation',
+      payload: { prompt: 'Rejected image' },
+    })
+    await waitForTask(
+      manager,
+      (task) => task.id === failed.id && task.status === 'failed',
+    )
+
+    expect(await manager.dismiss(failed.id)).toBe(true)
+    expect(manager.getTasks().find((task) => task.id === failed.id)).toBe(
+      undefined,
+    )
+
+    const reloaded = new BackgroundTaskManager(app)
+    await reloaded.initialize()
+    expect(reloaded.getTasks().find((task) => task.id === failed.id)).toBe(
       undefined,
     )
   })
