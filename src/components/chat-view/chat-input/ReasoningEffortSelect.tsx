@@ -3,6 +3,7 @@ import { BrainCircuit, Check, ChevronDown, ChevronUp } from 'lucide-react'
 import { Notice } from 'obsidian'
 import { useId, useState } from 'react'
 
+import { useDialogContainer } from '../../../contexts/dialog-container-context'
 import { useSettings } from '../../../contexts/settings-context'
 
 import {
@@ -11,6 +12,7 @@ import {
 } from './reasoning-effort'
 
 export function ReasoningEffortSelect() {
+  const dialogContainer = useDialogContainer()
   const { settings, setSettings } = useSettings()
   const [isOpen, setIsOpen] = useState(false)
   const menuLabelId = useId()
@@ -64,7 +66,7 @@ export function ReasoningEffortSelect() {
         </span>
       </DropdownMenu.Trigger>
 
-      <DropdownMenu.Portal>
+      <DropdownMenu.Portal container={dialogContainer}>
         <DropdownMenu.Content
           className="smtcmp-popover smtcmp-chat-input-effort-popover"
           sideOffset={5}

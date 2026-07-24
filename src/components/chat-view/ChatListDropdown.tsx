@@ -1,7 +1,9 @@
 import * as Popover from '@radix-ui/react-popover'
-import { Pencil, Trash2 } from 'lucide-react'
+import * as Tooltip from '@radix-ui/react-tooltip'
+import { History, Pencil, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { useDialogContainer } from '../../contexts/dialog-container-context'
 import { ChatConversationMetadata } from '../../database/json/chat/types'
 
 function TitleInput({
@@ -89,6 +91,7 @@ function ChatListItem({
             onStartEdit()
           }}
           className="clickable-icon smtcmp-chat-list-dropdown-item-icon"
+          aria-label="Rename conversation"
         >
           <Pencil />
         </button>
@@ -98,6 +101,7 @@ function ChatListItem({
             await onDelete()
           }}
           className="clickable-icon smtcmp-chat-list-dropdown-item-icon"
+          aria-label="Delete conversation"
         >
           <Trash2 />
         </button>
@@ -112,15 +116,14 @@ export function ChatListDropdown({
   onSelect,
   onDelete,
   onUpdateTitle,
-  children,
 }: {
   chatList: ChatConversationMetadata[]
   currentConversationId: string
   onSelect: (conversationId: string) => Promise<void>
   onDelete: (conversationId: string) => Promise<void>
   onUpdateTitle: (conversationId: string, newTitle: string) => Promise<void>
-  children: React.ReactNode
 }) {
+  const dialogContainer = useDialogContainer()
   const [open, setOpen] = useState(false)
   const [focusedIndex, setFocusedIndex] = useState<number>(0)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -141,7 +144,7 @@ export function ChatListDropdown({
         setFocusedIndex(Math.max(0, focusedIndex - 1))
       } else if (e.key === 'ArrowDown') {
         setFocusedIndex(Math.min(chatList.length - 1, focusedIndex + 1))
-      } else if (e.key === 'Enter') {
+      } else if (e.key === 'Enter' && chatList[focusedIndex]) {
         onSelect(chatList[focusedIndex].id)
         setOpen(false)
       }
@@ -151,13 +154,31 @@ export function ChatListDropdown({
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger asChild>
-        <button className="clickable-icon" aria-label="Chat History">
-          {children}
-        </button>
-      </Popover.Trigger>
+      <Tooltip.Root>
+        <Tooltip.Trigger asChild>
+          <Popover.Trigger asChild>
+            <button
+              type="button"
+              className="smtcmp-chat-icon-button smtcmp-chat-header__action"
+              aria-label="Chat history"
+              aria-expanded={open}
+              data-active={String(open)}
+            >
+              <History size={16} aria-hidden="true" />
+            </button>
+          </Popover.Trigger>
+        </Tooltip.Trigger>
+        <Tooltip.Portal container={dialogContainer}>
+          <Tooltip.Content
+            className="smtcmp-tooltip-content smtcmp-chat-control-tooltip"
+            sideOffset={7}
+          >
+            Chat history
+          </Tooltip.Content>
+        </Tooltip.Portal>
+      </Tooltip.Root>
 
-      <Popover.Portal>
+      <Popover.Portal container={dialogContainer}>
         <Popover.Content
           className="smtcmp-popover smtcmp-chat-list-dropdown-content"
           onKeyDown={handleKeyDown}

@@ -91,6 +91,7 @@ export default function UserMessageItem({
             mentionables={draftMentionables}
             setMentionables={setDraftMentionables}
             autoFocus
+            purpose="message-edit"
           />
         </div>
       ) : (

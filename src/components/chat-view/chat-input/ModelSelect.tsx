@@ -2,9 +2,11 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useState } from 'react'
 
+import { useDialogContainer } from '../../../contexts/dialog-container-context'
 import { useSettings } from '../../../contexts/settings-context'
 
 export function ModelSelect() {
+  const dialogContainer = useDialogContainer()
   const { settings, setSettings } = useSettings()
   const [isOpen, setIsOpen] = useState(false)
   return (
@@ -18,7 +20,7 @@ export function ModelSelect() {
         </div>
       </DropdownMenu.Trigger>
 
-      <DropdownMenu.Portal>
+      <DropdownMenu.Portal container={dialogContainer}>
         <DropdownMenu.Content className="smtcmp-popover">
           <ul>
             {settings.chatModels

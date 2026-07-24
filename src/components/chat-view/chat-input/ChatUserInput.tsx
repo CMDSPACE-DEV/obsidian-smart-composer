@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { $nodesOfType, LexicalEditor, SerializedEditorState } from 'lexical'
+import { ArrowUp, LibraryBig, ListPlus, WandSparkles } from 'lucide-react'
 import {
   forwardRef,
   useCallback,
@@ -25,9 +26,15 @@ import {
 } from '../../../utils/chat/mentionable'
 import { fileToMentionableImage } from '../../../utils/llm/image'
 import { openMarkdownFile, readTFileContent } from '../../../utils/obsidian'
+import { ChatIconButton } from '../ChatIconButton'
 import { ObsidianMarkdown } from '../ObsidianMarkdown'
 
-import { ImageGenerationButton } from './ImageGenerationButton'
+import {
+  ComposerMode,
+  getComposerSendLabel,
+  getComposerSubmission,
+  toggleComposerMode,
+} from './composer-mode'
 import { ImageUploadButton } from './ImageUploadButton'
 import LexicalContentEditable from './LexicalContentEditable'
 import MentionableBadge from './MentionableBadge'
@@ -35,9 +42,7 @@ import { ModelSelect } from './ModelSelect'
 import { MentionNode } from './plugins/mention/MentionNode'
 import { NodeMutations } from './plugins/on-mutation/OnMutationPlugin'
 import { ReasoningEffortSelect } from './ReasoningEffortSelect'
-import { SubmitButton } from './SubmitButton'
-import ToolBadge from './ToolBadge'
-import { VaultChatButton } from './VaultChatButton'
+import { ToolsControl } from './ToolsControl'
 
 export type ChatUserInputRef = {
   focus: () => void
@@ -56,6 +61,8 @@ export type ChatUserInputProps = {
   setMentionables: (mentionables: Mentionable[]) => void
   autoFocus?: boolean
   addedBlockKey?: string | null
+  purpose?: 'new-message' | 'message-edit'
+  isForegroundPending?: boolean
 }
 
 const ChatUserInput = forwardRef<ChatUserInputRef, ChatUserInputProps>(
@@ -69,6 +76,8 @@ const ChatUserInput = forwardRef<ChatUserInputRef, ChatUserInputProps>(
       setMentionables,
       autoFocus = false,
       addedBlockKey,
+      purpose = 'new-message',
+      isForegroundPending = false,
     },
     ref,
   ) => {
@@ -83,6 +92,7 @@ const ChatUserInput = forwardRef<ChatUserInputRef, ChatUserInputProps>(
     const editorRef = useRef<LexicalEditor | null>(null)
     const contentEditableRef = useRef<HTMLDivElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
+    const [composerMode, setComposerMode] = useState<ComposerMode>('chat')
 
     const [displayedMentionableKey, setDisplayedMentionableKey] = useState<
       string | null
@@ -93,6 +103,12 @@ const ChatUserInput = forwardRef<ChatUserInputRef, ChatUserInputProps>(
         setDisplayedMentionableKey(addedBlockKey)
       }
     }, [addedBlockKey])
+
+    useEffect(() => {
+      if (!canGenerateImages || purpose === 'message-edit') {
+        setComposerMode((mode) => (mode === 'image' ? 'chat' : mode))
+      }
+    }, [canGenerateImages, purpose])
 
     useImperativeHandle(ref, () => ({
       focus: () => {
@@ -209,53 +225,53 @@ const ChatUserInput = forwardRef<ChatUserInputRef, ChatUserInputProps>(
       handleCreateImageMentionables(mentionableImages)
     }
 
-    const handleSubmit = (options: { useVaultSearch?: boolean } = {}) => {
+    const handleSubmit = (targetMode: ComposerMode = composerMode) => {
       const content = editorRef.current?.getEditorState()?.toJSON()
-      content && onSubmit(content, options.useVaultSearch)
-    }
+      if (!content) return
 
-    const handleImageGeneration = () => {
-      const content = editorRef.current?.getEditorState()?.toJSON()
-      content && onSubmit(content, false, 'image')
+      const submission = getComposerSubmission(targetMode)
+      onSubmit(content, submission.useVaultSearch, submission.mode)
+      setComposerMode('chat')
     }
 
     return (
       <div className="smtcmp-chat-user-input-container" ref={containerRef}>
-        <div className="smtcmp-chat-user-input-files">
-          <ToolBadge />
-          {mentionables.map((m) => (
-            <MentionableBadge
-              key={getMentionableKey(serializeMentionable(m))}
-              mentionable={m}
-              onDelete={() => handleMentionableDelete(m)}
-              onClick={() => {
-                const mentionableKey = getMentionableKey(
-                  serializeMentionable(m),
-                )
-                if (
-                  (m.type === 'current-file' ||
-                    m.type === 'file' ||
-                    m.type === 'block') &&
-                  m.file &&
-                  mentionableKey === displayedMentionableKey
-                ) {
-                  // open file on click again
-                  openMarkdownFile(
-                    app,
-                    m.file.path,
-                    m.type === 'block' ? m.startLine : undefined,
+        {mentionables.length > 0 && (
+          <div className="smtcmp-chat-user-input-files">
+            {mentionables.map((m) => (
+              <MentionableBadge
+                key={getMentionableKey(serializeMentionable(m))}
+                mentionable={m}
+                onDelete={() => handleMentionableDelete(m)}
+                onClick={() => {
+                  const mentionableKey = getMentionableKey(
+                    serializeMentionable(m),
                   )
-                } else {
-                  setDisplayedMentionableKey(mentionableKey)
+                  if (
+                    (m.type === 'current-file' ||
+                      m.type === 'file' ||
+                      m.type === 'block') &&
+                    m.file &&
+                    mentionableKey === displayedMentionableKey
+                  ) {
+                    // open file on click again
+                    openMarkdownFile(
+                      app,
+                      m.file.path,
+                      m.type === 'block' ? m.startLine : undefined,
+                    )
+                  } else {
+                    setDisplayedMentionableKey(mentionableKey)
+                  }
+                }}
+                isFocused={
+                  getMentionableKey(serializeMentionable(m)) ===
+                  displayedMentionableKey
                 }
-              }}
-              isFocused={
-                getMentionableKey(serializeMentionable(m)) ===
-                displayedMentionableKey
-              }
-            />
-          ))}
-        </div>
+              />
+            ))}
+          </div>
+        )}
 
         <MentionableContentPreview
           displayedMentionableKey={displayedMentionableKey}
@@ -273,7 +289,7 @@ const ChatUserInput = forwardRef<ChatUserInputRef, ChatUserInputProps>(
           editorRef={editorRef}
           contentEditableRef={contentEditableRef}
           onChange={onChange}
-          onEnter={() => handleSubmit({ useVaultSearch: false })}
+          onEnter={() => handleSubmit()}
           onFocus={onFocus}
           onMentionNodeMutation={handleMentionNodeMutation}
           onCreateImageMentionables={handleCreateImageMentionables}
@@ -281,7 +297,7 @@ const ChatUserInput = forwardRef<ChatUserInputRef, ChatUserInputProps>(
           plugins={{
             onEnter: {
               onVaultChat: () => {
-                handleSubmit({ useVaultSearch: true })
+                handleSubmit('vault')
               },
             },
             templatePopover: {
@@ -297,14 +313,40 @@ const ChatUserInput = forwardRef<ChatUserInputRef, ChatUserInputProps>(
           </div>
           <div className="smtcmp-chat-user-input-controls__buttons">
             <ImageUploadButton onUpload={handleUploadImages} />
-            {canGenerateImages && (
-              <ImageGenerationButton onClick={handleImageGeneration} />
+            <ChatIconButton
+              icon={LibraryBig}
+              label="Vault search"
+              tooltip="Search the vault for this prompt"
+              shortcut="Ctrl/⌘ + Shift + Enter"
+              active={composerMode === 'vault'}
+              onClick={() =>
+                setComposerMode((mode) => toggleComposerMode(mode, 'vault'))
+              }
+            />
+            {canGenerateImages && purpose === 'new-message' && (
+              <ChatIconButton
+                icon={WandSparkles}
+                label="Generate image"
+                tooltip="Generate an image in the background"
+                active={composerMode === 'image'}
+                onClick={() =>
+                  setComposerMode((mode) => toggleComposerMode(mode, 'image'))
+                }
+              />
             )}
-            <SubmitButton onClick={() => handleSubmit()} />
-            <VaultChatButton
-              onClick={() => {
-                handleSubmit({ useVaultSearch: true })
-              }}
+            <ToolsControl />
+            <ChatIconButton
+              icon={
+                isForegroundPending && composerMode !== 'image'
+                  ? ListPlus
+                  : ArrowUp
+              }
+              label={getComposerSendLabel(composerMode, isForegroundPending)}
+              tooltip={getComposerSendLabel(composerMode, isForegroundPending)}
+              shortcut="Enter"
+              variant="primary"
+              className="smtcmp-composer-send-button"
+              onClick={() => handleSubmit()}
             />
           </div>
         </div>

@@ -2297,36 +2297,156 @@ button.smtcmp-chat-input-effort-select {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ach-action) 30%, transparent);
 }
 
+.smtcmp-visually-hidden-input {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.smtcmp-shell .smtcmp-chat-icon-button {
+  display: inline-grid;
+  flex: 0 0 30px;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ach-muted);
+  box-shadow: none;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.smtcmp-shell .smtcmp-chat-icon-button svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.8;
+}
+
+.smtcmp-shell .smtcmp-chat-icon-button:hover,
+.smtcmp-shell .smtcmp-chat-icon-button:focus-visible {
+  border-color: var(--ach-border);
+  background: var(--ach-surface-raised);
+  color: var(--ach-action);
+}
+
+.smtcmp-shell .smtcmp-chat-icon-button[data-active='true'] {
+  border-color: color-mix(in srgb, var(--ach-action) 42%, var(--ach-border));
+  background: color-mix(in srgb, var(--ach-action) 11%, var(--ach-surface));
+  color: var(--ach-action);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--ach-action) 10%, transparent);
+}
+
+.smtcmp-shell .smtcmp-chat-icon-button--primary {
+  border-color: var(--ach-action);
+  background: var(--ach-action);
+  color: #ffffff;
+}
+
+.smtcmp-shell .smtcmp-chat-icon-button--primary:hover,
+.smtcmp-shell .smtcmp-chat-icon-button--primary:focus-visible {
+  border-color: var(--interactive-accent-hover);
+  background: var(--interactive-accent-hover);
+  color: #ffffff;
+}
+
+.smtcmp-shell[data-skin='cmds-dark'] .smtcmp-chat-icon-button--primary {
+  color: #081000;
+  box-shadow: 0 0 12px #b6ff0024;
+}
+
+.smtcmp-shell .smtcmp-chat-control-tooltip {
+  z-index: 2000;
+  display: inline-flex;
+  align-items: center;
+  max-width: 240px;
+  gap: 8px;
+  padding: 5px 7px;
+  border-color: var(--ach-border);
+  border-radius: 5px;
+  background: var(--ach-surface);
+  color: var(--ach-text);
+  box-shadow: 0 8px 24px #00102e1f;
+  font-size: 10.5px;
+  line-height: 1.25;
+}
+
+.smtcmp-shell[data-skin='cmds-dark'] .smtcmp-chat-control-tooltip {
+  box-shadow: 0 8px 24px #000000cc;
+}
+
+.smtcmp-chat-control-tooltip__shortcut {
+  padding: 1px 4px;
+  border: 1px solid var(--ach-border);
+  border-radius: 3px;
+  background: var(--ach-surface-raised);
+  color: var(--ach-muted);
+  font:
+    9.5px/1.35 ui-monospace,
+    'Cascadia Code',
+    monospace;
+  white-space: nowrap;
+}
+
 .smtcmp-shell .smtcmp-chat-container {
   background: var(--ach-canvas);
   padding: 12px 10px 10px;
 }
 
 .smtcmp-shell .smtcmp-chat-header {
-  min-height: 38px;
-  padding: 0 4px 8px;
+  min-height: 36px;
+  margin: 0 0 2px;
+  padding: 0 2px 6px;
   border-bottom: 1px solid var(--ach-border);
 }
 
 .smtcmp-shell .smtcmp-chat-header-title {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
   color: var(--ach-heading);
+  font-size: 15px;
+  font-weight: 680;
+  line-height: 1.2;
   letter-spacing: 0;
 }
 
-.smtcmp-shell .smtcmp-chat-header-title::after {
+.smtcmp-shell .smtcmp-chat-header-title__role {
+  display: none;
+  margin-left: 2px;
   color: var(--ach-muted);
   font:
     10px/1.2 ui-monospace,
     'Cascadia Code',
     monospace;
+  font-weight: 550;
 }
 
-.smtcmp-shell[data-skin='hallym-light'] .smtcmp-chat-header-title::after {
-  content: ' / COWORK';
+.smtcmp-shell[data-skin='hallym-light']
+  .smtcmp-chat-header-title__role--cowork {
+  display: inline;
 }
 
-.smtcmp-shell[data-skin='cmds-dark'] .smtcmp-chat-header-title::after {
-  content: ' / OPERATOR';
+.smtcmp-shell[data-skin='cmds-dark'] .smtcmp-chat-header-title__role--operator {
+  display: inline;
+}
+
+.smtcmp-shell .smtcmp-chat-header-buttons {
+  flex: 0 0 auto;
+  gap: 3px;
 }
 
 .smtcmp-shell .smtcmp-chat-messages {
@@ -2477,6 +2597,167 @@ button.smtcmp-chat-input-effort-select {
   box-shadow:
     0 0 0 2px #0066b31d,
     0 10px 28px #002e6e12;
+}
+
+.smtcmp-shell .smtcmp-chat-user-input-container > .obsidian-default-textarea {
+  min-height: 54px;
+  max-height: 180px;
+  padding: 5px 3px 7px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.smtcmp-shell .smtcmp-chat-user-input-files {
+  gap: 4px;
+  padding-bottom: 5px;
+}
+
+.smtcmp-shell .smtcmp-chat-user-input-controls {
+  min-height: 32px;
+  gap: 6px;
+  margin-top: 2px;
+  padding-top: 5px;
+  border-top: 1px solid color-mix(in srgb, var(--ach-border) 76%, transparent);
+}
+
+.smtcmp-shell .smtcmp-chat-user-input-controls__model-select-container {
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 3px;
+  overflow: hidden;
+}
+
+.smtcmp-shell .smtcmp-chat-user-input-controls__buttons {
+  flex: 0 0 auto;
+  gap: 3px;
+}
+
+.smtcmp-shell button.smtcmp-chat-input-model-select {
+  min-width: 42px !important;
+  max-width: 142px !important;
+  height: 30px !important;
+  padding: 0 5px !important;
+  border: 1px solid transparent !important;
+  border-radius: 5px !important;
+  color: var(--ach-muted) !important;
+}
+
+.smtcmp-shell button.smtcmp-chat-input-model-select:hover,
+.smtcmp-shell button.smtcmp-chat-input-model-select:focus-visible,
+.smtcmp-shell button.smtcmp-chat-input-model-select[data-state='open'] {
+  border-color: var(--ach-border) !important;
+  background: var(--ach-surface-raised) !important;
+  color: var(--ach-action) !important;
+}
+
+.smtcmp-shell button.smtcmp-chat-input-effort-select {
+  height: 28px !important;
+  min-height: 28px !important;
+  padding: 0 6px !important;
+  border-color: transparent !important;
+  border-radius: 5px !important;
+  background: transparent !important;
+  color: var(--ach-muted) !important;
+}
+
+.smtcmp-shell button.smtcmp-chat-input-effort-select:hover,
+.smtcmp-shell button.smtcmp-chat-input-effort-select:focus-visible,
+.smtcmp-shell button.smtcmp-chat-input-effort-select[data-state='open'] {
+  border-color: var(--ach-border) !important;
+  background: var(--ach-surface-raised) !important;
+  color: var(--ach-action) !important;
+}
+
+.smtcmp-shell .smtcmp-tools-control-popover {
+  width: min(260px, calc(100vw - 24px));
+  padding: 5px;
+  border-color: var(--ach-border);
+  border-radius: 7px;
+  background: var(--ach-surface);
+  box-shadow: 0 14px 36px #00102e2b;
+}
+
+.smtcmp-shell[data-skin='cmds-dark'] .smtcmp-tools-control-popover {
+  box-shadow: 0 14px 36px #000000d9;
+}
+
+.smtcmp-shell .smtcmp-tools-control-popover > button {
+  display: flex;
+  width: 100%;
+  min-height: 38px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 5px;
+  text-align: left;
+}
+
+.smtcmp-shell .smtcmp-tools-control-popover__toggle {
+  justify-content: space-between;
+}
+
+.smtcmp-tools-control-popover__copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.smtcmp-tools-control-popover__copy strong {
+  color: var(--ach-text);
+  font-size: 11.5px;
+  font-weight: 620;
+}
+
+.smtcmp-tools-control-popover__copy small {
+  overflow: hidden;
+  color: var(--ach-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.smtcmp-tools-control-popover__switch {
+  position: relative;
+  display: block;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 17px;
+  border: 1px solid var(--ach-border);
+  border-radius: 9px;
+  background: var(--ach-surface-raised);
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.smtcmp-tools-control-popover__switch > span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--ach-muted);
+  transition:
+    transform 120ms ease,
+    background 120ms ease;
+}
+
+.smtcmp-tools-control-popover__switch[data-checked='true'] {
+  border-color: var(--ach-action);
+  background: color-mix(in srgb, var(--ach-action) 22%, var(--ach-surface));
+}
+
+.smtcmp-tools-control-popover__switch[data-checked='true'] > span {
+  background: var(--ach-action);
+  transform: translateX(13px);
+}
+
+.smtcmp-shell .smtcmp-tools-control-popover__manage {
+  justify-content: flex-start;
+  color: var(--ach-muted);
+  font-size: 11px;
 }
 
 @property --smtcmp-composer-orbit-angle {
@@ -3352,6 +3633,35 @@ button.smtcmp-chat-input-effort-select {
     padding-inline: 6px;
   }
 
+  .smtcmp-shell .smtcmp-chat-header {
+    padding-inline: 0;
+  }
+
+  .smtcmp-shell .smtcmp-chat-user-input-container {
+    padding: 6px;
+  }
+
+  .smtcmp-shell .smtcmp-chat-user-input-controls {
+    gap: 3px;
+  }
+
+  .smtcmp-shell .smtcmp-chat-user-input-controls__model-select-container {
+    gap: 1px;
+  }
+
+  .smtcmp-shell .smtcmp-chat-user-input-controls__buttons {
+    gap: 2px;
+  }
+
+  .smtcmp-shell button.smtcmp-chat-input-model-select {
+    max-width: 94px !important;
+    padding-inline: 3px !important;
+  }
+
+  .smtcmp-shell button.smtcmp-chat-input-effort-select {
+    padding-inline: 4px !important;
+  }
+
   .smtcmp-shell .smtcmp-chat-messages-user {
     max-width: 94%;
   }
@@ -3411,6 +3721,12 @@ button.smtcmp-chat-input-effort-select {
   .smtcmp-image-queue-panel__toggle > svg:last-child {
     transition: none;
   }
+
+  .smtcmp-shell .smtcmp-chat-icon-button,
+  .smtcmp-tools-control-popover__switch,
+  .smtcmp-tools-control-popover__switch > span {
+    transition: none;
+  }
 }
 
 @media (forced-colors: active) {
@@ -3443,5 +3759,12 @@ button.smtcmp-chat-input-effort-select {
       [data-task-status='queued']
     )::before {
     background: CanvasText;
+  }
+
+  .smtcmp-shell .smtcmp-chat-icon-button[data-active='true'],
+  .smtcmp-tools-control-popover__switch[data-checked='true'] {
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
   }
 }

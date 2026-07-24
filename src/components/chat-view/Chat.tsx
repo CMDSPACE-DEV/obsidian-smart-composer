@@ -1,4 +1,4 @@
-import { Book, CircleStop, History, Plus } from 'lucide-react'
+import { Book, CircleStop, Plus } from 'lucide-react'
 import { App, Notice } from 'obsidian'
 import {
   forwardRef,
@@ -50,6 +50,7 @@ import AssistantToolMessageGroupItem from './AssistantToolMessageGroupItem'
 import { BackgroundTaskCards } from './BackgroundTaskCards'
 import ChatUserInput, { ChatUserInputRef } from './chat-input/ChatUserInput'
 import { editorStateToPlainText } from './chat-input/utils/editor-state-to-plain-text'
+import { ChatIconButton } from './ChatIconButton'
 import { ChatListDropdown } from './ChatListDropdown'
 import { ImageQueuePanel } from './ImageQueuePanel'
 import QueryProgress, { QueryProgressState } from './QueryProgress'
@@ -605,15 +606,25 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
       }
     >
       <div className="smtcmp-chat-header">
-        <h1 className="smtcmp-chat-header-title">Chat</h1>
+        <h1 className="smtcmp-chat-header-title">
+          <span>Chat</span>
+          <span className="smtcmp-chat-header-title__role smtcmp-chat-header-title__role--cowork">
+            {' '}
+            / COWORK
+          </span>
+          <span className="smtcmp-chat-header-title__role smtcmp-chat-header-title__role--operator">
+            {' '}
+            / OPERATOR
+          </span>
+        </h1>
         <div className="smtcmp-chat-header-buttons">
-          <button
+          <ChatIconButton
+            icon={Plus}
+            label="New chat"
+            tooltip="Start a new chat"
             onClick={() => handleNewChat()}
-            className="clickable-icon"
-            aria-label="New Chat"
-          >
-            <Plus size={18} />
-          </button>
+            className="smtcmp-chat-header__action"
+          />
           <ChatListDropdown
             chatList={chatList}
             currentConversationId={currentConversationId}
@@ -637,18 +648,16 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
             onUpdateTitle={async (conversationId, newTitle) => {
               await updateConversationTitle(conversationId, newTitle)
             }}
-          >
-            <History size={18} />
-          </ChatListDropdown>
-          <button
+          />
+          <ChatIconButton
+            icon={Book}
+            label="Prompt templates"
+            tooltip="Open prompt templates"
             onClick={() => {
               new TemplateSectionModal(app).open()
             }}
-            className="clickable-icon"
-            aria-label="Prompt Templates"
-          >
-            <Book size={18} />
-          </button>
+            className="smtcmp-chat-header__action"
+          />
         </div>
       </div>
       <ImageQueuePanel
@@ -899,6 +908,7 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
         }}
         autoFocus
         addedBlockKey={addedBlockKey}
+        isForegroundPending={submitChatMutation.isPending}
       />
     </div>
   )

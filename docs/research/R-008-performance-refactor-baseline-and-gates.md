@@ -127,7 +127,8 @@ feature.
 - Minimum Obsidian remains 1.10.0.
 - The plugin ID remains unchanged.
 - No data migration is added.
-- The final version is 2.1.0.
+- The performance-refactor baseline version is 2.1.0; the polished release
+  candidate is 2.1.1 as recorded in section 9.
 - BRAT release assets remain `main.js`, `manifest.json`, and `styles.css`.
 - Rolling back the plugin files to 2.0.14 must remain possible.
 
@@ -174,3 +175,50 @@ Seven-run Obsidian startup/input-ready measurements, heap comparison, Plan/API
 account smoke tests, CMDS R2, Canvas/Bases/Excalidraw, popout/mobile checks, and
 the three-day soak remain real-runtime release gates. They are not inferred
 from unit tests or bundle size.
+
+## 9. 2.1.1 Chat Chrome Addendum
+
+The 2.1.1 candidate keeps the 2.1.0 runtime, schemas, provider routing,
+background task behavior, and bundle boundary intact while polishing the chat
+chrome:
+
+- the header is one compact row with identical icon controls and explicit
+  `Chat / COWORK` or `Chat / OPERATOR` labeling;
+- image attachment, vault search, image generation, MCP tools, and send use
+  accessible icon buttons with tooltips;
+- vault search and image generation are mutually exclusive one-shot composer
+  modes and reset to ordinary chat after submission;
+- sending during a foreground response retains the R-006 FIFO prompt queue,
+  while image generation continues to use the independent background queue;
+- the MCP manager and available-tool count initialize only when the tools
+  popover is opened, preserving the lazy-loading boundary established here;
+- Radix menus and tooltips portal into the existing light-DOM chat mount. This
+  preserves the R-007 keyboard, IME, paste, and popout constraint and does not
+  reintroduce a chat Shadow Root;
+- the existing R-005 Hallym Light and CMDS Dark skins, reduced-motion behavior,
+  forced-colors behavior, and fixed control geometry remain release gates.
+
+The release is intentionally staged in two phases. Automated verification and
+installation into the Dropbox-backed vault may be completed first. The
+`2.1.1` tag and GitHub release are published only after a clean launch and
+smoke test on the synced target PC. The longer three-day soak remains a
+post-publication observation gate and cannot be inferred from automated tests.
+
+Automated verification of the 2.1.1 candidate on 2026-07-24 produced:
+
+```text
+test suites: 55 passed
+tests: 377 passed
+type check: passed
+repository-wide Prettier and ESLint: passed
+production build: passed
+production main.js: 4,724,233 bytes
+styles.css: 85,401 bytes
+manifest.json: 365 bytes
+bundle budget: passed (<= 5.2 MiB)
+```
+
+The target-PC launch, 320/400/800 px visual inspection, popout behavior,
+tooltip/popover positioning, Korean IME and paste, one-shot Vault/Image modes,
+foreground prompt Queue, background Image Queue, and light/dark skin checks
+remain live smoke-test items.
