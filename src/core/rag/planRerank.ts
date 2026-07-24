@@ -3,7 +3,6 @@ import { minimatch } from 'minimatch'
 import { App, TFile } from 'obsidian'
 
 import { QueryProgressState } from '../../components/chat-view/QueryProgress'
-import { getChatModelClient } from '../../core/llm/manager'
 import { SelectEmbedding, VectorMetaData } from '../../database/schema'
 import { SmartComposerSettings } from '../../settings/schema/setting.types'
 import { RetrievalMetadata } from '../../types/chat'
@@ -239,6 +238,7 @@ async function getPlanSelectedIndexes({
   candidates: ChunkCandidate[]
   limit: number
 }): Promise<number[]> {
+  const { getChatModelClient } = await import('../../core/llm/manager')
   const { providerClient, model } = getChatModelClient({
     modelId: settings.chatModelId,
     settings,

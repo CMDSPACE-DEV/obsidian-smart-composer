@@ -7,7 +7,6 @@ import { SelectEmbedding, VectorMetaData } from '../../database/schema'
 import { SmartComposerSettings } from '../../settings/schema/setting.types'
 import { RetrievalMetadata } from '../../types/chat'
 import { tokenCount } from '../../utils/llm/token'
-import { getChatModelClient } from '../llm/manager'
 
 import {
   describePlanRequestError,
@@ -267,6 +266,7 @@ async function summarizeBatchWithPlan({
   batchIndex: number
   totalBatches: number
 }): Promise<{ summary: string; warning?: string }> {
+  const { getChatModelClient } = await import('../llm/manager')
   const { providerClient, model } = getChatModelClient({
     modelId: settings.chatModelId,
     settings,

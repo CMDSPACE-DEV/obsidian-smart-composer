@@ -11,10 +11,10 @@ import {
   X,
 } from 'lucide-react'
 import { Notice, TFile } from 'obsidian'
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { useApp } from '../../contexts/app-context'
-import { usePlugin } from '../../contexts/plugin-context'
+import { useBackgroundTasks } from '../../contexts/background-tasks-context'
 import { uploadWithCmdsEagle } from '../../core/image/CmdsEagleBridge'
 import {
   ArtifactRecord,
@@ -35,40 +35,21 @@ export function BackgroundTaskCards({
   onLocateOrigin?: (messageId: string) => void
 }) {
   const app = useApp()
-  const plugin = usePlugin()
-  const manager = plugin.backgroundTaskManager
-  const [tasks, setTasks] = useState<BackgroundTaskRecord[]>([])
-  const [artifacts, setArtifacts] = useState<Record<string, ArtifactRecord>>({})
+  const { artifacts, manager, tasks: allTasks } = useBackgroundTasks()
   const [expanded, setExpanded] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (!manager) return
-    return manager.subscribe((allTasks) => {
-      const relevant =
-        taskScope === 'image-queue'
-          ? selectVisibleImageTasks(allTasks, conversationId)
-          : allTasks.filter(
-              (task) =>
-                task.conversationId === conversationId &&
-                task.originMessageId === originMessageId &&
-                task.kind !== 'image-generation',
-            )
-      setTasks(relevant)
-      void Promise.all(
-        relevant
-          .flatMap((task) => task.artifactIds)
-          .map((id) => manager.readArtifact(id)),
-      ).then((records) => {
-        setArtifacts(
-          Object.fromEntries(
-            records
-              .filter((record): record is ArtifactRecord => !!record)
-              .map((record) => [record.id, record]),
+  const tasks = useMemo(
+    () =>
+      taskScope === 'image-queue'
+        ? selectVisibleImageTasks(allTasks, conversationId)
+        : allTasks.filter(
+            (task) =>
+              task.conversationId === conversationId &&
+              task.originMessageId === originMessageId &&
+              task.kind !== 'image-generation',
           ),
-        )
-      })
-    })
-  }, [conversationId, manager, originMessageId, taskScope])
+    [allTasks, conversationId, originMessageId, taskScope],
+  )
 
   if (!manager || tasks.length === 0) return null
 
@@ -112,7 +93,6 @@ export function BackgroundTaskCards({
       const updated = { ...artifact, remoteUrl: url }
       await manager.saveArtifact(updated)
       const filename = artifact.localPath.split('/').at(-1) ?? 'image'
-      setArtifacts((current) => ({ ...current, [updated.id]: updated }))
       if (!insertMarkdown(task, `![${filename}](${url})`)) {
         await manager.updateProgress(task.id, {
           phase: 'uploaded-awaiting-insert',

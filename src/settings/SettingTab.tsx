@@ -1,13 +1,15 @@
 import { App, PluginSettingTab } from 'obsidian'
-import { Root, createRoot } from 'react-dom/client'
 
-import { SettingsTabRoot } from '../components/settings/SettingsTabRoot'
-import { SettingsProvider } from '../contexts/settings-context'
-import SmartComposerPlugin from '../main'
+import type SmartComposerPlugin from '../main'
+
+import type { SettingTabRenderer } from './SettingTabRenderer'
 
 export class SmartComposerSettingTab extends PluginSettingTab {
   plugin: SmartComposerPlugin
-  private root: Root | null = null
+  private renderer: SettingTabRenderer | null = null
+  private rendererInitPromise: Promise<SettingTabRenderer> | null = null
+  private displayGeneration = 0
+  private visible = false
 
   constructor(app: App, plugin: SmartComposerPlugin) {
     super(app, plugin)
@@ -15,27 +17,43 @@ export class SmartComposerSettingTab extends PluginSettingTab {
   }
 
   display(): void {
-    const { containerEl } = this
-    containerEl.empty()
-
-    this.root = createRoot(containerEl)
-    this.root.render(
-      <SettingsProvider
-        settings={this.plugin.settings}
-        setSettings={(newSettings) => this.plugin.setSettings(newSettings)}
-        addSettingsChangeListener={(listener) =>
-          this.plugin.addSettingsChangeListener(listener)
-        }
-      >
-        <SettingsTabRoot app={this.app} plugin={this.plugin} />
-      </SettingsProvider>,
-    )
+    this.visible = true
+    const generation = ++this.displayGeneration
+    this.containerEl.empty()
+    void this.getRenderer()
+      .then((renderer) => {
+        if (!this.visible || generation !== this.displayGeneration) return
+        renderer.render()
+      })
+      .catch((error) => {
+        console.error('Failed to render Smart Composer settings:', error)
+      })
   }
 
   hide(): void {
-    if (this.root) {
-      this.root.unmount()
-      this.root = null
+    this.visible = false
+    this.displayGeneration += 1
+    this.renderer?.hide()
+  }
+
+  private getRenderer(): Promise<SettingTabRenderer> {
+    if (this.renderer) return Promise.resolve(this.renderer)
+    if (!this.rendererInitPromise) {
+      this.rendererInitPromise = import('./SettingTabRenderer')
+        .then(({ createSettingTabRenderer }) => {
+          const renderer = createSettingTabRenderer({
+            app: this.app,
+            containerEl: this.containerEl,
+            plugin: this.plugin,
+          })
+          this.renderer = renderer
+          return renderer
+        })
+        .catch((error) => {
+          this.rendererInitPromise = null
+          throw error
+        })
     }
+    return this.rendererInitPromise
   }
 }

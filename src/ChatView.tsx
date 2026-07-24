@@ -1,28 +1,19 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ItemView, WorkspaceLeaf } from 'obsidian'
-import React from 'react'
-import { Root, createRoot } from 'react-dom/client'
 
-import Chat, { ChatProps, ChatRef } from './components/chat-view/Chat'
+import type { ChatViewRenderer } from './ChatViewRenderer'
+import type { ChatProps } from './components/chat-view/Chat'
 import { CHAT_VIEW_TYPE } from './constants'
-import { AppProvider } from './contexts/app-context'
-import { ChatViewProvider } from './contexts/chat-view-context'
-import { DarkModeProvider } from './contexts/dark-mode-context'
-import { DatabaseProvider } from './contexts/database-context'
-import { DialogContainerProvider } from './contexts/dialog-container-context'
-import { McpProvider } from './contexts/mcp-context'
-import { PluginProvider } from './contexts/plugin-context'
-import { RAGProvider } from './contexts/rag-context'
-import { SettingsProvider } from './contexts/settings-context'
-import SmartComposerPlugin from './main'
-import { MentionableBlockData } from './types/mentionable'
+import type SmartComposerPlugin from './main'
+import type { MentionableBlockData } from './types/mentionable'
 import { prepareChatMountSurface } from './utils/chat/chatMountSurface'
 
 export class ChatView extends ItemView {
-  private root: Root | null = null
   private initialChatProps?: ChatProps
-  private chatRef: React.RefObject<ChatRef> = React.createRef()
   private mountEl: HTMLDivElement | null = null
+  private renderer: ChatViewRenderer | null = null
+  private rendererInitPromise: Promise<ChatViewRenderer> | null = null
+  private pendingActions: ((renderer: ChatViewRenderer) => void)[] = []
+  private closed = false
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -45,97 +36,118 @@ export class ChatView extends ItemView {
   }
 
   async onOpen() {
+    this.closed = false
+    markPerformance('smart-composer:chat-open:start')
     await this.render()
-
-    // Consume chatProps
     this.initialChatProps = undefined
   }
 
   async onClose() {
-    this.root?.unmount()
-    this.root = null
+    this.closed = true
+    this.renderer?.close()
+    this.renderer = null
+    this.rendererInitPromise = null
+    this.pendingActions = []
     this.mountEl = null
   }
 
   async render() {
-    if (!this.root) {
-      const host = this.containerEl.children[1] as HTMLElement
-      this.mountEl = prepareChatMountSurface(host)
-      const applyTheme = () => {
-        this.mountEl?.setAttribute(
-          'data-skin',
-          host.ownerDocument.body.classList.contains('theme-dark')
-            ? 'cmds-dark'
-            : 'hallym-light',
-        )
-      }
-      applyTheme()
-      this.registerEvent(this.app.workspace.on('css-change', applyTheme))
-      this.root = createRoot(this.mountEl)
+    const mountEl = this.ensureMountSurface()
+    const renderer = await this.getRenderer(mountEl)
+    if (this.closed) {
+      renderer.close()
+      return
     }
-
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: {
-          gcTime: 0, // Immediately garbage collect queries. It prevents memory leak on ChatView close.
-        },
-        mutations: {
-          gcTime: 0, // Immediately garbage collect mutations. It prevents memory leak on ChatView close.
-        },
-      },
-    })
-
-    this.root.render(
-      <ChatViewProvider chatView={this}>
-        <PluginProvider plugin={this.plugin}>
-          <AppProvider app={this.app}>
-            <SettingsProvider
-              settings={this.plugin.settings}
-              setSettings={(newSettings) =>
-                this.plugin.setSettings(newSettings)
-              }
-              addSettingsChangeListener={(listener) =>
-                this.plugin.addSettingsChangeListener(listener)
-              }
-            >
-              <DarkModeProvider>
-                <DatabaseProvider
-                  getDatabaseManager={() => this.plugin.getDbManager()}
-                >
-                  <RAGProvider getRAGEngine={() => this.plugin.getRAGEngine()}>
-                    <McpProvider
-                      getMcpManager={() => this.plugin.getMcpManager()}
-                    >
-                      <QueryClientProvider client={queryClient}>
-                        <React.StrictMode>
-                          <DialogContainerProvider container={this.mountEl}>
-                            <Chat
-                              ref={this.chatRef}
-                              {...this.initialChatProps}
-                            />
-                          </DialogContainerProvider>
-                        </React.StrictMode>
-                      </QueryClientProvider>
-                    </McpProvider>
-                  </RAGProvider>
-                </DatabaseProvider>
-              </DarkModeProvider>
-            </SettingsProvider>
-          </AppProvider>
-        </PluginProvider>
-      </ChatViewProvider>,
-    )
+    renderer.render(this.initialChatProps)
+    for (const action of this.pendingActions.splice(0)) {
+      action(renderer)
+    }
   }
 
   openNewChat(selectedBlock?: MentionableBlockData) {
-    this.chatRef.current?.openNewChat(selectedBlock)
+    this.runOrQueue((renderer) => renderer.openNewChat(selectedBlock))
   }
 
   addSelectionToChat(selectedBlock: MentionableBlockData) {
-    this.chatRef.current?.addSelectionToChat(selectedBlock)
+    this.runOrQueue((renderer) => renderer.addSelectionToChat(selectedBlock))
   }
 
   focusMessage() {
-    this.chatRef.current?.focusMessage()
+    this.runOrQueue((renderer) => renderer.focusMessage())
+  }
+
+  private ensureMountSurface(): HTMLDivElement {
+    if (this.mountEl) return this.mountEl
+    const host = this.containerEl.children[1] as HTMLElement
+    this.mountEl = prepareChatMountSurface(host)
+    const applyTheme = () => {
+      this.mountEl?.setAttribute(
+        'data-skin',
+        host.ownerDocument.body.classList.contains('theme-dark')
+          ? 'cmds-dark'
+          : 'hallym-light',
+      )
+    }
+    applyTheme()
+    this.registerEvent(this.app.workspace.on('css-change', applyTheme))
+    return this.mountEl
+  }
+
+  private getRenderer(mountEl: HTMLDivElement): Promise<ChatViewRenderer> {
+    if (this.renderer) return Promise.resolve(this.renderer)
+    if (!this.rendererInitPromise) {
+      this.rendererInitPromise = import('./ChatViewRenderer')
+        .then(({ createChatViewRenderer }) => {
+          const renderer = createChatViewRenderer({
+            app: this.app,
+            chatView: this,
+            mountEl,
+            plugin: this.plugin,
+            onInputReady: () => {
+              markPerformance('smart-composer:chat-input-ready')
+              measurePerformance(
+                'smart-composer:chat-input-ready-duration',
+                'smart-composer:chat-open:start',
+                'smart-composer:chat-input-ready',
+              )
+            },
+          })
+          this.renderer = renderer
+          return renderer
+        })
+        .catch((error) => {
+          this.rendererInitPromise = null
+          throw error
+        })
+    }
+    return this.rendererInitPromise
+  }
+
+  private runOrQueue(action: (renderer: ChatViewRenderer) => void): void {
+    if (this.renderer) {
+      action(this.renderer)
+      return
+    }
+    this.pendingActions.push(action)
+  }
+}
+
+function markPerformance(name: string): void {
+  try {
+    globalThis.performance?.mark(name)
+  } catch {
+    // Performance Timeline instrumentation must never affect plugin behavior.
+  }
+}
+
+function measurePerformance(
+  name: string,
+  startMark: string,
+  endMark: string,
+): void {
+  try {
+    globalThis.performance?.measure(name, startMark, endMark)
+  } catch {
+    // Performance Timeline instrumentation must never affect plugin behavior.
   }
 }

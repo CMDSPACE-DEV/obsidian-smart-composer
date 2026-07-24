@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 
-import { BaseLLMProvider } from '../../core/llm/base'
-import { McpManager } from '../../core/mcp/mcpManager'
+import type { BaseLLMProvider } from '../../core/llm/base'
+import type { McpManager } from '../../core/mcp/mcpManager'
 import { ChatMessage, ChatToolMessage } from '../../types/chat'
 import { ChatModel } from '../../types/chat-model.types'
 import { RequestProviderMetadata, RequestTool } from '../../types/llm/request'
@@ -28,7 +28,7 @@ export type ResponseGeneratorParams = {
   enableTools: boolean
   maxAutoIterations: number
   promptGenerator: PromptGenerator
-  mcpManager: McpManager
+  mcpManager: McpManager | null
   abortSignal?: AbortSignal
   localTools?: LocalResponseTool[]
 }
@@ -57,7 +57,7 @@ export class ResponseGenerator {
   private readonly conversationId: string
   private readonly enableTools: boolean
   private readonly promptGenerator: PromptGenerator
-  private readonly mcpManager: McpManager
+  private readonly mcpManager: McpManager | null
   private readonly abortSignal?: AbortSignal
   private readonly receivedMessages: ChatMessage[]
   private readonly maxAutoIterations: number
@@ -107,10 +107,11 @@ export class ResponseGenerator {
           response: {
             status:
               this.localTools.has(toolCall.name) ||
-              this.mcpManager.isToolExecutionAllowed({
+              (this.mcpManager?.isToolExecutionAllowed({
                 requestToolName: toolCall.name,
                 conversationId: this.conversationId,
-              })
+              }) ??
+                false)
                 ? ToolCallResponseStatus.Running
                 : ToolCallResponseStatus.PendingApproval,
           },
@@ -172,9 +173,10 @@ export class ResponseGenerator {
       messages: [...this.receivedMessages, ...this.responseMessages],
     })
 
-    const availableMcpTools = this.enableTools
-      ? await this.mcpManager.listAvailableTools()
-      : []
+    const availableMcpTools =
+      this.enableTools && this.mcpManager
+        ? await this.mcpManager.listAvailableTools()
+        : []
 
     // Set tools to undefined when no tools are available since some providers
     // reject empty tools arrays.
@@ -343,6 +345,12 @@ export class ResponseGenerator {
   private async callTool(request: ToolCallRequest) {
     const localTool = this.localTools.get(request.name)
     if (!localTool) {
+      if (!this.mcpManager) {
+        return {
+          status: ToolCallResponseStatus.Error,
+          error: 'MCP is not available for this response.',
+        } as const
+      }
       return this.mcpManager.callTool({
         name: request.name,
         args: request.arguments,

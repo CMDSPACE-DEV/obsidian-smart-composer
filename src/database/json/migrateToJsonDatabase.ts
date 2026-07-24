@@ -1,14 +1,14 @@
 import { App, normalizePath } from 'obsidian'
 
 import { ChatConversationManager } from '../../utils/chat/chatHistoryManager'
-import { DatabaseManager } from '../DatabaseManager'
+import type { DatabaseManager } from '../DatabaseManager'
 import { DuplicateTemplateException } from '../exception'
 
 import { ChatManager } from './chat/ChatManager'
 import { INITIAL_MIGRATION_MARKER, ROOT_DIR } from './constants'
 import { TemplateManager } from './template/TemplateManager'
 
-async function hasMigrationCompleted(app: App): Promise<boolean> {
+export async function hasMigrationCompleted(app: App): Promise<boolean> {
   const markerPath = normalizePath(`${ROOT_DIR}/${INITIAL_MIGRATION_MARKER}`)
   return await app.vault.adapter.exists(markerPath)
 }
@@ -114,4 +114,18 @@ export async function migrateToJsonDatabase(
   await transferTemplatesFromDrizzle(app, dbManager)
   await markMigrationCompleted(app)
   onMigrationComplete?.()
+}
+
+export async function migrateToJsonDatabaseIfNeeded(
+  app: App,
+  getDatabaseManager: () => Promise<DatabaseManager>,
+  onMigrationComplete?: () => void,
+): Promise<boolean> {
+  if (await hasMigrationCompleted(app)) {
+    return false
+  }
+
+  const dbManager = await getDatabaseManager()
+  await migrateToJsonDatabase(app, dbManager, onMigrationComplete)
+  return true
 }

@@ -1,6 +1,6 @@
 import { UseMutationResult, useMutation } from '@tanstack/react-query'
 import { Notice } from 'obsidian'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 
 import { useApp } from '../../contexts/app-context'
 import { useMcp } from '../../contexts/mcp-context'
@@ -11,7 +11,6 @@ import {
   LLMBaseUrlNotSetException,
   LLMModelNotFoundException,
 } from '../../core/llm/exception'
-import { getChatModelClient } from '../../core/llm/manager'
 import { ChatMessage } from '../../types/chat'
 import { PromptGenerator } from '../../utils/chat/promptGenerator'
 import { ResponseGenerator } from '../../utils/chat/responseGenerator'
@@ -55,42 +54,6 @@ export function useChatStreamManager({
     activeStreamAbortControllersRef.current = []
   }, [])
 
-  const { providerClient, model } = useMemo(() => {
-    try {
-      return getChatModelClient({
-        modelId: settings.chatModelId,
-        settings,
-        setSettings,
-      })
-    } catch (error) {
-      if (error instanceof LLMModelNotFoundException) {
-        if (settings.chatModels.length === 0) {
-          throw error
-        }
-        // Fallback to the first chat model if the selected chat model is not found
-        const firstChatModel = settings.chatModels[0]
-        setSettings({
-          ...settings,
-          chatModelId: firstChatModel.id,
-          chatModels: settings.chatModels.map((model) =>
-            model.id === firstChatModel.id
-              ? {
-                  ...model,
-                  enable: true,
-                }
-              : model,
-          ),
-        })
-        return getChatModelClient({
-          modelId: firstChatModel.id,
-          settings,
-          setSettings,
-        })
-      }
-      throw error
-    }
-  }, [settings, setSettings])
-
   const submitChatMutation = useMutation({
     mutationFn: async ({
       chatMessages,
@@ -113,10 +76,48 @@ export function useChatStreamManager({
       let unsubscribeResponseGenerator: (() => void) | undefined
 
       try {
-        const mcpManager = await getMcpManager()
+        const { getChatModelClient } = await import('../../core/llm/manager')
+        let chatModelClient: ReturnType<typeof getChatModelClient>
+        try {
+          chatModelClient = getChatModelClient({
+            modelId: settings.chatModelId,
+            settings,
+            setSettings,
+          })
+        } catch (error) {
+          if (
+            !(error instanceof LLMModelNotFoundException) ||
+            settings.chatModels.length === 0
+          ) {
+            throw error
+          }
+          const firstChatModel = settings.chatModels[0]
+          setSettings({
+            ...settings,
+            chatModelId: firstChatModel.id,
+            chatModels: settings.chatModels.map((model) =>
+              model.id === firstChatModel.id
+                ? {
+                    ...model,
+                    enable: true,
+                  }
+                : model,
+            ),
+          })
+          chatModelClient = getChatModelClient({
+            modelId: firstChatModel.id,
+            settings,
+            setSettings,
+          })
+        }
+        const mcpManager =
+          settings.chatOptions.enableTools &&
+          settings.mcp.servers.some((server) => server.enabled)
+            ? await getMcpManager()
+            : null
         const responseGenerator = new ResponseGenerator({
-          providerClient,
-          model,
+          providerClient: chatModelClient.providerClient,
+          model: chatModelClient.model,
           messages: chatMessages,
           conversationId,
           enableTools: settings.chatOptions.enableTools,

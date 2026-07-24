@@ -1,19 +1,17 @@
 import { Editor, MarkdownView, Notice, Plugin } from 'obsidian'
 
 import { ChatView } from './ChatView'
-import { ChatProps } from './components/chat-view/Chat'
+import type { ChatProps } from './components/chat-view/Chat'
 import { InstallerUpdateRequiredModal } from './components/modals/InstallerUpdateRequiredModal'
 import { CHAT_VIEW_TYPE } from './constants'
-import { ArtifactTaskAdapter } from './core/artifacts/ArtifactTaskAdapter'
 import { ConversationRunManager } from './core/conversation/ConversationRunManager'
-import { PlanImageTaskAdapter } from './core/image/PlanImageTaskAdapter'
-import { InlineEditController } from './core/inline/InlineEditController'
-import { McpManager } from './core/mcp/mcpManager'
-import { RAGEngine } from './core/rag/ragEngine'
+import type { InlineEditController } from './core/inline/InlineEditController'
+import type { McpManager } from './core/mcp/mcpManager'
+import type { RAGEngine } from './core/rag/ragEngine'
 import { BackgroundTaskManager } from './core/tasks/BackgroundTaskManager'
-import { DatabaseManager } from './database/DatabaseManager'
+import { LazyBackgroundTaskAdapter } from './core/tasks/LazyBackgroundTaskAdapter'
+import type { DatabaseManager } from './database/DatabaseManager'
 import { PGLiteAbortedException } from './database/exception'
-import { migrateToJsonDatabase } from './database/json/migrateToJsonDatabase'
 import {
   SmartComposerSettings,
   smartComposerSettingsSchema,
@@ -35,28 +33,46 @@ export default class SmartComposerPlugin extends Plugin {
   conversationRunManager: ConversationRunManager | null = null
   private dbManagerInitPromise: Promise<DatabaseManager> | null = null
   private ragEngineInitPromise: Promise<RAGEngine> | null = null
+  private mcpManagerInitPromise: Promise<McpManager> | null = null
+  private inlineEditControllerInitPromise: Promise<InlineEditController> | null =
+    null
   private settingsSaveQueue: SettingsSaveQueue<SmartComposerSettings> | null =
     null
   private timeoutIds: ReturnType<typeof setTimeout>[] = [] // Use ReturnType instead of number
+  private unloading = false
 
   async onload() {
+    markPerformance('smart-composer:onload:start')
+    this.unloading = false
     await this.loadSettings()
-    this.backgroundTaskManager = new BackgroundTaskManager(this.app)
-    await this.backgroundTaskManager.initialize()
+    const taskManager = new BackgroundTaskManager(this.app)
+    this.backgroundTaskManager = taskManager
+    await taskManager.initialize()
     this.register(
-      this.backgroundTaskManager.registerAdapter(
-        new PlanImageTaskAdapter(
-          this.app,
-          this.backgroundTaskManager,
-          () => this.settings,
-          (settings) => this.setSettings(settings),
-        ),
+      taskManager.registerAdapter(
+        new LazyBackgroundTaskAdapter('image-generation', async () => {
+          const { PlanImageTaskAdapter } = await import(
+            './core/image/PlanImageTaskAdapter'
+          )
+          return new PlanImageTaskAdapter(
+            this.app,
+            taskManager,
+            () => this.settings,
+            (settings) => this.setSettings(settings),
+          )
+        }),
       ),
     )
     this.register(
-      this.backgroundTaskManager.registerAdapter(new ArtifactTaskAdapter(this)),
+      taskManager.registerAdapter(
+        new LazyBackgroundTaskAdapter('artifact-draft', async () => {
+          const { ArtifactTaskAdapter } = await import(
+            './core/artifacts/ArtifactTaskAdapter'
+          )
+          return new ArtifactTaskAdapter(this)
+        }),
+      ),
     )
-    this.inlineEditController = new InlineEditController(this)
     this.conversationRunManager = new ConversationRunManager(this.app)
 
     this.registerView(CHAT_VIEW_TYPE, (leaf) => new ChatView(leaf, this))
@@ -86,20 +102,22 @@ export default class SmartComposerPlugin extends Plugin {
       name: 'Inline edit selection',
       hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'k' }],
       editorCallback: (editor: Editor, view: MarkdownView) => {
-        this.inlineEditController?.open(editor, view)
+        void this.openInlineEdit(editor, view)
       },
     })
 
     this.registerEvent(
       this.app.workspace.on('editor-menu', (menu, editor, info) => {
         if (!(info instanceof MarkdownView)) return
-        menu.addItem((item) =>
+        menu.addItem((item) => {
           item
             .setTitle('Smart Composer: Inline edit')
             .setIcon('wand-sparkles')
             .setSection('action')
-            .onClick(() => this.inlineEditController?.open(editor, info)),
-        )
+            .onClick(() => {
+              void this.openInlineEdit(editor, info)
+            })
+        })
       }),
     )
 
@@ -177,9 +195,16 @@ export default class SmartComposerPlugin extends Plugin {
     this.addSettingTab(new SmartComposerSettingTab(this.app, this))
 
     void this.migrateToJsonStorage()
+    markPerformance('smart-composer:onload:end')
+    measurePerformance(
+      'smart-composer:onload',
+      'smart-composer:onload:start',
+      'smart-composer:onload:end',
+    )
   }
 
   onunload() {
+    this.unloading = true
     void this.backgroundTaskManager?.cleanup()
     this.backgroundTaskManager = null
     this.inlineEditController?.cleanup()
@@ -196,6 +221,8 @@ export default class SmartComposerPlugin extends Plugin {
     // Promise cleanup
     this.dbManagerInitPromise = null
     this.ragEngineInitPromise = null
+    this.mcpManagerInitPromise = null
+    this.inlineEditControllerInitPromise = null
 
     // DatabaseManager cleanup
     this.dbManager?.cleanup()
@@ -323,6 +350,7 @@ ${validationResult.error.issues.map((v) => v.message).join('\n')}`)
     if (!this.dbManagerInitPromise) {
       this.dbManagerInitPromise = (async () => {
         try {
+          const { DatabaseManager } = await import('./database/DatabaseManager')
           this.dbManager = await DatabaseManager.create(this.app)
           return this.dbManager
         } catch (error) {
@@ -347,6 +375,7 @@ ${validationResult.error.issues.map((v) => v.message).join('\n')}`)
     if (!this.ragEngineInitPromise) {
       this.ragEngineInitPromise = (async () => {
         try {
+          const { RAGEngine } = await import('./core/rag/ragEngine')
           const dbManager = await this.getDbManager()
           this.ragEngine = new RAGEngine(
             this.app,
@@ -369,19 +398,30 @@ ${validationResult.error.issues.map((v) => v.message).join('\n')}`)
       return this.mcpManager
     }
 
-    try {
-      this.mcpManager = new McpManager({
-        settings: this.settings,
-        registerSettingsListener: (
-          listener: (settings: SmartComposerSettings) => void,
-        ) => this.addSettingsChangeListener(listener),
+    if (!this.mcpManagerInitPromise) {
+      this.mcpManagerInitPromise = (async () => {
+        const { McpManager } = await import('./core/mcp/mcpManager')
+        const manager = new McpManager({
+          settings: this.settings,
+          registerSettingsListener: (
+            listener: (settings: SmartComposerSettings) => void,
+          ) => this.addSettingsChangeListener(listener),
+        })
+        await manager.initialize()
+        if (this.unloading) {
+          manager.cleanup()
+          throw new Error('Smart Composer unloaded during MCP initialization.')
+        }
+        this.mcpManager = manager
+        return manager
+      })().catch((error) => {
+        this.mcpManagerInitPromise = null
+        this.mcpManager = null
+        throw error
       })
-      await this.mcpManager.initialize()
-      return this.mcpManager
-    } catch (error) {
-      this.mcpManager = null
-      throw error
     }
+
+    return this.mcpManagerInitPromise
   }
 
   private registerTimeout(callback: () => void, timeout: number): void {
@@ -391,11 +431,17 @@ ${validationResult.error.issues.map((v) => v.message).join('\n')}`)
 
   private async migrateToJsonStorage() {
     try {
-      const dbManager = await this.getDbManager()
-      await migrateToJsonDatabase(this.app, dbManager, async () => {
-        await this.reloadChatView()
-        console.log('Migration to JSON storage completed successfully')
-      })
+      const { migrateToJsonDatabaseIfNeeded } = await import(
+        './database/json/migrateToJsonDatabase'
+      )
+      await migrateToJsonDatabaseIfNeeded(
+        this.app,
+        () => this.getDbManager(),
+        async () => {
+          await this.reloadChatView()
+          console.log('Migration to JSON storage completed successfully')
+        },
+      )
     } catch (error) {
       console.error('Failed to migrate to JSON storage:', error)
       new Notice(
@@ -412,5 +458,68 @@ ${validationResult.error.issues.map((v) => v.message).join('\n')}`)
     new Notice('Reloading "smart-composer" due to migration', 1000)
     leaves[0].detach()
     await this.activateChatView()
+  }
+
+  private async openInlineEdit(
+    editor: Editor,
+    view: MarkdownView,
+  ): Promise<void> {
+    try {
+      const controller = await this.getInlineEditController()
+      if (!this.unloading) {
+        controller.open(editor, view)
+      }
+    } catch (error) {
+      if (this.unloading) return
+      console.error('Failed to initialize inline edit:', error)
+      new Notice('Smart Composer inline edit could not be initialized.')
+    }
+  }
+
+  private getInlineEditController(): Promise<InlineEditController> {
+    if (this.inlineEditController) {
+      return Promise.resolve(this.inlineEditController)
+    }
+    if (!this.inlineEditControllerInitPromise) {
+      this.inlineEditControllerInitPromise = import(
+        './core/inline/InlineEditController'
+      )
+        .then(({ InlineEditController }) => {
+          const controller = new InlineEditController(this)
+          if (this.unloading) {
+            controller.cleanup()
+            throw new Error(
+              'Smart Composer unloaded during inline edit initialization.',
+            )
+          }
+          this.inlineEditController = controller
+          return controller
+        })
+        .catch((error) => {
+          this.inlineEditControllerInitPromise = null
+          throw error
+        })
+    }
+    return this.inlineEditControllerInitPromise
+  }
+}
+
+function markPerformance(name: string): void {
+  try {
+    globalThis.performance?.mark(name)
+  } catch {
+    // Performance Timeline instrumentation must never affect plugin behavior.
+  }
+}
+
+function measurePerformance(
+  name: string,
+  startMark: string,
+  endMark: string,
+): void {
+  try {
+    globalThis.performance?.measure(name, startMark, endMark)
+  } catch {
+    // Performance Timeline instrumentation must never affect plugin behavior.
   }
 }

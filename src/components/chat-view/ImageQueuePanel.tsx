@@ -1,8 +1,7 @@
 import { ChevronDown, Images, Trash2 } from 'lucide-react'
 import { useEffect, useId, useMemo, useState } from 'react'
 
-import { usePlugin } from '../../contexts/plugin-context'
-import { BackgroundTaskRecord } from '../../types/background-task'
+import { useBackgroundTasks } from '../../contexts/background-tasks-context'
 import {
   selectVisibleImageTasks,
   summarizeImageQueue,
@@ -17,20 +16,13 @@ export function ImageQueuePanel({
   conversationId: string
   onLocateOrigin: (messageId: string) => void
 }) {
-  const plugin = usePlugin()
-  const manager = plugin.backgroundTaskManager
-  const [allTasks, setAllTasks] = useState<BackgroundTaskRecord[]>([])
+  const { manager, tasks: allTasks } = useBackgroundTasks()
   const [expanded, setExpanded] = useState(false)
   const bodyId = useId()
 
   useEffect(() => {
     setExpanded(false)
   }, [conversationId])
-
-  useEffect(() => {
-    if (!manager) return
-    return manager.subscribe(setAllTasks)
-  }, [manager])
 
   const tasks = useMemo(
     () => selectVisibleImageTasks(allTasks, conversationId),

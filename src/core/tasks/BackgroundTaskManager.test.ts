@@ -1,13 +1,14 @@
 import { App } from 'obsidian'
 
 import {
+  ArtifactRecord,
   BackgroundTaskAdapter,
   BackgroundTaskRecord,
 } from '../../types/background-task'
 
 import { BackgroundTaskManager } from './BackgroundTaskManager'
 
-function createApp(): App {
+function createApp(onRead?: jest.Mock): App {
   const files = new Map<string, string>()
   const directories = new Set<string>()
   const adapter = {
@@ -23,7 +24,10 @@ function createApp(): App {
       ),
       folders: [],
     })),
-    read: jest.fn(async (path: string) => files.get(path) ?? ''),
+    read: jest.fn(async (path: string) => {
+      onRead?.(path)
+      return files.get(path) ?? ''
+    }),
     write: jest.fn(async (path: string, content: string) => {
       files.set(path, content)
     }),
@@ -236,5 +240,33 @@ describe('BackgroundTaskManager', () => {
     expect(
       manager.getTasks().find((task) => task.id === queued.id)?.status,
     ).toBe('queued')
+  })
+
+  it('caches artifact metadata and notifies the shared task subscriber', async () => {
+    const repositoryRead = jest.fn()
+    const app = createApp(repositoryRead)
+    const manager = new BackgroundTaskManager(app)
+    await manager.initialize()
+    const subscriber = jest.fn()
+    const unsubscribe = manager.subscribe(subscriber)
+    subscriber.mockClear()
+    const artifact: ArtifactRecord = {
+      schemaVersion: 1,
+      id: 'artifact',
+      taskId: 'task',
+      kind: 'image',
+      createdAt: Date.now(),
+      localPath: 'attachments/generated.png',
+      mimeType: 'image/png',
+    }
+
+    await manager.saveArtifact(artifact)
+    repositoryRead.mockClear()
+
+    await expect(manager.readArtifact(artifact.id)).resolves.toEqual(artifact)
+    await expect(manager.readArtifact(artifact.id)).resolves.toEqual(artifact)
+    expect(repositoryRead).not.toHaveBeenCalled()
+    expect(subscriber).toHaveBeenCalledTimes(1)
+    unsubscribe()
   })
 })

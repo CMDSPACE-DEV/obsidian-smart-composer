@@ -21,6 +21,11 @@ export class BackgroundTaskManager {
   >()
   private readonly controllers = new Map<string, AbortController>()
   private readonly runningIds = new Set<string>()
+  private readonly artifactCache = new Map<string, ArtifactRecord>()
+  private readonly artifactReadPromises = new Map<
+    string,
+    Promise<ArtifactRecord | null>
+  >()
   private readonly subscribers = new Set<
     (tasks: BackgroundTaskRecord[]) => void
   >()
@@ -73,10 +78,25 @@ export class BackgroundTaskManager {
 
   async saveArtifact(artifact: ArtifactRecord): Promise<void> {
     await this.repository.saveArtifact(artifact)
+    this.artifactCache.set(artifact.id, artifact)
+    this.artifactReadPromises.delete(artifact.id)
+    this.emit()
   }
 
-  readArtifact(id: string): Promise<ArtifactRecord | null> {
-    return this.repository.readArtifact(id)
+  async readArtifact(id: string): Promise<ArtifactRecord | null> {
+    const cached = this.artifactCache.get(id)
+    if (cached) return cached
+
+    const pending = this.artifactReadPromises.get(id)
+    if (pending) return pending
+
+    const read = this.repository.readArtifact(id).then((artifact) => {
+      if (artifact) this.artifactCache.set(id, artifact)
+      this.artifactReadPromises.delete(id)
+      return artifact
+    })
+    this.artifactReadPromises.set(id, read)
+    return read
   }
 
   async updateProgress(
@@ -223,6 +243,8 @@ export class BackgroundTaskManager {
       })
     }
     this.subscribers.clear()
+    this.artifactCache.clear()
+    this.artifactReadPromises.clear()
   }
 
   private async pump(): Promise<void> {

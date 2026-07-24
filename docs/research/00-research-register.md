@@ -30,6 +30,7 @@ premature synthesis.
 | R-005 | Chat and inline UX/UI, motion, perceived performance, theme isolation, and the approved Hallym Conversation Studio × CMDS AI Operator Console dual skin | **Verified** | **Mandatory** | [R-005 report](R-005-chat-inline-uxui-motion-and-theme-isolation.md) |
 | R-006 | Foreground chat, legacy Apply removal, background image/MCP tasks, scoped cancellation, and delayed-result anchoring | **Verified** | **Mandatory** | [R-006 report](R-006-foreground-chat-background-tasks-and-delayed-results.md) |
 | R-007 | Smart Composer 2.0 reference-source cross-check and implementation boundaries | **Verified** | **Mandatory** | [R-007 report](R-007-smart-composer-2-reference-source-cross-check.md) |
+| R-008 | Smart Composer 2.1 performance-refactor baseline, bundle budget, and compatibility gates | **Verified** | **Mandatory** | [R-008 report](R-008-performance-refactor-baseline-and-gates.md) |
 
 ## Mandatory Synthesis Rule
 

@@ -16,7 +16,6 @@ import {
   BackgroundTaskRunContext,
   BackgroundTaskRunResult,
 } from '../../types/background-task'
-import { getChatModelClient } from '../llm/manager'
 
 const canvasNodeSchema = z.object({
   type: z.enum(['text', 'file', 'group']),
@@ -107,6 +106,7 @@ export class ArtifactTaskAdapter implements BackgroundTaskAdapter {
         ? task.input.artifactKind
         : 'canvas'
     const settings = this.plugin.settings
+    const { getChatModelClient } = await import('../llm/manager')
     const { providerClient, model } = getChatModelClient({
       modelId: settings.chatModelId,
       settings,

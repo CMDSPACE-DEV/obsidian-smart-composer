@@ -9,8 +9,6 @@ import {
   BackgroundTaskRunContext,
   BackgroundTaskRunResult,
 } from '../../types/background-task'
-import { getChatModelClient } from '../llm/manager'
-import { OpenAICodexProvider } from '../llm/openaiCodexProvider'
 import { BackgroundTaskManager } from '../tasks/BackgroundTaskManager'
 
 export class PlanImageTaskAdapter implements BackgroundTaskAdapter {
@@ -43,6 +41,9 @@ export class PlanImageTaskAdapter implements BackgroundTaskAdapter {
       typeof task.input.modelId === 'string'
         ? task.input.modelId
         : settings.imageGeneration.modelId
+    const [{ getChatModelClient }, { OpenAICodexProvider }] = await Promise.all(
+      [import('../llm/manager'), import('../llm/openaiCodexProvider')],
+    )
     const { providerClient, model } = getChatModelClient({
       modelId: requestedModelId,
       settings,

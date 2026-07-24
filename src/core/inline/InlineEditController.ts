@@ -5,7 +5,6 @@ import { Editor, MarkdownRenderer, MarkdownView, Notice } from 'obsidian'
 import { v4 as uuidv4 } from 'uuid'
 
 import type SmartComposerPlugin from '../../main'
-import { getChatModelClient } from '../llm/manager'
 
 type InlineStatus = 'prompt' | 'loading' | 'clarification' | 'preview' | 'error'
 
@@ -557,6 +556,7 @@ export class InlineEditController {
     try {
       const settings = this.plugin.settings
       const modelId = settings.inlineEdit.modelId ?? settings.chatModelId
+      const { getChatModelClient } = await import('../llm/manager')
       const { providerClient, model } = getChatModelClient({
         modelId,
         settings,
