@@ -1,6 +1,6 @@
 {
   "name": "obsidian-smart-composer",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "description": "This is a sample plugin for Obsidian (https://obsidian.md)",
   "main": "main.js",
   "scripts": {
@@ -70,6 +70,7 @@
     "lodash.isequal": "^4.5.0",
     "lucide-react": "^0.447.0",
     "minimatch": "^10.0.1",
+    "node-fetch": "2.7.0",
     "openai": "^6.8.1",
     "parse5": "^7.1.2",
     "path-browserify": "^1.0.1",

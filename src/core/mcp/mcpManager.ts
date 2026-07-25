@@ -18,6 +18,7 @@ import {
   ToolCallResponseStatus,
 } from '../../types/tool-call.types'
 
+import { createDesktopMcpFetch } from './desktopFetch'
 import { InvalidToolNameException, McpNotAvailableException } from './exception'
 import {
   McpOAuthProvider,
@@ -797,6 +798,7 @@ export class McpManager {
         }
         const url = new URL(config.transport.url)
         const requestInit = this.getRemoteRequestInit(config)
+        const remoteFetch = createDesktopMcpFetch()
         const usesOAuth =
           config.auth.mode === 'automatic' ||
           config.auth.mode === 'oauth-client'
@@ -827,8 +829,8 @@ export class McpManager {
                 authProvider: provider,
                 requestInit,
                 fetch: requestInit.headers
-                  ? createHeaderFetch(requestInit.headers)
-                  : undefined,
+                  ? createHeaderFetch(requestInit.headers, remoteFetch)
+                  : remoteFetch,
               })
             : new (
                 await import(
@@ -837,6 +839,7 @@ export class McpManager {
               ).StreamableHTTPClientTransport(url, {
                 authProvider: provider,
                 requestInit,
+                fetch: remoteFetch,
               })
         let transport = await createTransport()
         try {
@@ -1143,13 +1146,16 @@ function validateRemoteUrl(value: string): void {
   }
 }
 
-function createHeaderFetch(baseHeaders: HeadersInit): typeof fetch {
+function createHeaderFetch(
+  baseHeaders: HeadersInit,
+  baseFetch: typeof fetch = fetch,
+): typeof fetch {
   return (input, init) => {
     const headers = new Headers(init?.headers)
     new Headers(baseHeaders).forEach((value, key) => {
       if (!headers.has(key)) headers.set(key, value)
     })
-    return fetch(input, { ...init, headers })
+    return baseFetch(input, { ...init, headers })
   }
 }
 
