@@ -31,6 +31,7 @@ premature synthesis.
 | R-006 | Foreground chat, legacy Apply removal, background image/MCP tasks, scoped cancellation, and delayed-result anchoring | **Verified** | **Mandatory** | [R-006 report](R-006-foreground-chat-background-tasks-and-delayed-results.md) |
 | R-007 | Smart Composer 2.0 reference-source cross-check and implementation boundaries | **Verified** | **Mandatory** | [R-007 report](R-007-smart-composer-2-reference-source-cross-check.md) |
 | R-008 | Smart Composer 2.1 performance-refactor baseline, bundle budget, and compatibility gates | **Verified** | **Mandatory** | [R-008 report](R-008-performance-refactor-baseline-and-gates.md) |
+| R-009 | Parallel inline-edit file, folder, and vault reference mentions | **Verified** | **Mandatory** | [R-009 report](R-009-inline-edit-vault-references.md) |
 
 ## Mandatory Synthesis Rule
 
