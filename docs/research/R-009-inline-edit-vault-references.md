@@ -694,3 +694,47 @@ src/core/rag/internalModel.ts
 src/core/rag/ragEngine.ts
 src/main.ts
 ```
+
+## 19. Smart Composer 2.2.0 Implementation Addendum
+
+The bounded implementation was completed on 2026-07-25 on branch
+`codex/2.2-inline-references`.
+
+Implemented:
+
+- independent `@note` and `@folder` chips in every parallel inline session;
+- native-textarea keyboard, clipboard, Korean IME, and popout-document
+  boundaries;
+- session-level `Auto / Focused / Entire` folder scope with an estimated file
+  count;
+- shared vault-reference compilation for inline editing and sidebar chat;
+- direct note context, focused embedding/Plan rerank, local fallback, and
+  exhaustive direct/batch processing;
+- the selected inline model and per-session `AbortSignal` for internal RAG
+  calls;
+- immutable reference source snapshots, stale-reference warnings, and strict
+  target-document validation;
+- reference-aware loading phases and truthful file/snippet summaries.
+
+Decisions locked for 2.2.0:
+
+- `@vault` is deferred. Note and folder selection covers the urgent workflow
+  without making whole-vault requests a one-click default.
+- Inline reference requests have no global concurrency cap. Every session
+  retains an independent cancellation boundary.
+- Reference changes warn but do not invalidate a reviewed result. Target
+  changes still block application.
+- The direct-context threshold remains 8,192 tokens and repeated-reference
+  caching remains deferred until profiling demonstrates a need.
+
+Automated verification:
+
+- TypeScript type check passed.
+- ESLint and Prettier checks passed.
+- 57 test suites and 388 tests passed.
+- The production bundle passed at 4,744,321 bytes against the 5.2 MiB budget.
+
+The Dropbox vault installation was updated with matching `main.js`,
+`manifest.json`, and `styles.css`. Live Obsidian checks for Korean IME,
+same-range parallel sessions, large-folder Entire mode, and popout rendering
+remain the release smoke gate.

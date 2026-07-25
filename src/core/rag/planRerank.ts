@@ -30,9 +30,11 @@ type PlanRerankOptions = {
   app: App
   settings: SmartComposerSettings
   setSettings?: (newSettings: SmartComposerSettings) => void | Promise<void>
+  modelId?: string
   query: string
   files?: TFile[]
   scopeType: 'files' | 'folders' | 'vault'
+  signal?: AbortSignal
   onQueryProgressChange?: (queryProgress: QueryProgressState) => void
 }
 
@@ -45,13 +47,23 @@ export async function processQueryWithPlanRerank({
   app,
   settings,
   setSettings,
+  modelId,
   query,
   files,
   scopeType,
+  signal,
   onQueryProgressChange,
 }: PlanRerankOptions): Promise<PlanRerankResponse> {
+  throwIfAborted(signal)
   const targetFiles = getTargetFiles(app, settings, files)
-  const chunks = await buildChunkCandidates(app, settings, targetFiles, query)
+  const chunks = await buildChunkCandidates(
+    app,
+    settings,
+    targetFiles,
+    query,
+    signal,
+  )
+  throwIfAborted(signal)
   if (chunks.length === 0) {
     return {
       results: [],
@@ -84,10 +96,13 @@ export async function processQueryWithPlanRerank({
     const selectedIndexes = await getPlanSelectedIndexes({
       settings,
       setSettings,
+      modelId,
       query,
       candidates,
       limit: settings.ragOptions.limit,
+      signal,
     })
+    throwIfAborted(signal)
     const selectedCandidates = mergeSelectedWithLocalFallback(
       candidates,
       selectedIndexes,
@@ -175,6 +190,7 @@ async function buildChunkCandidates(
   settings: SmartComposerSettings,
   files: TFile[],
   query: string,
+  signal?: AbortSignal,
 ): Promise<ChunkCandidate[]> {
   const textSplitter = RecursiveCharacterTextSplitter.fromLanguage('markdown', {
     chunkSize: settings.ragOptions.chunkSize,
@@ -183,7 +199,9 @@ async function buildChunkCandidates(
   const chunks = (
     await Promise.all(
       files.map(async (file) => {
+        throwIfAborted(signal)
         const fileContent = await app.vault.cachedRead(file)
+        throwIfAborted(signal)
         const sanitizedContent = fileContent
           .split(String.fromCharCode(0))
           .join('')
@@ -228,34 +246,39 @@ async function buildChunkCandidates(
 async function getPlanSelectedIndexes({
   settings,
   setSettings,
+  modelId,
   query,
   candidates,
   limit,
+  signal,
 }: {
   settings: SmartComposerSettings
   setSettings?: (newSettings: SmartComposerSettings) => void | Promise<void>
+  modelId?: string
   query: string
   candidates: ChunkCandidate[]
   limit: number
+  signal?: AbortSignal
 }): Promise<number[]> {
+  throwIfAborted(signal)
   const { getChatModelClient } = await import('../../core/llm/manager')
   const { providerClient, model } = getChatModelClient({
-    modelId: settings.chatModelId,
+    modelId: modelId ?? settings.chatModelId,
     settings,
     setSettings: setSettings ?? (() => undefined),
   })
   const rerankModel = getInternalRagModel(model)
 
-  const response = await providerClient.generateResponse(rerankModel, {
+  const request = {
     model: model.model,
     messages: [
       {
-        role: 'system',
+        role: 'system' as const,
         content:
           'Select the markdown snippets that best answer the user query. Return only compact JSON in the shape {"indices":[0,1,2]}. Use candidate indices exactly as given.',
       },
       {
-        role: 'user',
+        role: 'user' as const,
         content: `Query:
 ${query}
 
@@ -267,10 +290,19 @@ ${candidates.map(formatCandidateForRerank).join('\n\n')}`,
     ],
     temperature: 0,
     max_tokens: 512,
-  })
+  }
+  const response = signal
+    ? await providerClient.generateResponse(rerankModel, request, { signal })
+    : await providerClient.generateResponse(rerankModel, request)
 
   const content = response.choices[0]?.message.content ?? ''
   return parseSelectedIndexes(content, candidates.length, limit)
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DOMException('The operation was aborted.', 'AbortError')
+  }
 }
 
 function formatCandidateForRerank(candidate: ChunkCandidate): string {

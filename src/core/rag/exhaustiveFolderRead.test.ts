@@ -146,6 +146,7 @@ describe('processQueryWithExhaustiveFolderRead', () => {
       },
     } as unknown as App
 
+    const controller = new AbortController()
     const result = await processQueryWithExhaustiveFolderRead({
       app,
       settings: createSettings({
@@ -157,8 +158,13 @@ describe('processQueryWithExhaustiveFolderRead', () => {
       query: '전부 정독해줘',
       files: [firstFile, secondFile],
       scopeType: 'folders',
+      modelId: 'inline-summary-model',
+      signal: controller.signal,
     })
 
+    expect(mockedGetChatModelClient).toHaveBeenCalledWith(
+      expect.objectContaining({ modelId: 'inline-summary-model' }),
+    )
     expect(generateResponse).toHaveBeenCalledTimes(1)
     expect(JSON.stringify(generateResponse.mock.calls[0])).toContain(
       'notes/first.md',
@@ -175,6 +181,7 @@ describe('processQueryWithExhaustiveFolderRead', () => {
         max_tokens: 1200,
         temperature: 0,
       }),
+      { signal: controller.signal },
     )
     expect(result.promptText).toContain('batch summary covering both notes')
     expect(result.retrievalMetadata).toMatchObject({

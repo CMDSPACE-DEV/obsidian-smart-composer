@@ -81,6 +81,7 @@ describe('processQueryWithPlanRerank', () => {
       },
     } as unknown as ReturnType<typeof getChatModelClient>)
 
+    const controller = new AbortController()
     const { results, retrievalMetadata } = await processQueryWithPlanRerank({
       app,
       settings: {
@@ -121,6 +122,8 @@ describe('processQueryWithPlanRerank', () => {
       query: 'banana',
       files: [appleFile, bananaFile],
       scopeType: 'folders',
+      modelId: 'inline-rerank-model',
+      signal: controller.signal,
     })
 
     expect(results).toHaveLength(1)
@@ -132,6 +135,9 @@ describe('processQueryWithPlanRerank', () => {
       totalFilesRead: 2,
       exhaustive: false,
     })
+    expect(mockedGetChatModelClient).toHaveBeenCalledWith(
+      expect.objectContaining({ modelId: 'inline-rerank-model' }),
+    )
     expect(generateResponse).toHaveBeenCalledWith(
       expect.objectContaining({
         model: 'claude-sonnet-5',
@@ -146,6 +152,7 @@ describe('processQueryWithPlanRerank', () => {
         max_tokens: 512,
         temperature: 0,
       }),
+      { signal: controller.signal },
     )
   })
 

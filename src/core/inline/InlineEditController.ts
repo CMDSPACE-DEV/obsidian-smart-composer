@@ -1,17 +1,44 @@
 import { StateEffect, StateField } from '@codemirror/state'
 import type { ChangeDesc } from '@codemirror/state'
 import { Decoration, EditorView, WidgetType } from '@codemirror/view'
-import { Editor, MarkdownRenderer, MarkdownView, Notice } from 'obsidian'
+import { App, Editor, MarkdownRenderer, MarkdownView, Notice } from 'obsidian'
 import { v4 as uuidv4 } from 'uuid'
 
+import type { QueryProgressState } from '../../components/chat-view/QueryProgress'
 import type SmartComposerPlugin from '../../main'
+import { RetrievalMetadata } from '../../types/chat'
+import { getNestedFiles } from '../../utils/obsidian'
+import {
+  CompiledVaultReferences,
+  VaultReferenceScope,
+  compileVaultReferences,
+  isExhaustiveReadIntent,
+} from '../references/VaultReferenceCompiler'
+
+import {
+  InlineVaultReference,
+  mountInlineReferencePicker,
+} from './InlineReferencePicker'
 
 type InlineStatus = 'prompt' | 'loading' | 'clarification' | 'preview' | 'error'
+type InlineReferencePhase =
+  | 'reading'
+  | 'selecting'
+  | 'exhaustive'
+  | 'generating'
 
 export type InlineEditMode = 'auto' | 'replace' | 'insert-after'
 export type InlineEditPlacement = 'replace' | 'insert-after'
 
+type InlineDraft = {
+  prompt: string
+  mode: InlineEditMode
+  references: InlineVaultReference[]
+  referenceScope: VaultReferenceScope
+}
+
 type InlineSession = {
+  app: App
   id: string
   from: number
   to: number
@@ -28,7 +55,20 @@ type InlineSession = {
   clarification?: string
   replacement?: string
   error?: string
-  submit: (prompt: string, mode: InlineEditMode) => void
+  references: InlineVaultReference[]
+  referenceScope: VaultReferenceScope
+  referencePhase?: InlineReferencePhase
+  retrievalMetadata?: RetrievalMetadata
+  referenceWarnings: string[]
+  referenceSources: CompiledVaultReferences['sourceFiles']
+  getDraft: () => InlineDraft
+  updateDraft: (draft: InlineDraft) => void
+  submit: (
+    prompt: string,
+    mode: InlineEditMode,
+    references: InlineVaultReference[],
+    referenceScope: VaultReferenceScope,
+  ) => void
   accept: () => void
   close: () => void
   renderMarkdown: (content: string, target: HTMLElement) => Promise<void>
@@ -54,7 +94,11 @@ class InlineEditWidget extends WidgetType {
       other.session.mode === this.session.mode &&
       other.session.placement === this.session.placement &&
       other.session.replacement === this.session.replacement &&
-      other.session.error === this.session.error
+      other.session.error === this.session.error &&
+      other.session.referencePhase === this.session.referencePhase &&
+      other.session.referenceWarnings.join('\n') ===
+        this.session.referenceWarnings.join('\n') &&
+      getRetrievalSummary(other.session) === getRetrievalSummary(this.session)
     )
   }
 
@@ -87,11 +131,19 @@ class InlineEditWidget extends WidgetType {
     shadow.appendChild(panel)
 
     panel.appendChild(makeHeader(doc, this.session))
+    if (
+      this.session.status !== 'prompt' &&
+      this.session.status !== 'clarification' &&
+      this.session.references.length > 0
+    ) {
+      panel.append(makeReferenceStatus(doc, this.session))
+    }
 
     if (
       this.session.status === 'prompt' ||
       this.session.status === 'clarification'
     ) {
+      const draft = this.session.getDraft()
       if (this.session.status === 'clarification') {
         const question = doc.createElement('p')
         question.className = 'question'
@@ -106,15 +158,75 @@ class InlineEditWidget extends WidgetType {
         this.session.status === 'clarification'
           ? 'Clarify the change...'
           : 'Describe the edit...'
-      input.value =
-        this.session.status === 'clarification'
-          ? ''
-          : (this.session.prompt ?? '')
+      input.value = this.session.status === 'clarification' ? '' : draft.prompt
       input.rows = 2
-      let selectedMode = this.session.mode
+      let selectedMode = draft.mode
+      let selectedReferences =
+        this.session.status === 'clarification'
+          ? [...this.session.references]
+          : [...draft.references]
+      let selectedReferenceScope =
+        this.session.status === 'clarification'
+          ? this.session.referenceScope
+          : draft.referenceScope
+      const persistDraft = () => {
+        if (this.session.status !== 'prompt') return
+        this.session.updateDraft({
+          prompt: input.value,
+          mode: selectedMode,
+          references: [...selectedReferences],
+          referenceScope: selectedReferenceScope,
+        })
+      }
       const modeControl = makeModeControl(doc, selectedMode, (nextMode) => {
         selectedMode = nextMode
+        persistDraft()
       })
+      modeControl.hidden = this.session.status === 'clarification'
+      const scopeControl = makeReferenceScopeControl(
+        doc,
+        selectedReferenceScope,
+        (nextScope) => {
+          selectedReferenceScope = nextScope
+          persistDraft()
+        },
+      )
+      scopeControl.setVisible(
+        this.session.status === 'prompt' &&
+          selectedReferences.some((reference) => reference.type === 'folder'),
+      )
+      scopeControl.setEstimatedFiles(
+        countReferencedMarkdownFiles(this.session.app, selectedReferences),
+      )
+      const referenceRegion = doc.createElement('div')
+      referenceRegion.className = 'reference-region'
+      let picker: ReturnType<typeof mountInlineReferencePicker> | null = null
+      if (this.session.status === 'prompt') {
+        picker = mountInlineReferencePicker({
+          app: this.session.app,
+          doc,
+          input,
+          region: referenceRegion,
+          initialReferences: selectedReferences,
+          onChange: (references) => {
+            selectedReferences = references
+            scopeControl.setVisible(
+              references.some((reference) => reference.type === 'folder'),
+            )
+            scopeControl.setEstimatedFiles(
+              countReferencedMarkdownFiles(this.session.app, references),
+            )
+            persistDraft()
+          },
+        })
+      } else {
+        referenceRegion.append(
+          makeReadOnlyReferenceChips(doc, selectedReferences),
+        )
+        if (this.session.referenceWarnings.length > 0) {
+          referenceRegion.append(makeReferenceStatus(doc, this.session))
+        }
+      }
       const actions = doc.createElement('div')
       actions.className = 'actions'
       const cancel = makeButton(
@@ -129,15 +241,30 @@ class InlineEditWidget extends WidgetType {
         'Generate',
         () => {
           const value = input.value.trim()
-          if (value) this.session.submit(value, selectedMode)
+          if (value) {
+            this.session.submit(
+              value,
+              selectedMode,
+              selectedReferences,
+              selectedReferenceScope,
+            )
+          }
         },
         'primary',
         'Enter',
       )
       actions.append(cancel, submit)
-      panel.append(input, modeControl, actions)
+      panel.append(
+        referenceRegion,
+        input,
+        modeControl,
+        scopeControl.element,
+        actions,
+      )
+      input.addEventListener('input', persistDraft)
       input.addEventListener('keydown', (event) => {
         event.stopPropagation()
+        if (picker?.handleKeyDown(event)) return
         if (event.key === 'Escape') {
           event.preventDefault()
           this.session.close()
@@ -172,18 +299,13 @@ class InlineEditWidget extends WidgetType {
       loading.className = 'loading'
       const copy = doc.createElement('span')
       copy.className = 'loading-copy'
+      const loadingCopy = getInlineLoadingCopy(this.session)
       copy.append(
         Object.assign(doc.createElement('strong'), {
-          textContent:
-            this.session.placement === 'insert-after'
-              ? 'Writing below selection'
-              : 'Editing in place',
+          textContent: loadingCopy.title,
         }),
         Object.assign(doc.createElement('small'), {
-          textContent:
-            this.session.placement === 'insert-after'
-              ? 'The selected source will remain unchanged'
-              : 'Preparing a precise Markdown revision',
+          textContent: loadingCopy.detail,
         }),
       )
       loading.append(makeThinkingDots(doc), copy)
@@ -349,6 +471,7 @@ const inlineEditField = StateField.define<InlineSessionMap>({
 
 export class InlineEditController {
   private readonly controllers = new Map<string, AbortController>()
+  private readonly drafts = new Map<string, InlineDraft>()
 
   constructor(private readonly plugin: SmartComposerPlugin) {}
 
@@ -357,6 +480,7 @@ export class InlineEditController {
       controller.abort()
     }
     this.controllers.clear()
+    this.drafts.clear()
   }
 
   open(editor: Editor, markdownView: MarkdownView): void {
@@ -388,9 +512,29 @@ export class InlineEditController {
       return
     }
     const id = uuidv4()
+    this.drafts.set(id, {
+      prompt: '',
+      mode: 'auto',
+      references: [],
+      referenceScope: 'auto',
+    })
+    const getDraft = () =>
+      this.drafts.get(id) ?? {
+        prompt: '',
+        mode: 'auto' as const,
+        references: [],
+        referenceScope: 'auto' as const,
+      }
+    const updateDraft = (draft: InlineDraft) => {
+      this.drafts.set(id, {
+        ...draft,
+        references: [...draft.references],
+      })
+    }
     const close = () => {
       this.controllers.get(id)?.abort()
       this.controllers.delete(id)
+      this.drafts.delete(id)
       editorView.dispatch({ effects: removeInlineSession.of(id) })
       editorView.focus()
     }
@@ -405,6 +549,15 @@ export class InlineEditController {
       const sessions = editorView.state.field(inlineEditField, false)
       const session = sessions?.get(id)
       if (!session?.replacement) return
+      const changedReferences = getChangedReferencePaths(
+        this.plugin.app,
+        session.referenceSources,
+      )
+      if (changedReferences.length > 0) {
+        new Notice(
+          `Referenced context changed after generation. Applying the reviewed snapshot result (${changedReferences.length} file${changedReferences.length === 1 ? '' : 's'}).`,
+        )
+      }
       const currentDocument = editorView.state.doc.toString()
       const placement = session.placement ?? 'replace'
       if (placement === 'replace' && session.ignoredInsertions.length > 0) {
@@ -447,6 +600,7 @@ export class InlineEditController {
               insert: session.replacement,
             }
       this.controllers.delete(id)
+      this.drafts.delete(id)
       editorView.dispatch({
         changes: change,
         effects:
@@ -462,8 +616,15 @@ export class InlineEditController {
       })
       editorView.focus()
     }
-    const submit = (prompt: string, mode: InlineEditMode) => {
+    const submit = (
+      prompt: string,
+      mode: InlineEditMode,
+      references: InlineVaultReference[],
+      referenceScope: VaultReferenceScope,
+    ) => {
+      updateDraft({ prompt, mode, references, referenceScope })
       void this.generate({
+        app: this.plugin.app,
         id,
         from,
         to,
@@ -473,6 +634,12 @@ export class InlineEditController {
         targetLabel,
         prompt,
         mode,
+        references,
+        referenceScope,
+        referenceWarnings: [],
+        referenceSources: [],
+        getDraft,
+        updateDraft,
         editorView,
         submit,
         accept,
@@ -491,6 +658,7 @@ export class InlineEditController {
       )
     }
     this.show(editorView, {
+      app: this.plugin.app,
       id,
       from,
       to,
@@ -502,6 +670,12 @@ export class InlineEditController {
       targetLabel,
       status: 'prompt',
       mode: 'auto',
+      references: [],
+      referenceScope: 'auto',
+      referenceWarnings: [],
+      referenceSources: [],
+      getDraft,
+      updateDraft,
       submit,
       accept,
       close,
@@ -526,6 +700,7 @@ export class InlineEditController {
   }
 
   private async generate(input: {
+    app: App
     id: string
     from: number
     to: number
@@ -535,11 +710,18 @@ export class InlineEditController {
     targetLabel: 'Selection' | 'Current line'
     prompt: string
     mode: InlineEditMode
+    references: InlineVaultReference[]
+    referenceScope: VaultReferenceScope
+    referenceWarnings: string[]
+    referenceSources: CompiledVaultReferences['sourceFiles']
+    getDraft: () => InlineDraft
+    updateDraft: (draft: InlineDraft) => void
     editorView: EditorView
-    submit: (prompt: string, mode: InlineEditMode) => void
+    submit: InlineSession['submit']
     accept: () => void
     close: () => void
     renderMarkdown: (content: string, target: HTMLElement) => Promise<void>
+    compiledReferences?: CompiledVaultReferences
   }): Promise<void> {
     const placement = resolveInlineEditPlacement(input.prompt, input.mode)
     const base: InlineSession = {
@@ -548,6 +730,10 @@ export class InlineEditController {
       ignoredInsertions: [],
       status: 'loading',
       placement,
+      referencePhase:
+        input.references.length > 0 && !input.compiledReferences
+          ? 'reading'
+          : 'generating',
     }
     this.controllers.get(input.id)?.abort()
     const controller = new AbortController()
@@ -556,6 +742,55 @@ export class InlineEditController {
     try {
       const settings = this.plugin.settings
       const modelId = settings.inlineEdit.modelId ?? settings.chatModelId
+      const resolvedReferenceScope =
+        input.referenceScope === 'auto' && isExhaustiveReadIntent(input.prompt)
+          ? 'entire'
+          : input.referenceScope
+      const compiledReferences =
+        input.compiledReferences ??
+        (await compileVaultReferences({
+          app: this.plugin.app,
+          settings,
+          setSettings: (next) => this.plugin.setSettings(next),
+          getRagEngine: () => this.plugin.getRAGEngine(),
+          query: input.prompt,
+          references: input.references,
+          targetFilePath: input.filePath,
+          modelId,
+          scope: input.referenceScope,
+          signal: controller.signal,
+          onProgress: (state) => {
+            if (
+              controller.signal.aborted ||
+              this.controllers.get(input.id) !== controller ||
+              !this.hasSession(input.editorView, input.id)
+            ) {
+              return
+            }
+            this.show(input.editorView, {
+              ...base,
+              referencePhase: getReferencePhase(
+                state.type,
+                resolvedReferenceScope,
+              ),
+            })
+          },
+        }))
+      if (
+        controller.signal.aborted ||
+        this.controllers.get(input.id) !== controller ||
+        !this.hasSession(input.editorView, input.id)
+      ) {
+        return
+      }
+      const requestSession: InlineSession = {
+        ...base,
+        referencePhase: 'generating',
+        retrievalMetadata: compiledReferences.retrievalMetadata,
+        referenceWarnings: compiledReferences.warnings,
+        referenceSources: compiledReferences.sourceFiles,
+      }
+      this.show(input.editorView, requestSession)
       const { getChatModelClient } = await import('../llm/manager')
       const { providerClient, model } = getChatModelClient({
         modelId,
@@ -586,6 +821,8 @@ export class InlineEditController {
                 contextBefore: before,
                 contextAfter: after,
                 placement,
+                referencedVaultContext:
+                  compiledReferences.promptText || undefined,
               }),
             },
           ],
@@ -601,22 +838,47 @@ export class InlineEditController {
       }
       const content = response.choices[0]?.message.content?.trim() ?? ''
       const parsed = parseInlineResponse(content)
+      const changedReferences = getChangedReferencePaths(
+        this.plugin.app,
+        compiledReferences.sourceFiles,
+      )
+      const warnings = Array.from(
+        new Set([
+          ...compiledReferences.warnings,
+          ...(changedReferences.length > 0
+            ? [
+                `Referenced context changed after this result started: ${changedReferences.join(', ')}`,
+              ]
+            : []),
+        ]),
+      )
       if (parsed.type === 'clarification') {
         this.show(input.editorView, {
-          ...base,
+          ...requestSession,
           status: 'clarification',
           clarification: parsed.content,
-          submit: (answer) =>
-            input.submit(
-              `${input.prompt}\n\nClarification answer: ${answer}`,
-              input.mode,
-            ),
+          referenceWarnings: warnings,
+          submit: (answer) => {
+            const nextPrompt = `${input.prompt}\n\nClarification answer: ${answer}`
+            input.updateDraft({
+              prompt: nextPrompt,
+              mode: input.mode,
+              references: [...input.references],
+              referenceScope: input.referenceScope,
+            })
+            void this.generate({
+              ...input,
+              prompt: nextPrompt,
+              compiledReferences,
+            })
+          },
         })
       } else {
         this.show(input.editorView, {
-          ...base,
+          ...requestSession,
           status: 'preview',
           replacement: parsed.content,
+          referenceWarnings: warnings,
         })
       }
     } catch (error) {
@@ -1017,6 +1279,218 @@ function makeModeControl(
   return row
 }
 
+function makeReferenceScopeControl(
+  doc: Document,
+  initialScope: VaultReferenceScope,
+  onChange: (scope: VaultReferenceScope) => void,
+): {
+  element: HTMLElement
+  setVisible: (visible: boolean) => void
+  setEstimatedFiles: (count: number) => void
+} {
+  const row = doc.createElement('div')
+  row.className = 'mode-row reference-scope-row'
+  const label = doc.createElement('span')
+  label.className = 'mode-label'
+  label.textContent = 'Folder context'
+  const group = doc.createElement('div')
+  group.className = 'mode-control'
+  group.setAttribute('role', 'radiogroup')
+  group.setAttribute('aria-label', 'Folder reference context scope')
+  const options: { scope: VaultReferenceScope; label: string }[] = [
+    { scope: 'auto', label: 'Auto' },
+    { scope: 'focused', label: 'Focused' },
+    { scope: 'entire', label: 'Entire' },
+  ]
+  const buttons: HTMLButtonElement[] = []
+  const selectScope = (scope: VaultReferenceScope) => {
+    for (const button of buttons) {
+      const active = button.dataset.scope === scope
+      button.dataset.active = active ? 'true' : 'false'
+      button.setAttribute('aria-checked', active ? 'true' : 'false')
+    }
+    onChange(scope)
+  }
+  for (const option of options) {
+    const button = doc.createElement('button')
+    button.type = 'button'
+    button.className = 'mode-option'
+    button.dataset.scope = option.scope
+    button.setAttribute('role', 'radio')
+    button.textContent = option.label
+    button.title =
+      option.scope === 'auto'
+        ? 'Use request intent to choose focused or entire-folder reading'
+        : option.scope === 'focused'
+          ? 'Select only the most relevant folder snippets'
+          : 'Process every Markdown file in the selected folders'
+    button.addEventListener('click', () => selectScope(option.scope))
+    buttons.push(button)
+    group.append(button)
+  }
+  row.append(label, group)
+  selectScope(initialScope)
+  return {
+    element: row,
+    setVisible(visible) {
+      row.hidden = !visible
+    },
+    setEstimatedFiles(count) {
+      label.textContent =
+        count > 0 ? `Folder context / ${count} files` : 'Folder context'
+    },
+  }
+}
+
+function makeReadOnlyReferenceChips(
+  doc: Document,
+  references: readonly InlineVaultReference[],
+): HTMLElement {
+  const row = doc.createElement('div')
+  row.className = 'reference-chips reference-chips-readonly'
+  row.hidden = references.length === 0
+  for (const reference of references) {
+    const chip = doc.createElement('span')
+    chip.className = 'reference-chip'
+    chip.title = reference.path
+    chip.textContent = `${reference.type === 'file' ? 'Note' : 'Folder'} · ${getReferenceName(reference.path)}`
+    row.append(chip)
+  }
+  return row
+}
+
+function makeReferenceStatus(
+  doc: Document,
+  session: InlineSession,
+): HTMLElement {
+  const region = doc.createElement('div')
+  region.className = 'reference-status'
+  const summary = doc.createElement('span')
+  summary.className = 'reference-summary'
+  summary.textContent = getRetrievalSummary(session)
+  region.append(summary)
+  if (session.referenceWarnings.length > 0) {
+    const warnings = doc.createElement('ul')
+    warnings.className = 'reference-warnings'
+    for (const warning of session.referenceWarnings) {
+      const item = doc.createElement('li')
+      item.textContent = warning
+      warnings.append(item)
+    }
+    region.append(warnings)
+  }
+  return region
+}
+
+function getRetrievalSummary(session: InlineSession): string {
+  if (session.references.length === 0) return ''
+  const metadata = session.retrievalMetadata
+  const parts = [`${session.references.length} refs`]
+  if (metadata) {
+    parts.push(`${metadata.totalFilesRead} files`)
+    parts.push(
+      metadata.exhaustive
+        ? 'entire scope processed'
+        : `${metadata.selectedChunks} snippets`,
+    )
+    if (metadata.fallbackUsed) parts.push('local fallback')
+  } else if (session.referenceSources.length > 0) {
+    parts.push(`${session.referenceSources.length} files`)
+    parts.push('direct context')
+  } else {
+    parts.push(
+      session.referenceScope === 'entire'
+        ? 'entire scope'
+        : session.referenceScope,
+    )
+  }
+  return parts.join(' / ')
+}
+
+function getInlineLoadingCopy(session: InlineSession): {
+  title: string
+  detail: string
+} {
+  switch (session.referencePhase) {
+    case 'reading':
+      return {
+        title: 'Reading references',
+        detail: 'Resolving this session\u2019s notes and folders',
+      }
+    case 'selecting':
+      return {
+        title: 'Selecting relevant sections',
+        detail: 'Preparing focused vault context for this edit',
+      }
+    case 'exhaustive':
+      return {
+        title: 'Processing entire folder',
+        detail: 'Every scoped Markdown file will be covered',
+      }
+    case 'generating':
+    default:
+      return {
+        title:
+          session.placement === 'insert-after'
+            ? 'Writing below selection'
+            : 'Editing in place',
+        detail:
+          session.placement === 'insert-after'
+            ? 'The selected source will remain unchanged'
+            : 'Preparing a precise Markdown revision',
+      }
+  }
+}
+
+function getReferencePhase(
+  progressType: QueryProgressState['type'],
+  scope: VaultReferenceScope,
+): InlineReferencePhase {
+  if (progressType === 'reading-mentionables') return 'reading'
+  if (progressType === 'idle') return 'generating'
+  return scope === 'entire' ? 'exhaustive' : 'selecting'
+}
+
+export function getChangedReferencePaths(
+  app: App,
+  sources: readonly CompiledVaultReferences['sourceFiles'][number][],
+): string[] {
+  return sources
+    .filter((source) => {
+      const file = app.vault.getFileByPath(source.path)
+      return (
+        !file ||
+        file.stat.mtime !== source.mtime ||
+        file.stat.size !== source.size
+      )
+    })
+    .map((source) => source.path)
+}
+
+function getReferenceName(path: string): string {
+  return path.split('/').filter(Boolean).at(-1) ?? path
+}
+
+function countReferencedMarkdownFiles(
+  app: App,
+  references: readonly InlineVaultReference[],
+): number {
+  const paths = new Set<string>()
+  for (const reference of references) {
+    if (reference.type === 'file') {
+      const file = app.vault.getFileByPath(reference.path)
+      if (file?.extension === 'md') paths.add(file.path)
+      continue
+    }
+    const folder = app.vault.getFolderByPath(reference.path)
+    if (!folder) continue
+    for (const file of getNestedFiles(folder, app.vault)) {
+      if (file.extension === 'md') paths.add(file.path)
+    }
+  }
+  return paths.size
+}
+
 function makeButton(
   doc: Document,
   label: string,
@@ -1056,10 +1530,13 @@ function makeHeader(doc: Document, session: InlineSession): HTMLElement {
   identity.append(spark, title)
   const context = doc.createElement('span')
   context.className = 'context'
-  context.textContent =
-    session.placement === 'insert-after'
-      ? `${session.targetLabel} · insert below`
-      : session.targetLabel
+  context.textContent = [
+    session.targetLabel,
+    ...(session.placement === 'insert-after' ? ['insert below'] : []),
+    ...(session.references.length > 0
+      ? [`${session.references.length} refs`]
+      : []),
+  ].join(' / ')
   header.append(identity, context)
   return header
 }
@@ -1212,6 +1689,96 @@ header{
   text-overflow:ellipsis;
   text-transform:uppercase;
   white-space:nowrap;
+}
+.reference-region{min-width:0}
+.reference-chips{
+  display:flex;
+  min-width:0;
+  flex-wrap:wrap;
+  gap:5px;
+  margin:0 0 7px;
+}
+.reference-chip{
+  display:inline-flex;
+  max-width:min(100%,260px);
+  min-height:25px;
+  align-items:center;
+  gap:5px;
+  padding:3px 5px 3px 7px;
+  overflow:hidden;
+  border:1px solid color-mix(in srgb,var(--ach-action) 35%,var(--ach-border));
+  border-radius:5px;
+  background:color-mix(in srgb,var(--ach-action) 7%,var(--ach-surface));
+  color:var(--ach-heading);
+  font-size:11px;
+}
+.reference-icon{display:inline-flex;width:14px;height:14px;flex:0 0 auto}
+.reference-icon svg,.reference-remove svg{width:100%;height:100%;stroke-width:1.8}
+.reference-chip-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button.reference-remove{
+  width:20px;
+  min-width:20px;
+  min-height:20px;
+  padding:3px;
+  border:0;
+}
+.reference-list{
+  max-height:220px;
+  margin:0 0 7px;
+  padding:4px;
+  overflow:auto;
+  border:1px solid var(--ach-border);
+  border-radius:6px;
+  background:var(--ach-surface);
+  box-shadow:0 10px 28px rgba(0,46,110,.15);
+  scrollbar-color:var(--ach-border) transparent;
+}
+button.reference-option{
+  display:grid;
+  width:100%;
+  min-height:38px;
+  grid-template-columns:16px minmax(0,1fr);
+  justify-content:stretch;
+  padding:5px 7px;
+  border:0;
+  text-align:left;
+}
+button.reference-option[data-active="true"]{
+  background:var(--ach-surface-raised);
+  color:var(--ach-action);
+}
+.reference-option-copy{display:flex;min-width:0;flex-direction:column;align-items:flex-start}
+.reference-option-copy strong,.reference-option-copy small{
+  display:block;
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.reference-option-copy strong{font-size:11px}
+.reference-option-copy small{color:var(--ach-muted);font-size:9px;font-weight:400}
+.reference-chips-readonly{margin-bottom:9px}
+.reference-status{
+  display:flex;
+  min-width:0;
+  flex-direction:column;
+  gap:5px;
+  margin:-2px 0 8px;
+}
+.reference-summary{
+  overflow:hidden;
+  color:var(--ach-muted);
+  font:10px/1.35 ui-monospace,"Cascadia Code",monospace;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.reference-warnings{
+  margin:0;
+  padding:6px 8px 6px 24px;
+  border-left:2px solid var(--ach-danger);
+  background:var(--ach-before);
+  color:var(--ach-danger);
+  font-size:10px;
 }
 .prompt{
   display:block;
@@ -1374,5 +1941,5 @@ kbd{
 @keyframes inline-panel-border-orbit{to{transform:translate(-50%,-50%) rotate(360deg)}}
 @media(max-width:620px){.diff,.insert-preview{grid-template-columns:1fr}.diff section,.insert-preview section{max-height:240px}.context{display:none}.mode-row{align-items:flex-start;flex-direction:column}.mode-control{width:100%;grid-auto-columns:1fr}button{min-height:34px}}
 @media(prefers-reduced-motion:reduce){.panel[data-status="loading"]::before{animation:none;background:var(--ach-action);opacity:.4}}
-@media(forced-colors:active){.panel,.prompt,.mode-control,.diff section,.insert-preview section,.source-preserved,.word-diff,button{border:1px solid CanvasText}.panel[data-status="loading"]::before{background:CanvasText;filter:none}.spark,.thinking-dots i{background:CanvasText;box-shadow:none}}
+@media(forced-colors:active){.panel,.prompt,.mode-control,.reference-chip,.reference-list,.diff section,.insert-preview section,.source-preserved,.word-diff,button{border:1px solid CanvasText}.panel[data-status="loading"]::before{background:CanvasText;filter:none}.spark,.thinking-dots i{background:CanvasText;box-shadow:none}}
 `

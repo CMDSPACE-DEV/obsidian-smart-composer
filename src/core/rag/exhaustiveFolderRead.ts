@@ -43,9 +43,11 @@ type ExhaustiveFolderReadOptions = {
   app: App
   settings: SmartComposerSettings
   setSettings?: (newSettings: SmartComposerSettings) => void | Promise<void>
+  modelId?: string
   query: string
   files?: TFile[]
   scopeType: 'files' | 'folders' | 'vault'
+  signal?: AbortSignal
   onQueryProgressChange?: (queryProgress: QueryProgressState) => void
 }
 
@@ -56,13 +58,20 @@ export async function processQueryWithExhaustiveFolderRead({
   app,
   settings,
   setSettings,
+  modelId,
   query,
   files,
   scopeType,
+  signal,
   onQueryProgressChange,
 }: ExhaustiveFolderReadOptions): Promise<ExhaustiveFolderReadResponse> {
+  throwIfAborted(signal)
+  onQueryProgressChange?.({
+    type: 'exhaustive-reading',
+  })
   const targetFiles = getTargetFiles(app, settings, files)
-  const fileContents = await readFileContents(app, targetFiles)
+  const fileContents = await readFileContents(app, targetFiles, signal)
+  throwIfAborted(signal)
   const totalTokens = fileContents.reduce(
     (sum, file) => sum + file.tokenCount,
     0,
@@ -85,25 +94,29 @@ export async function processQueryWithExhaustiveFolderRead({
     }
   }
 
-  const chunks = await buildChunkCandidates(settings, fileContents, query)
+  const chunks = await buildChunkCandidates(
+    settings,
+    fileContents,
+    query,
+    signal,
+  )
   const batches = chunkByCharacterBudget(chunks, BATCH_CHAR_LIMIT)
-
-  onQueryProgressChange?.({
-    type: 'plan-reranking',
-  })
 
   const batchResults = await Promise.all(
     batches.map((batch, index) =>
       summarizeBatchWithPlan({
         settings,
         setSettings,
+        modelId,
         query,
         batch,
         batchIndex: index,
         totalBatches: batches.length,
+        signal,
       }),
     ),
   )
+  throwIfAborted(signal)
   const batchSummaries = batchResults.map((result) => result.summary)
   const warnings = batchResults
     .map((result) => result.warning)
@@ -163,12 +176,15 @@ function getTargetFiles(
 async function readFileContents(
   app: App,
   files: TFile[],
+  signal?: AbortSignal,
 ): Promise<FileContent[]> {
   return await Promise.all(
     files.map(async (file) => {
+      throwIfAborted(signal)
       const content = (await app.vault.cachedRead(file))
         .split(String.fromCharCode(0))
         .join('')
+      throwIfAborted(signal)
       return {
         file,
         content,
@@ -182,6 +198,7 @@ async function buildChunkCandidates(
   settings: SmartComposerSettings,
   fileContents: FileContent[],
   query: string,
+  signal?: AbortSignal,
 ): Promise<ChunkCandidate[]> {
   const textSplitter = RecursiveCharacterTextSplitter.fromLanguage('markdown', {
     chunkSize: settings.ragOptions.chunkSize,
@@ -190,7 +207,9 @@ async function buildChunkCandidates(
   const chunks = (
     await Promise.all(
       fileContents.map(async ({ file, content }) => {
+        throwIfAborted(signal)
         const documents = await textSplitter.createDocuments([content])
+        throwIfAborted(signal)
         return documents.map((document): ChunkCandidate => {
           const metadata = document.metadata.loc?.lines
           const startLine =
@@ -254,37 +273,42 @@ function chunkByCharacterBudget(
 async function summarizeBatchWithPlan({
   settings,
   setSettings,
+  modelId,
   query,
   batch,
   batchIndex,
   totalBatches,
+  signal,
 }: {
   settings: SmartComposerSettings
   setSettings?: (newSettings: SmartComposerSettings) => void | Promise<void>
+  modelId?: string
   query: string
   batch: ChunkCandidate[]
   batchIndex: number
   totalBatches: number
+  signal?: AbortSignal
 }): Promise<{ summary: string; warning?: string }> {
+  throwIfAborted(signal)
   const { getChatModelClient } = await import('../llm/manager')
   const { providerClient, model } = getChatModelClient({
-    modelId: settings.chatModelId,
+    modelId: modelId ?? settings.chatModelId,
     settings,
     setSettings: setSettings ?? (() => undefined),
   })
   const summaryModel = getInternalRagModel(model)
 
   try {
-    const response = await providerClient.generateResponse(summaryModel, {
+    const request = {
       model: model.model,
       messages: [
         {
-          role: 'system',
+          role: 'system' as const,
           content:
             'You are reading every provided markdown chunk as part of an exhaustive folder review. Create a concise query-focused summary. Mention file names and line ranges for important evidence. Do not claim you read files outside this batch.',
         },
         {
-          role: 'user',
+          role: 'user' as const,
           content: `Query:
 ${query}
 
@@ -296,7 +320,10 @@ ${batch.map(formatChunkForBatch).join('\n\n')}`,
       ],
       temperature: 0,
       max_tokens: BATCH_SUMMARY_MAX_TOKENS,
-    })
+    }
+    const response = signal
+      ? await providerClient.generateResponse(summaryModel, request, { signal })
+      : await providerClient.generateResponse(summaryModel, request)
     return { summary: response.choices[0]?.message.content ?? '' }
   } catch (error) {
     if (shouldSurfacePlanRequestError(error)) {
@@ -313,6 +340,12 @@ ${batch
   .join('\n')}`,
       warning: describePlanRequestError(error),
     }
+  }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DOMException('The operation was aborted.', 'AbortError')
   }
 }
 

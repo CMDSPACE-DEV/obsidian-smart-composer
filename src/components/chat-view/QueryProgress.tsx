@@ -17,6 +17,9 @@ export type QueryProgressState =
       type: 'plan-reranking'
     }
   | {
+      type: 'exhaustive-reading'
+    }
+  | {
       type: 'querying-done'
       queryResult: (Omit<SelectEmbedding, 'embedding'> & {
         similarity: number
@@ -72,6 +75,12 @@ export default function QueryProgress({
       return (
         <div className="smtcmp-query-progress">
           <OrbitalLoader label="Selecting relevant chunks" />
+        </div>
+      )
+    case 'exhaustive-reading':
+      return (
+        <div className="smtcmp-query-progress">
+          <OrbitalLoader label="Reading entire scope" />
         </div>
       )
     case 'querying-done':

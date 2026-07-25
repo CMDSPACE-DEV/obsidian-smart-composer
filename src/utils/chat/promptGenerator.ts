@@ -11,6 +11,11 @@ import {
 import { processQueryWithExhaustiveFolderRead } from '../../core/rag/exhaustiveFolderRead'
 import { processQueryWithPlanRerank } from '../../core/rag/planRerank'
 import { RAGEngine } from '../../core/rag/ragEngine'
+import {
+  VaultReference,
+  VaultReferenceScope,
+  compileVaultReferences,
+} from '../../core/references/VaultReferenceCompiler'
 import { SelectEmbedding } from '../../database/schema'
 import { SmartComposerSettings } from '../../settings/schema/setting.types'
 import {
@@ -31,12 +36,7 @@ import {
 } from '../../types/mentionable'
 import { PromptLevel } from '../../types/prompt-level.types'
 import { ToolCallResponseStatus } from '../../types/tool-call.types'
-import { tokenCount } from '../llm/token'
-import {
-  getNestedFiles,
-  readMultipleTFiles,
-  readTFileContent,
-} from '../obsidian'
+import { readTFileContent } from '../obsidian'
 
 import { YoutubeTranscript, isYoutubeUrl } from './youtube-transcript'
 
@@ -261,73 +261,49 @@ ${message.annotations
           (m): m is MentionableVault => m.type === 'vault',
         )
 
-      onQueryProgressChange?.({
-        type: 'reading-mentionables',
-      })
       const files = message.mentionables
         .filter((m): m is MentionableFile => m.type === 'file')
         .map((m) => m.file)
       const folders = message.mentionables
         .filter((m): m is MentionableFolder => m.type === 'folder')
         .map((m) => m.folder)
-      const nestedFiles = folders.flatMap((folder) =>
-        getNestedFiles(folder, this.app.vault),
-      )
-      const allFiles = [...files, ...nestedFiles]
-      const fileContents = await readMultipleTFiles(allFiles, this.app.vault)
-      const scopeType = this.getScopeType({
-        useVaultSearch,
-        files,
-        folders,
-      })
-      const shouldUseExhaustiveRead = this.shouldUseExhaustiveRead({
+      const references: VaultReference[] = [
+        ...files.map(
+          (file): VaultReference => ({
+            type: 'file',
+            path: file.path,
+            file,
+          }),
+        ),
+        ...folders.map(
+          (folder): VaultReference => ({
+            type: 'folder',
+            path: folder.path,
+            folder,
+          }),
+        ),
+        ...(useVaultSearch ? ([{ type: 'vault' }] as VaultReference[]) : []),
+      ]
+      const referenceScope: VaultReferenceScope =
+        this.settings.ragOptions.folderReadMode === 'exhaustive'
+          ? 'entire'
+          : this.settings.ragOptions.folderReadMode
+      const compiledReferences = await compileVaultReferences({
+        app: this.app,
+        settings: this.settings,
+        setSettings: this.setSettings,
+        getRagEngine: this.getRagEngine,
         query,
-        useVaultSearch,
-        files,
-        folders,
+        references,
+        modelId: this.settings.chatModelId,
+        scope: referenceScope,
+        onProgress: onQueryProgressChange,
       })
-
-      // Count tokens incrementally to avoid long processing times on large content sets
-      const exceedsTokenThreshold = async () => {
-        let accTokenCount = 0
-        for (const content of fileContents) {
-          const count = await tokenCount(content)
-          accTokenCount += count
-          if (accTokenCount > this.settings.ragOptions.thresholdTokens) {
-            return true
-          }
-        }
-        return false
-      }
-      const shouldUseRAG =
-        shouldUseExhaustiveRead ||
-        useVaultSearch ||
-        (await exceedsTokenThreshold())
-
-      let filePrompt: string
-      if (shouldUseRAG) {
-        const retrievalResponse = await this.processRagQuery({
-          query,
-          useVaultSearch,
-          files: allFiles,
-          scopeType,
-          shouldUseExhaustiveRead,
-          scope: {
-            files: files.map((f) => f.path),
-            folders: folders.map((f) => f.path),
-          },
-          onQueryProgressChange,
-        })
-        filePrompt = retrievalResponse.filePrompt
-        similaritySearchResults = retrievalResponse.similaritySearchResults
-        retrievalMetadata = retrievalResponse.retrievalMetadata
-      } else {
-        filePrompt = allFiles
-          .map((file, index) => {
-            return `\`\`\`${file.path}\n${fileContents[index]}\n\`\`\`\n`
-          })
-          .join('')
-      }
+      const filePrompt = compiledReferences.promptText
+      const shouldUseRAG = compiledReferences.shouldUseRAG
+      similaritySearchResults =
+        compiledReferences.similaritySearchResults ?? undefined
+      retrievalMetadata = compiledReferences.retrievalMetadata
 
       const blocks = message.mentionables.filter(
         (m): m is MentionableBlock => m.type === 'block',

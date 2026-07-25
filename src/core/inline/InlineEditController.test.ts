@@ -1,7 +1,9 @@
 import { ChangeSet } from '@codemirror/state'
+import { App } from 'obsidian'
 
 import {
   buildInlineInsertion,
+  getChangedReferencePaths,
   getInlineEditSystemPrompt,
   getInlineSourceWithoutInsertions,
   isInlineSourceCurrent,
@@ -356,5 +358,27 @@ describe('inline edit response helpers', () => {
       }),
     ).toBe('cmds-dark')
     expect(resolveInlineSkin({ contains: () => false })).toBe('hallym-light')
+  })
+
+  it('warns about changed reference snapshots without changing target safety', () => {
+    const app = {
+      vault: {
+        getFileByPath: jest.fn((path: string) =>
+          path === 'stable.md'
+            ? { path, stat: { mtime: 1, size: 10 } }
+            : path === 'changed.md'
+              ? { path, stat: { mtime: 2, size: 10 } }
+              : null,
+        ),
+      },
+    } as unknown as App
+
+    expect(
+      getChangedReferencePaths(app, [
+        { path: 'stable.md', mtime: 1, size: 10 },
+        { path: 'changed.md', mtime: 1, size: 10 },
+        { path: 'missing.md', mtime: 1, size: 10 },
+      ]),
+    ).toEqual(['changed.md', 'missing.md'])
   })
 })
