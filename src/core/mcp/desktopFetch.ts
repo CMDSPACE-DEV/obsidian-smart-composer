@@ -6,7 +6,22 @@ import type {
 } from 'node-fetch'
 
 const NULL_BODY_STATUSES = new Set([101, 204, 205, 304])
-let nodeFetchPromise: Promise<typeof import('node-fetch').default> | null = null
+type NodeFetch = typeof import('node-fetch').default
+type ResponseBody =
+  | NodeFetchResponse['body']
+  | ReadableStream<Uint8Array>
+  | null
+
+type FetchResponseLike = {
+  body: ResponseBody
+  headers: {
+    forEach(callback: (value: string, key: string) => void): void
+  }
+  status: number
+  statusText: string
+}
+
+let nodeFetchPromise: Promise<NodeFetch> | null = null
 
 /**
  * Uses Node's HTTP stack so desktop MCP connections are not blocked by
@@ -40,27 +55,60 @@ export function createDesktopMcpFetch(): typeof fetch {
   }
 }
 
-function getNodeFetch(): Promise<typeof import('node-fetch').default> {
-  nodeFetchPromise ??= import('node-fetch').then((module) => module.default)
+function getNodeFetch(): Promise<NodeFetch> {
+  // Import the Node entry explicitly. The plugin's browser-targeted esbuild
+  // configuration otherwise resolves the package root to node-fetch/browser.js
+  // and silently reintroduces Chromium CORS enforcement.
+  nodeFetchPromise ??= import('node-fetch/lib/index.js').then(
+    (module) => module.default,
+  )
   return nodeFetchPromise
 }
 
-function toWebResponse(response: NodeFetchResponse): Response {
+export function toWebResponse(response: FetchResponseLike): Response {
   const headers = new Headers()
   response.headers.forEach((value, key) => {
     headers.append(key, value)
   })
 
-  const body =
-    response.body && !NULL_BODY_STATUSES.has(response.status)
-      ? toWebReadableStream(response.body as Readable)
-      : null
+  const body = toCompatibleWebBody(response.body, response.status)
 
   return new Response(body, {
     status: response.status,
     statusText: response.statusText,
     headers,
   })
+}
+
+function toCompatibleWebBody(
+  body: ResponseBody,
+  status: number,
+): ReadableStream<Uint8Array> | null {
+  if (!body || NULL_BODY_STATUSES.has(status)) return null
+  if (isWebReadableStream(body)) return body
+  if (isNodeReadableStream(body)) return toWebReadableStream(body)
+
+  throw new TypeError('Unsupported MCP response body stream.')
+}
+
+function isWebReadableStream(
+  body: ResponseBody,
+): body is ReadableStream<Uint8Array> {
+  const candidate = body as Partial<ReadableStream<Uint8Array>>
+  return (
+    typeof candidate.getReader === 'function' &&
+    typeof candidate.pipeThrough === 'function'
+  )
+}
+
+function isNodeReadableStream(body: ResponseBody): body is Readable {
+  const candidate = body as Partial<Readable>
+  return (
+    typeof candidate.on === 'function' &&
+    typeof candidate.once === 'function' &&
+    typeof candidate.pause === 'function' &&
+    typeof candidate.resume === 'function'
+  )
 }
 
 function toWebReadableStream(stream: Readable): ReadableStream<Uint8Array> {

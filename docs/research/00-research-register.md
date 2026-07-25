@@ -34,7 +34,7 @@ premature synthesis.
 | R-009 | Parallel inline-edit note/folder reference mentions (`@vault` deferred) | **Verified + Implemented in 2.2.0** | **Mandatory** | [R-009 report](R-009-inline-edit-vault-references.md) |
 | R-010 | Beginner-safe MCP connection, authentication, tool discovery, and chat invocation UX | **Verified** | **Mandatory** | [R-010 report](R-010-mcp-connection-authentication-and-invocation-ux.md) |
 | R-011 | Smart Composer 2.3 MCP implementation and automated verification | **Verified + Implemented in 2.3.0** | **Mandatory** | [R-011 report](R-011-mcp-2.3-implementation-verification.md) |
-| R-012 | Remote MCP browser-CORS failure and desktop transport correction | **Verified + Implemented in 2.3.1** | **Mandatory** | [R-012 report](R-012-remote-mcp-cors-transport.md) |
+| R-012 | Remote MCP browser-CORS failure and desktop transport correction | **Verified + Implemented in 2.3.2** | **Mandatory** | [R-012 report](R-012-remote-mcp-cors-transport.md) |
 
 ## Mandatory Synthesis Rule
 

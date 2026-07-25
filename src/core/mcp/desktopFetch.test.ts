@@ -1,7 +1,7 @@
 import { type Server, createServer } from 'http'
 import type { AddressInfo } from 'net'
 
-import { createDesktopMcpFetch } from './desktopFetch'
+import { createDesktopMcpFetch, toWebResponse } from './desktopFetch'
 
 describe('createDesktopMcpFetch', () => {
   let server: Server
@@ -93,5 +93,18 @@ describe('createDesktopMcpFetch', () => {
 
     expect(response.headers.get('content-type')).toBe('text/event-stream')
     expect(result?.value).toContain('event: message')
+  })
+
+  it('preserves an existing Web response stream without using Node events', async () => {
+    const source = new Response('web stream body', {
+      headers: {
+        'Content-Type': 'text/plain',
+      },
+    })
+
+    const response = toWebResponse(source)
+
+    await expect(response.text()).resolves.toBe('web stream body')
+    expect(response.headers.get('content-type')).toBe('text/plain')
   })
 })

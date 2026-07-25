@@ -4,7 +4,7 @@
 > **Status: Verified live-server diagnosis and implemented fix / Mandatory
 > planning input**
 >
-> This report records the Smart Composer 2.3.1 correction for remote MCP
+> This report records the Smart Composer 2.3.2 correction for remote MCP
 > servers that are reachable but cannot satisfy browser CORS preflight for
 > standard MCP request headers.
 
@@ -54,6 +54,25 @@ correctly adds that header. Chromium therefore rejected the renderer
 `fetch()` request during CORS preflight and exposed only the generic
 `Failed to fetch` error.
 
+### 2.1 Obsidian bundle follow-up
+
+The first 2.3.1 adapter passed Node tests but failed in the installed Obsidian
+bundle with:
+
+```text
+t.on is not a function
+```
+
+The production esbuild target defaults to `browser`. Importing the
+`node-fetch` package root therefore selected its `browser.js` export instead
+of `lib/index.js`. That export delegates to Chromium `fetch()` and returns a
+Web `ReadableStream`; the adapter then incorrectly treated it as a Node
+stream and called `.on()`.
+
+The production metafile confirmed this package-resolution mismatch. This was
+both a stream-type error and evidence that the intended CORS bypass had not
+yet reached the installed bundle.
+
 Primary references:
 
 - [MCP Streamable HTTP transport and protocol-version header](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
@@ -78,6 +97,12 @@ It preserves:
 - JSON and OAuth form requests;
 - long-lived SSE response streaming;
 - existing bearer and OAuth request headers.
+
+The runtime import explicitly targets `node-fetch/lib/index.js`, preventing
+the browser-targeted build from substituting `node-fetch/browser.js`.
+Response normalization accepts both Node streams and already-compatible Web
+streams, using runtime capability checks rather than assuming one stream
+implementation.
 
 The adapter is only reached through `McpManager`, which remains disabled when
 Obsidian is not running on desktop.
@@ -104,15 +129,16 @@ The full suite after the change:
 
 ```text
 test suites: 63 passed
-tests: 416 passed
+tests: 417 passed
 type check: passed
 Prettier and ESLint: passed
 production build: passed
-production main.js: 4,719,603 bytes
+production main.js: 5,029,325 bytes
 bundle budget: passed (<= 5.2 MiB)
 ```
 
-A live connection using the stored, redacted Korean Law endpoint completed:
+A live connection using an isolated bundle built with the same browser target
+as `main.js` and the stored, redacted Korean Law endpoint completed:
 
 ```text
 initialize: succeeded
@@ -122,6 +148,18 @@ tools discovered: 10
 
 The discovered capabilities included law search, law text, annex, legal
 research and analysis, and court-decision search/read tools.
+
+The production metafile contained:
+
+```text
+node_modules/node-fetch/lib/index.js
+```
+
+and did not contain `node_modules/node-fetch/browser.js`.
+
+`check-bundle-budget.mjs` now enforces this resolution on every production
+build so a future package-root import cannot silently restore the browser
+transport.
 
 ## 5. Boundary
 
