@@ -6,6 +6,7 @@ import { useSettings } from '../../../contexts/settings-context'
 import {
   Mentionable,
   MentionableBlock,
+  MentionableConnection,
   MentionableCurrentFile,
   MentionableFile,
   MentionableFolder,
@@ -281,6 +282,36 @@ function ImageBadge({
   )
 }
 
+function ConnectionBadge({
+  mentionable,
+  onDelete,
+  onClick,
+  isFocused,
+}: {
+  mentionable: MentionableConnection
+  onDelete: () => void
+  onClick: () => void
+  isFocused: boolean
+}) {
+  const Icon = getMentionableIcon(mentionable)
+  return (
+    <BadgeBase onDelete={onDelete} onClick={onClick} isFocused={isFocused}>
+      <div className="smtcmp-chat-user-input-file-badge-name">
+        {Icon && (
+          <Icon
+            size={12}
+            className="smtcmp-chat-user-input-file-badge-name-icon"
+          />
+        )}
+        <span>{mentionable.name}</span>
+      </div>
+      <div className="smtcmp-chat-user-input-file-badge-name-suffix">
+        {' (MCP)'}
+      </div>
+    </BadgeBase>
+  )
+}
+
 export default function MentionableBadge({
   mentionable,
   onDelete,
@@ -350,6 +381,15 @@ export default function MentionableBadge({
     case 'image':
       return (
         <ImageBadge
+          mentionable={mentionable}
+          onDelete={onDelete}
+          onClick={onClick}
+          isFocused={isFocused}
+        />
+      )
+    case 'connection':
+      return (
+        <ConnectionBadge
           mentionable={mentionable}
           onDelete={onDelete}
           onClick={onClick}

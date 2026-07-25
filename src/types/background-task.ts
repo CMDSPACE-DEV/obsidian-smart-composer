@@ -3,6 +3,7 @@ export type BackgroundTaskKind =
   | 'artifact-draft'
   | 'artifact-write'
   | 'mcp-reserved'
+  | 'mcp-tool-call'
 
 export type BackgroundTaskStatus =
   | 'queued'
@@ -13,9 +14,10 @@ export type BackgroundTaskStatus =
   | 'failed'
   | 'canceled'
   | 'interrupted'
+  | 'waiting-connection'
 
 export type BackgroundTaskRecord = {
-  schemaVersion: 1
+  schemaVersion: 1 | 2
   id: string
   conversationId: string
   originMessageId: string
@@ -54,7 +56,11 @@ export type ArtifactRecord = {
 }
 
 export type BackgroundTaskRunResult = {
-  status: 'awaiting-destination' | 'awaiting-approval' | 'succeeded'
+  status:
+    | 'awaiting-destination'
+    | 'awaiting-approval'
+    | 'waiting-connection'
+    | 'succeeded'
   artifactIds?: string[]
   input?: Record<string, unknown>
 }

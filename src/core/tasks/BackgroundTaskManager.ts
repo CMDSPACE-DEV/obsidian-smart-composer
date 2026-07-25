@@ -10,7 +10,7 @@ import {
 
 import { TaskRepository } from './TaskRepository'
 
-const ACTIVE_STATUSES = new Set(['queued', 'running'])
+const ACTIVE_STATUSES = new Set(['queued', 'running', 'waiting-connection'])
 
 export class BackgroundTaskManager {
   private readonly repository: TaskRepository
@@ -38,14 +38,26 @@ export class BackgroundTaskManager {
   async initialize(): Promise<void> {
     await this.repository.initialize()
     for (const storedTask of await this.repository.listTasks()) {
+      const resumableMcpTask =
+        storedTask.kind === 'mcp-tool-call' &&
+        typeof storedTask.input.externalTaskId === 'string' &&
+        storedTask.input.resumable === true
       const task = ACTIVE_STATUSES.has(storedTask.status)
         ? {
             ...storedTask,
-            status: 'interrupted' as const,
+            schemaVersion: 2 as const,
+            status: resumableMcpTask
+              ? ('waiting-connection' as const)
+              : ('interrupted' as const),
             updatedAt: Date.now(),
-            error: 'Obsidian closed before this task completed.',
+            error: resumableMcpTask
+              ? undefined
+              : 'Obsidian closed before this task completed.',
           }
-        : storedTask
+        : {
+            ...storedTask,
+            schemaVersion: 2 as const,
+          }
       this.tasks.set(task.id, task)
       if (task !== storedTask) await this.repository.saveTask(task)
     }
@@ -54,7 +66,7 @@ export class BackgroundTaskManager {
 
   registerAdapter(adapter: BackgroundTaskAdapter): () => void {
     this.adapters.set(adapter.kind, adapter)
-    void this.pump()
+    void this.resumeWaitingTasks(adapter.kind)
     return () => {
       if (this.adapters.get(adapter.kind) === adapter) {
         this.adapters.delete(adapter.kind)
@@ -135,7 +147,7 @@ export class BackgroundTaskManager {
   }): Promise<BackgroundTaskRecord> {
     const now = Date.now()
     const task: BackgroundTaskRecord = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: uuidv4(),
       conversationId: input.conversationId,
       originMessageId: input.originMessageId,
@@ -182,9 +194,25 @@ export class BackgroundTaskManager {
     void this.pump()
   }
 
+  async resume(id: string): Promise<void> {
+    const task = this.tasks.get(id)
+    if (!task || task.status !== 'waiting-connection') return
+    await this.replace({
+      ...task,
+      status: 'queued',
+      updatedAt: Date.now(),
+      error: undefined,
+    })
+    void this.pump()
+  }
+
   async dismiss(id: string): Promise<boolean> {
     const task = this.tasks.get(id)
-    if (!task || task.kind !== 'image-generation' || !isTerminal(task.status)) {
+    if (
+      !task ||
+      !['image-generation', 'mcp-tool-call'].includes(task.kind) ||
+      !isTerminal(task.status)
+    ) {
       return false
     }
     await this.repository.deleteTask(id)
@@ -231,11 +259,17 @@ export class BackgroundTaskManager {
     this.controllers.forEach((controller) => controller.abort())
     this.controllers.clear()
     for (const task of active) {
+      const resumableMcpTask =
+        task.kind === 'mcp-tool-call' &&
+        typeof task.input.externalTaskId === 'string' &&
+        task.input.resumable === true
       await this.replace({
         ...task,
-        status: 'interrupted',
+        status: resumableMcpTask ? 'waiting-connection' : 'interrupted',
         updatedAt: Date.now(),
-        error: 'Plugin unloaded before this task completed.',
+        error: resumableMcpTask
+          ? undefined
+          : 'Plugin unloaded before this task completed.',
       })
     }
     this.subscribers.clear()
@@ -341,6 +375,20 @@ export class BackgroundTaskManager {
     } finally {
       this.controllers.delete(task.id)
     }
+  }
+
+  private async resumeWaitingTasks(kind: BackgroundTaskKind): Promise<void> {
+    const waiting = Array.from(this.tasks.values()).filter(
+      (task) => task.kind === kind && task.status === 'waiting-connection',
+    )
+    for (const task of waiting) {
+      await this.replace({
+        ...task,
+        status: 'queued',
+        updatedAt: Date.now(),
+      })
+    }
+    void this.pump()
   }
 
   private async replace(task: BackgroundTaskRecord): Promise<void> {

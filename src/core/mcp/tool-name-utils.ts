@@ -1,7 +1,7 @@
 import { InvalidToolNameException } from './exception'
-import { McpManager } from './mcpManager'
 
-const DEFAULT_DELIMITER = McpManager.TOOL_NAME_DELIMITER
+export const MCP_TOOL_NAME_DELIMITER = '__'
+const DEFAULT_DELIMITER = MCP_TOOL_NAME_DELIMITER
 
 /**
  * Validates that a server name follows the required format and doesn't contain the delimiter

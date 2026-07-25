@@ -4,6 +4,7 @@ import {
   FoldersIcon,
   ImageIcon,
   LinkIcon,
+  PlugZap,
 } from 'lucide-react'
 
 import { Mentionable } from '../../../../types/mentionable'
@@ -24,6 +25,8 @@ export const getMentionableIcon = (mentionable: Mentionable) => {
       return LinkIcon
     case 'image':
       return ImageIcon
+    case 'connection':
+      return PlugZap
     default:
       return null
   }

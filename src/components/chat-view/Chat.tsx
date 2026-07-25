@@ -19,6 +19,7 @@ import { useSettings } from '../../contexts/settings-context'
 import { QueuedPrompt } from '../../core/conversation/ConversationRunManager'
 import { getProviderCapabilities } from '../../core/llm/providerCapabilities'
 import { useChatHistory } from '../../hooks/useChatHistory'
+import type { BackgroundTaskRecord } from '../../types/background-task'
 import {
   AssistantToolMessageGroup,
   ChatMessage,
@@ -50,6 +51,7 @@ import AssistantToolMessageGroupItem from './AssistantToolMessageGroupItem'
 import { BackgroundTaskCards } from './BackgroundTaskCards'
 import ChatUserInput, { ChatUserInputRef } from './chat-input/ChatUserInput'
 import { editorStateToPlainText } from './chat-input/utils/editor-state-to-plain-text'
+import { plainTextEditorState } from './chat-input/utils/plain-text-editor-state'
 import { ChatIconButton } from './ChatIconButton'
 import { ChatListDropdown } from './ChatListDropdown'
 import { ImageQueuePanel } from './ImageQueuePanel'
@@ -181,6 +183,50 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
       autoScrollToBottom,
       promptGenerator,
     })
+
+  const handleUseBackgroundResult = useCallback(
+    (task: BackgroundTaskRecord, result: string) => {
+      if (submitChatMutation.isPending) {
+        new Notice(
+          'Wait for the current response to finish before using this result.',
+        )
+        return false
+      }
+      const displayName =
+        typeof task.input.displayName === 'string'
+          ? task.input.displayName
+          : 'MCP tool'
+      const visibleText = `Use background result: ${displayName}`
+      const userMessage: ChatUserMessage = {
+        role: 'user',
+        id: uuidv4(),
+        content: plainTextEditorState(visibleText),
+        promptContent: [
+          `A background MCP task (${displayName}) completed after its originating response.`,
+          'Use the result below only in this new turn. Explain how it affects the ongoing work.',
+          '',
+          '<background_mcp_result>',
+          result,
+          '</background_mcp_result>',
+        ].join('\n'),
+        mentionables: [],
+      }
+      const updatedMessages = [...chatMessages, userMessage]
+      setChatMessages(updatedMessages)
+      submitChatMutation.mutate({
+        chatMessages: updatedMessages,
+        conversationId: currentConversationId,
+      })
+      requestAnimationFrame(forceScrollToBottom)
+      return true
+    },
+    [
+      chatMessages,
+      currentConversationId,
+      forceScrollToBottom,
+      submitChatMutation,
+    ],
+  )
 
   const locateMessage = useCallback((messageId: string) => {
     const container = chatMessagesRef.current
@@ -707,6 +753,7 @@ const Chat = forwardRef<ChatRef, ChatProps>((props, ref) => {
               <BackgroundTaskCards
                 conversationId={currentConversationId}
                 originMessageId={messageOrGroup.id}
+                onUseResult={handleUseBackgroundResult}
               />
             </div>
           ) : (

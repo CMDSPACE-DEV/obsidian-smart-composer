@@ -10,6 +10,7 @@ import {
   LLMResponseStreaming,
   ToolCallDelta,
 } from '../../types/llm/response'
+import type { McpRoutingMode } from '../../types/mcp.types'
 import { LLMProvider } from '../../types/provider.types'
 import {
   ToolCallRequest,
@@ -29,6 +30,9 @@ export type ResponseGeneratorParams = {
   maxAutoIterations: number
   promptGenerator: PromptGenerator
   mcpManager: McpManager | null
+  mcpRoutingMode?: McpRoutingMode
+  mcpQuery?: string
+  mcpConnectionIds?: string[]
   abortSignal?: AbortSignal
   localTools?: LocalResponseTool[]
 }
@@ -58,6 +62,9 @@ export class ResponseGenerator {
   private readonly enableTools: boolean
   private readonly promptGenerator: PromptGenerator
   private readonly mcpManager: McpManager | null
+  private readonly mcpRoutingMode: McpRoutingMode
+  private readonly mcpQuery: string
+  private readonly mcpConnectionIds: Set<string>
   private readonly abortSignal?: AbortSignal
   private readonly receivedMessages: ChatMessage[]
   private readonly maxAutoIterations: number
@@ -71,7 +78,13 @@ export class ResponseGenerator {
     this.model = params.model
     this.conversationId = params.conversationId
     this.enableTools = params.enableTools
-    this.maxAutoIterations = Math.max(1, params.maxAutoIterations) // Ensure maxAutoIterations is at least 1
+    this.mcpRoutingMode = params.mcpRoutingMode ?? 'auto'
+    this.mcpQuery = params.mcpQuery ?? ''
+    this.mcpConnectionIds = new Set(params.mcpConnectionIds ?? [])
+    this.maxAutoIterations =
+      this.mcpRoutingMode === 'on-demand'
+        ? Math.max(3, params.maxAutoIterations)
+        : Math.max(1, params.maxAutoIterations)
     this.receivedMessages = params.messages
     this.promptGenerator = params.promptGenerator
     this.mcpManager = params.mcpManager
@@ -82,6 +95,13 @@ export class ResponseGenerator {
         tool,
       ]),
     )
+    if (
+      this.enableTools &&
+      this.mcpManager &&
+      this.mcpRoutingMode === 'on-demand'
+    ) {
+      this.localTools.set('search_mcp_tools', this.createMcpToolSearchTool())
+    }
   }
 
   public subscribe(callback: (messages: ChatMessage[]) => void) {
@@ -175,7 +195,11 @@ export class ResponseGenerator {
 
     const availableMcpTools =
       this.enableTools && this.mcpManager
-        ? await this.mcpManager.listAvailableTools()
+        ? await this.mcpManager.listAvailableTools({
+            mode: this.mcpRoutingMode,
+            query: this.mcpQuery,
+            connectionIds: [...this.mcpConnectionIds],
+          })
         : []
 
     // Set tools to undefined when no tools are available since some providers
@@ -371,6 +395,47 @@ export class ResponseGenerator {
         status: ToolCallResponseStatus.Error,
         error: error instanceof Error ? error.message : String(error),
       } as const
+    }
+  }
+
+  private createMcpToolSearchTool(): LocalResponseTool {
+    return {
+      definition: {
+        type: 'function',
+        function: {
+          name: 'search_mcp_tools',
+          description:
+            'Search the locally cached MCP tool catalog. Use this before calling an MCP tool when tool routing is on demand.',
+          parameters: {
+            type: 'object',
+            properties: {
+              query: {
+                type: 'string',
+                description:
+                  'A concise description of the external capability needed.',
+              },
+            },
+            required: ['query'],
+          },
+        },
+      },
+      call: async (args) => {
+        const query =
+          typeof args.query === 'string' ? args.query : this.mcpQuery
+        const matches = this.mcpManager?.searchToolCatalog(query, 12) ?? []
+        for (const match of matches) {
+          this.mcpConnectionIds.add(match.connectionId)
+        }
+        return {
+          status: ToolCallResponseStatus.Success,
+          data: {
+            type: 'text',
+            text: matches.length
+              ? JSON.stringify(matches, null, 2)
+              : 'No reviewed MCP tools matched this query.',
+          },
+        }
+      },
     }
   }
 

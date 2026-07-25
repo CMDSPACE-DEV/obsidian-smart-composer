@@ -1,5 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
-import { $nodesOfType, LexicalEditor, SerializedEditorState } from 'lexical'
+import {
+  $getRoot,
+  $nodesOfType,
+  LexicalEditor,
+  SerializedEditorState,
+} from 'lexical'
 import { ArrowUp, LibraryBig, ListPlus, WandSparkles } from 'lucide-react'
 import {
   forwardRef,
@@ -12,6 +17,7 @@ import {
 } from 'react'
 
 import { useApp } from '../../../contexts/app-context'
+import { usePlugin } from '../../../contexts/plugin-context'
 import { useSettings } from '../../../contexts/settings-context'
 import { getProviderCapabilities } from '../../../core/llm/providerCapabilities'
 import {
@@ -43,6 +49,7 @@ import { MentionNode } from './plugins/mention/MentionNode'
 import { NodeMutations } from './plugins/on-mutation/OnMutationPlugin'
 import { ReasoningEffortSelect } from './ReasoningEffortSelect'
 import { ToolsControl } from './ToolsControl'
+import { editorStateToPlainText } from './utils/editor-state-to-plain-text'
 
 export type ChatUserInputRef = {
   focus: () => void
@@ -82,6 +89,7 @@ const ChatUserInput = forwardRef<ChatUserInputRef, ChatUserInputProps>(
     ref,
   ) => {
     const app = useApp()
+    const plugin = usePlugin()
     const { settings } = useSettings()
     const selectedModel = settings.chatModels.find(
       (model) => model.id === settings.chatModelId,
@@ -228,6 +236,19 @@ const ChatUserInput = forwardRef<ChatUserInputRef, ChatUserInputProps>(
     const handleSubmit = (targetMode: ComposerMode = composerMode) => {
       const content = editorRef.current?.getEditorState()?.toJSON()
       if (!content) return
+      const command = editorStateToPlainText(content).trim().toLowerCase()
+      if (
+        targetMode === 'chat' &&
+        (command === '/tools' || command === '/connections')
+      ) {
+        void import('../../modals/McpSectionModal').then(
+          ({ McpSectionModal }) => {
+            new McpSectionModal(app, plugin).open()
+          },
+        )
+        editorRef.current?.update(() => $getRoot().clear())
+        return
+      }
 
       const submission = getComposerSubmission(targetMode)
       onSubmit(content, submission.useVaultSearch, submission.mode)
@@ -294,6 +315,7 @@ const ChatUserInput = forwardRef<ChatUserInputRef, ChatUserInputProps>(
           onMentionNodeMutation={handleMentionNodeMutation}
           onCreateImageMentionables={handleCreateImageMentionables}
           autoFocus={autoFocus}
+          includeMcpConnections
           plugins={{
             onEnter: {
               onVaultChat: () => {

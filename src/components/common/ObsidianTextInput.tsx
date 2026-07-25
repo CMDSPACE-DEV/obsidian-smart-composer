@@ -7,7 +7,7 @@ type ObsidianTextInputProps = {
   value: string
   placeholder?: string
   onChange: (value: string) => void
-  type?: 'text' | 'number'
+  type?: 'text' | 'number' | 'password'
 }
 
 export function ObsidianTextInput({

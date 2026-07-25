@@ -4,22 +4,35 @@ import {
   ChevronUp,
   CircleMinus,
   Edit,
+  KeyRound,
   Loader2,
+  LogOut,
+  RefreshCw,
+  ShieldCheck,
   Trash2,
+  TriangleAlert,
   X,
 } from 'lucide-react'
-import { App } from 'obsidian'
+import { App, Notice } from 'obsidian'
 import { useCallback, useEffect, useState } from 'react'
 
 import { useSettings } from '../../../contexts/settings-context'
-import { McpManager } from '../../../core/mcp/mcpManager'
-import SmartComposerPlugin from '../../../main'
+import type { McpManager } from '../../../core/mcp/mcpManager'
 import {
+  McpSecretStore,
+  clearUnusedMcpConnectionSecrets,
+} from '../../../core/mcp/McpSecretStore'
+import SmartComposerPlugin from '../../../main'
+import type {
+  McpRoutingMode,
   McpServerState,
-  McpServerStatus,
   McpTool,
+  McpToolRisk,
 } from '../../../types/mcp.types'
+import { McpServerStatus } from '../../../types/mcp.types'
 import { ObsidianButton } from '../../common/ObsidianButton'
+import { ObsidianDropdown } from '../../common/ObsidianDropdown'
+import { ObsidianSetting } from '../../common/ObsidianSetting'
 import { ObsidianToggle } from '../../common/ObsidianToggle'
 import { ConfirmModal } from '../../modals/ConfirmModal'
 import {
@@ -33,76 +46,96 @@ type McpSectionProps = {
 }
 
 export function McpSection({ app, plugin }: McpSectionProps) {
-  const [mcpManager, setMcpManager] = useState<McpManager | null>(null)
-  const [mcpServers, setMcpServers] = useState<McpServerState[]>([])
+  const { settings, setSettings } = useSettings()
+  const [manager, setManager] = useState<McpManager | null>(null)
+  const [connections, setConnections] = useState<McpServerState[]>([])
 
   useEffect(() => {
-    const initMCPManager = async () => {
-      const mcpManager = await plugin.getMcpManager()
-      setMcpManager(mcpManager)
-      setMcpServers(mcpManager.getServers())
-    }
-    initMCPManager()
+    void plugin.getMcpManager().then((loaded) => {
+      setManager(loaded)
+      setConnections(loaded.getServers())
+    })
   }, [plugin])
 
   useEffect(() => {
-    if (mcpManager) {
-      const unsubscribe = mcpManager.subscribeServersChange((servers) => {
-        setMcpServers(servers)
-      })
-      return () => {
-        unsubscribe()
-      }
-    }
-  }, [mcpManager])
+    if (!manager) return
+    return manager.subscribeServersChange(setConnections)
+  }, [manager])
 
   return (
     <div className="smtcmp-settings-section">
-      <div className="smtcmp-settings-header">MCP (Model Context Pool)</div>
-
+      <div className="smtcmp-settings-header">MCP connections</div>
       <div className="smtcmp-settings-desc smtcmp-settings-callout">
-        <strong>Warning:</strong> When using tools, the tool response is passed
-        to the language model (LLM). If the tool result contains a large amount
-        of content, this can significantly increase LLM usage and associated
-        costs. Please be mindful when enabling or using tools that may return
-        long outputs.
+        Connect external apps and tools by URL. Tool schemas must be reviewed
+        before they are exposed to the model. Results are sent to the current
+        chat model, so large outputs can increase usage.
       </div>
 
-      {mcpManager?.disabled ? (
+      <ObsidianSetting
+        name="Tool routing"
+        desc="Auto selects a small relevant set. On demand exposes tools only after @Connection or local search."
+      >
+        <ObsidianDropdown
+          value={settings.mcp.routingMode}
+          options={{
+            auto: 'Auto',
+            always: 'Always include reviewed tools',
+            'on-demand': 'On demand',
+            off: 'Off',
+          }}
+          onChange={(value) =>
+            void setSettings({
+              ...settings,
+              mcp: {
+                ...settings.mcp,
+                routingMode: value as McpRoutingMode,
+              },
+            })
+          }
+        />
+      </ObsidianSetting>
+
+      {!manager ? (
         <div className="smtcmp-settings-sub-header-container">
           <div className="smtcmp-settings-sub-header">
-            MCP is not supported on mobile devices
+            Loading MCP connections...
+          </div>
+        </div>
+      ) : manager.disabled ? (
+        <div className="smtcmp-settings-sub-header-container">
+          <div className="smtcmp-settings-sub-header">
+            MCP connections are available on desktop only.
           </div>
         </div>
       ) : (
         <>
           <div className="smtcmp-settings-sub-header-container">
-            <div className="smtcmp-settings-sub-header">MCP Servers</div>
+            <div className="smtcmp-settings-sub-header">Connections</div>
             <ObsidianButton
-              text="Add MCP Server"
+              text="Add connection"
               onClick={() => new AddMcpServerModal(app, plugin).open()}
             />
           </div>
-
           <div className="smtcmp-mcp-servers-container">
             <div className="smtcmp-mcp-servers-header">
-              <div>Server</div>
+              <div>Connection</div>
               <div>Status</div>
               <div>Enabled</div>
               <div>Actions</div>
             </div>
-            {mcpServers.length > 0 ? (
-              mcpServers.map((server) => (
-                <McpServerComponent
-                  key={server.name}
-                  server={server}
+            {connections.length ? (
+              connections.map((connection) => (
+                <McpConnectionRow
+                  key={connection.config.id}
                   app={app}
                   plugin={plugin}
+                  manager={manager}
+                  server={connection}
                 />
               ))
             ) : (
               <div className="smtcmp-mcp-servers-empty">
-                No MCP servers found
+                No MCP connections yet
               </div>
             )}
           </div>
@@ -112,139 +145,276 @@ export function McpSection({ app, plugin }: McpSectionProps) {
   )
 }
 
-function McpServerComponent({
+function McpConnectionRow({
   server,
   app,
   plugin,
+  manager,
 }: {
   server: McpServerState
   app: App
   plugin: SmartComposerPlugin
+  manager: McpManager
 }) {
   const { settings, setSettings } = useSettings()
-  const [isOpen, setIsOpen] = useState(false)
+  const [open, setOpen] = useState(
+    server.status === McpServerStatus.ReviewRequired ||
+      server.status === McpServerStatus.Error,
+  )
+  const [busy, setBusy] = useState(false)
 
-  const handleEdit = useCallback(() => {
-    new EditMcpServerModal(app, plugin, server.name).open()
-  }, [server.name, app, plugin])
+  const updateEnabled = useCallback(
+    (enabled: boolean) =>
+      void setSettings({
+        ...settings,
+        mcp: {
+          ...settings.mcp,
+          connections: settings.mcp.connections.map((connection) =>
+            connection.id === server.config.id
+              ? { ...connection, enabled }
+              : connection,
+          ),
+        },
+      }),
+    [server.config.id, setSettings, settings],
+  )
 
-  const handleDelete = useCallback(() => {
-    const message = `Are you sure you want to delete MCP server "${server.name}"?`
+  const run = async (operation: () => Promise<unknown>) => {
+    setBusy(true)
+    try {
+      await operation()
+      setOpen(true)
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleDelete = () => {
     new ConfirmModal(app, {
-      title: 'Delete MCP Server',
-      message: message,
+      title: 'Delete MCP connection',
+      message: `Delete "${server.config.name}"? Stored credentials will no longer be used.`,
       ctaText: 'Delete',
       onConfirm: async () => {
         await setSettings({
           ...settings,
           mcp: {
             ...settings.mcp,
-            servers: settings.mcp.servers.filter((s) => s.id !== server.name),
+            connections: settings.mcp.connections.filter(
+              (connection) => connection.id !== server.config.id,
+            ),
           },
         })
+        clearUnusedMcpConnectionSecrets(new McpSecretStore(app), server.config)
       },
     }).open()
-  }, [server.name, settings, setSettings, app])
+  }
 
-  const handleToggleEnabled = useCallback(
-    (enabled: boolean) => {
-      setSettings({
-        ...settings,
-        mcp: {
-          ...settings.mcp,
-          servers: settings.mcp.servers.map((s) =>
-            s.id === server.name ? { ...s, enabled } : s,
-          ),
-        },
-      })
-    },
-    [settings, setSettings, server.name],
-  )
+  const handleDisconnect = () => {
+    const clearCredentials = server.config.auth.mode !== 'none'
+    if (!clearCredentials) {
+      void run(() => manager.disconnectConnection(server.config.id))
+      return
+    }
+    new ConfirmModal(app, {
+      title: 'Disconnect MCP connection',
+      message: `Disconnect "${server.config.name}" and remove its stored session credentials from this device?`,
+      ctaText: 'Disconnect',
+      onConfirm: () =>
+        run(() =>
+          manager.disconnectConnection(server.config.id, {
+            clearCredentials: true,
+          }),
+        ),
+    }).open()
+  }
 
   return (
     <div className="smtcmp-mcp-server">
       <div className="smtcmp-mcp-server-row">
-        <div className="smtcmp-mcp-server-name">{server.name}</div>
+        <div>
+          <div className="smtcmp-mcp-server-name">{server.config.name}</div>
+          <div className="smtcmp-mcp-tool-description">
+            {server.config.transport.type === 'streamable-http'
+              ? 'Remote URL'
+              : 'Local command'}
+          </div>
+        </div>
         <div className="smtcmp-mcp-server-status">
           <McpServerStatusBadge status={server.status} />
         </div>
         <div className="smtcmp-mcp-server-toggle">
           <ObsidianToggle
             value={server.config.enabled}
-            onChange={handleToggleEnabled}
+            onChange={updateEnabled}
           />
         </div>
         <div className="smtcmp-mcp-server-actions">
+          {server.status === McpServerStatus.AuthenticationRequired && (
+            <button
+              className="clickable-icon"
+              aria-label={
+                server.config.auth.mode === 'automatic' ||
+                server.config.auth.mode === 'oauth-client'
+                  ? 'Authenticate'
+                  : 'Edit credentials'
+              }
+              disabled={busy}
+              onClick={() => {
+                if (
+                  server.config.auth.mode === 'automatic' ||
+                  server.config.auth.mode === 'oauth-client'
+                ) {
+                  void run(() => manager.connectAndAuthorize(server.config.id))
+                  return
+                }
+                new EditMcpServerModal(app, plugin, server.config.id).open()
+              }}
+            >
+              <KeyRound size={16} />
+            </button>
+          )}
           <button
-            onClick={handleEdit}
             className="clickable-icon"
-            aria-label="Edit"
+            aria-label="Connect and scan tools"
+            disabled={busy || !server.config.enabled}
+            onClick={() =>
+              void run(() => manager.scanConnection(server.config.id))
+            }
+          >
+            <RefreshCw size={16} className={busy ? 'spinner' : ''} />
+          </button>
+          {(server.status === McpServerStatus.Connected ||
+            server.status === McpServerStatus.ReviewRequired) && (
+            <button
+              className="clickable-icon"
+              aria-label="Disconnect"
+              disabled={busy}
+              onClick={handleDisconnect}
+            >
+              <LogOut size={16} />
+            </button>
+          )}
+          <button
+            className="clickable-icon"
+            aria-label="Edit connection"
+            onClick={() =>
+              new EditMcpServerModal(app, plugin, server.config.id).open()
+            }
           >
             <Edit size={16} />
           </button>
           <button
-            onClick={handleDelete}
             className="clickable-icon"
-            aria-label="Delete"
+            aria-label="Delete connection"
+            onClick={handleDelete}
           >
             <Trash2 size={16} />
           </button>
           <button
-            onClick={() => setIsOpen(!isOpen)}
             className="clickable-icon"
-            aria-label={isOpen ? 'Collapse' : 'Expand'}
+            aria-label={open ? 'Collapse' : 'Expand'}
+            onClick={() => setOpen((value) => !value)}
           >
-            {isOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </button>
         </div>
       </div>
-      {isOpen && <ExpandedServerInfo server={server} />}
+      {open && (
+        <ExpandedConnection
+          server={server}
+          manager={manager}
+          busy={busy}
+          run={run}
+        />
+      )}
     </div>
   )
 }
 
-function ExpandedServerInfo({ server }: { server: McpServerState }) {
-  if (
-    server.status === McpServerStatus.Disconnected ||
-    server.status === McpServerStatus.Connecting
-  ) {
-    return null
+function ExpandedConnection({
+  server,
+  manager,
+  busy,
+  run,
+}: {
+  server: McpServerState
+  manager: McpManager
+  busy: boolean
+  run: (operation: () => Promise<unknown>) => Promise<void>
+}) {
+  if (server.status === McpServerStatus.Error) {
+    return (
+      <div className="smtcmp-server-expanded-info">
+        <div className="smtcmp-server-expanded-info-header">Error</div>
+        <div className="smtcmp-server-error-message">
+          {server.error.message}
+        </div>
+      </div>
+    )
   }
-
+  if (
+    server.status !== McpServerStatus.Connected &&
+    server.status !== McpServerStatus.ReviewRequired
+  ) {
+    return (
+      <div className="smtcmp-server-expanded-info">
+        Connect and scan to inspect this connection&apos;s tools.
+      </div>
+    )
+  }
   return (
     <div className="smtcmp-server-expanded-info">
-      {server.status === McpServerStatus.Connected && (
-        <div>
-          <div className="smtcmp-server-expanded-info-header">Tools</div>
-          <div className="smtcmp-server-tools-container">
-            {server.tools.map((tool) => (
-              <McpToolComponent key={tool.name} tool={tool} server={server} />
-            ))}
-          </div>
+      <div className="smtcmp-server-expanded-info-header">
+        Tools ({server.tools.length})
+      </div>
+      {server.status === McpServerStatus.ReviewRequired && (
+        <div className="smtcmp-settings-callout">
+          Tool schemas are new or changed. Review the list, then approve the
+          current snapshot.
+          <ObsidianButton
+            text={busy ? 'Approving...' : 'Approve current schemas'}
+            cta
+            disabled={busy}
+            onClick={() =>
+              void run(() => manager.approveToolSnapshot(server.config.id))
+            }
+          />
         </div>
       )}
-      {server.status === McpServerStatus.Error && (
-        <div>
-          <div className="smtcmp-server-expanded-info-header">Error</div>
-          <div className="smtcmp-server-error-message">
-            {server.error.message}
-          </div>
-        </div>
-      )}
+      <div className="smtcmp-server-tools-container">
+        {server.tools.map((tool) => (
+          <McpToolRow key={tool.name} tool={tool} server={server} />
+        ))}
+      </div>
     </div>
   )
 }
 
 function McpServerStatusBadge({ status }: { status: McpServerStatus }) {
-  const statusConfig = {
+  const config: Record<
+    McpServerStatus,
+    { icon: React.ReactNode; label: string; statusClass: string }
+  > = {
     [McpServerStatus.Connected]: {
       icon: <Check size={16} />,
-      label: 'Connected',
+      label: 'Ready',
       statusClass: 'smtcmp-mcp-server-status-badge--connected',
     },
     [McpServerStatus.Connecting]: {
       icon: <Loader2 size={16} className="spinner" />,
-      label: 'Connecting...',
+      label: 'Connecting',
+      statusClass: 'smtcmp-mcp-server-status-badge--connecting',
+    },
+    [McpServerStatus.AuthenticationRequired]: {
+      icon: <KeyRound size={15} />,
+      label: 'Sign in',
+      statusClass: 'smtcmp-mcp-server-status-badge--connecting',
+    },
+    [McpServerStatus.ReviewRequired]: {
+      icon: <ShieldCheck size={15} />,
+      label: 'Review tools',
       statusClass: 'smtcmp-mcp-server-status-badge--connecting',
     },
     [McpServerStatus.Error]: {
@@ -254,78 +424,62 @@ function McpServerStatusBadge({ status }: { status: McpServerStatus }) {
     },
     [McpServerStatus.Disconnected]: {
       icon: <CircleMinus size={14} />,
-      label: 'Disconnected',
+      label: 'Not scanned',
       statusClass: 'smtcmp-mcp-server-status-badge--disconnected',
     },
   }
-
-  const { icon, label, statusClass } = statusConfig[status]
-
+  const selected = config[status]
   return (
-    <div className={`smtcmp-mcp-server-status-badge ${statusClass}`}>
-      {icon}
-      <div className="smtcmp-mcp-server-status-badge-label">{label}</div>
+    <div className={`smtcmp-mcp-server-status-badge ${selected.statusClass}`}>
+      {selected.icon}
+      <div className="smtcmp-mcp-server-status-badge-label">
+        {selected.label}
+      </div>
     </div>
   )
 }
 
-function McpToolComponent({
+function McpToolRow({
   tool,
   server,
 }: {
   tool: McpTool
-  server: McpServerState
+  server: Extract<
+    McpServerState,
+    {
+      status: McpServerStatus.Connected | McpServerStatus.ReviewRequired
+    }
+  >
 }) {
   const { settings, setSettings } = useSettings()
-
-  const toolOption = server.config.toolOptions[tool.name]
-  const disabled = toolOption?.disabled ?? false
-  const allowAutoExecution = toolOption?.allowAutoExecution ?? false
-
-  const handleToggleEnabled = (enabled: boolean) => {
-    const toolOptions = server.config.toolOptions
-    toolOptions[tool.name] = {
-      disabled: !enabled,
-      allowAutoExecution: allowAutoExecution,
-    }
-    setSettings({
+  const option = server.config.toolOptions[tool.name] ?? {}
+  const updateOption = (values: {
+    disabled?: boolean
+    allowAutoExecution?: boolean
+    risk?: McpToolRisk
+  }) => {
+    void setSettings({
       ...settings,
       mcp: {
         ...settings.mcp,
-        servers: settings.mcp.servers.map((s) =>
-          s.id === server.name
+        connections: settings.mcp.connections.map((connection) =>
+          connection.id === server.config.id
             ? {
-                ...s,
-                toolOptions: toolOptions,
+                ...connection,
+                toolOptions: {
+                  ...connection.toolOptions,
+                  [tool.name]: {
+                    ...connection.toolOptions[tool.name],
+                    ...values,
+                  },
+                },
               }
-            : s,
+            : connection,
         ),
       },
     })
   }
-
-  const handleToggleAutoExecution = (autoExecution: boolean) => {
-    const toolOptions = { ...server.config.toolOptions }
-    toolOptions[tool.name] = {
-      ...toolOptions[tool.name],
-      allowAutoExecution: autoExecution,
-    }
-    setSettings({
-      ...settings,
-      mcp: {
-        ...settings.mcp,
-        servers: settings.mcp.servers.map((s) =>
-          s.id === server.name
-            ? {
-                ...s,
-                toolOptions: toolOptions,
-              }
-            : s,
-        ),
-      },
-    })
-  }
-
+  const risk = option.risk ?? 'unknown'
   return (
     <div className="smtcmp-mcp-tool">
       <div className="smtcmp-mcp-tool-info">
@@ -333,17 +487,37 @@ function McpToolComponent({
         <div className="smtcmp-mcp-tool-description">{tool.description}</div>
       </div>
       <div className="smtcmp-mcp-tool-toggle">
-        <span className="smtcmp-mcp-tool-toggle-label">Enabled</span>
-        <ObsidianToggle
-          value={!disabled}
-          onChange={(value) => handleToggleEnabled(value)}
+        <span className="smtcmp-mcp-tool-toggle-label">Risk</span>
+        <ObsidianDropdown
+          value={risk}
+          options={{
+            read: 'Read',
+            write: 'Write',
+            delete: 'Delete',
+            unknown: 'Unknown',
+          }}
+          onChange={(value) => updateOption({ risk: value as McpToolRisk })}
         />
       </div>
       <div className="smtcmp-mcp-tool-toggle">
-        <span className="smtcmp-mcp-tool-toggle-label">Auto-execute</span>
+        <span className="smtcmp-mcp-tool-toggle-label">Enabled</span>
         <ObsidianToggle
-          value={allowAutoExecution}
-          onChange={(value) => handleToggleAutoExecution(value)}
+          value={!option.disabled}
+          onChange={(enabled) => updateOption({ disabled: !enabled })}
+        />
+      </div>
+      <div className="smtcmp-mcp-tool-toggle">
+        <span className="smtcmp-mcp-tool-toggle-label">
+          {risk === 'delete' && <TriangleAlert size={13} />} Auto
+        </span>
+        <ObsidianToggle
+          value={
+            risk === 'delete' ? false : (option.allowAutoExecution ?? false)
+          }
+          disabled={risk === 'delete'}
+          onChange={(allowAutoExecution) =>
+            updateOption({ allowAutoExecution })
+          }
         />
       </div>
     </div>

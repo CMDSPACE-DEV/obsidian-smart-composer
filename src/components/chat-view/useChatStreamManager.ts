@@ -11,7 +11,7 @@ import {
   LLMBaseUrlNotSetException,
   LLMModelNotFoundException,
 } from '../../core/llm/exception'
-import { ChatMessage } from '../../types/chat'
+import { ChatMessage, ChatUserMessage } from '../../types/chat'
 import { PromptGenerator } from '../../utils/chat/promptGenerator'
 import { ResponseGenerator } from '../../utils/chat/responseGenerator'
 import { hasVisibleResponseOutput } from '../../utils/chat/responseState'
@@ -112,9 +112,25 @@ export function useChatStreamManager({
         }
         const mcpManager =
           settings.chatOptions.enableTools &&
-          settings.mcp.servers.some((server) => server.enabled)
+          settings.mcp.routingMode !== 'off' &&
+          settings.mcp.connections.some((connection) => connection.enabled)
             ? await getMcpManager()
             : null
+        const latestUserMessage = [...chatMessages]
+          .reverse()
+          .find((message) => message.role === 'user')
+        const mcpConnectionIds =
+          latestUserMessage?.role === 'user'
+            ? latestUserMessage.mentionables.flatMap((mentionable) =>
+                mentionable.type === 'connection'
+                  ? [mentionable.connectionId]
+                  : [],
+              )
+            : []
+        const mcpQuery =
+          latestUserMessage?.role === 'user'
+            ? getUserPromptText(latestUserMessage.promptContent)
+            : ''
         const responseGenerator = new ResponseGenerator({
           providerClient: chatModelClient.providerClient,
           model: chatModelClient.model,
@@ -124,6 +140,9 @@ export function useChatStreamManager({
           maxAutoIterations: settings.chatOptions.maxAutoIterations,
           promptGenerator,
           mcpManager,
+          mcpRoutingMode: settings.mcp.routingMode,
+          mcpQuery,
+          mcpConnectionIds,
           abortSignal: abortController.signal,
         })
 
@@ -193,4 +212,21 @@ export function useChatStreamManager({
     responsePhase,
     submitChatMutation,
   }
+}
+
+function getUserPromptText(content: ChatUserMessage['promptContent']): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .flatMap((part) =>
+      part &&
+      typeof part === 'object' &&
+      'type' in part &&
+      part.type === 'text' &&
+      'text' in part &&
+      typeof part.text === 'string'
+        ? [part.text]
+        : [],
+    )
+    .join('\n')
 }

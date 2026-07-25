@@ -13,8 +13,12 @@ import { LexicalEditor, SerializedEditorState } from 'lexical'
 import { RefObject, useCallback, useEffect } from 'react'
 
 import { useApp } from '../../../contexts/app-context'
+import { useSettings } from '../../../contexts/settings-context'
 import { MentionableImage } from '../../../types/mentionable'
-import { fuzzySearch } from '../../../utils/fuzzy-search'
+import {
+  fuzzySearch,
+  fuzzySearchWithConnections,
+} from '../../../utils/fuzzy-search'
 
 import DragDropPaste from './plugins/image/DragDropPastePlugin'
 import ImagePastePlugin from './plugins/image/ImagePastePlugin'
@@ -39,6 +43,7 @@ export type LexicalContentEditableProps = {
   onCreateImageMentionables?: (mentionables: MentionableImage[]) => void
   initialEditorState?: InitialEditorStateType
   autoFocus?: boolean
+  includeMcpConnections?: boolean
   plugins?: {
     onEnter?: {
       onVaultChat: () => void
@@ -59,9 +64,11 @@ export default function LexicalContentEditable({
   onCreateImageMentionables,
   initialEditorState,
   autoFocus = false,
+  includeMcpConnections = false,
   plugins,
 }: LexicalContentEditableProps) {
   const app = useApp()
+  const { settings } = useSettings()
 
   const initialConfig: InitialConfigType = {
     namespace: 'LexicalContentEditable',
@@ -77,8 +84,21 @@ export default function LexicalContentEditable({
   }
 
   const searchResultByQuery = useCallback(
-    (query: string) => fuzzySearch(app, query),
-    [app],
+    (query: string) =>
+      includeMcpConnections
+        ? fuzzySearchWithConnections(
+            app,
+            query,
+            settings.mcp.connections
+              .filter((connection) => connection.enabled)
+              .map((connection) => ({
+                type: 'connection' as const,
+                connectionId: connection.id,
+                name: connection.name,
+              })),
+          )
+        : fuzzySearch(app, query),
+    [app, includeMcpConnections, settings.mcp.connections],
   )
 
   /*

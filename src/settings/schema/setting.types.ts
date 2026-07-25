@@ -8,7 +8,10 @@ import {
 } from '../../constants'
 import { chatModelSchema } from '../../types/chat-model.types'
 import { embeddingModelSchema } from '../../types/embedding-model.types'
-import { mcpServerConfigSchema } from '../../types/mcp.types'
+import {
+  MCP_ROUTING_MODES,
+  mcpConnectionConfigSchema,
+} from '../../types/mcp.types'
 import { llmProviderSchema } from '../../types/provider.types'
 
 import { SETTINGS_SCHEMA_VERSION } from './migrations'
@@ -102,10 +105,12 @@ export const smartComposerSettingsSchema = z.object({
   // MCP configuration
   mcp: z
     .object({
-      servers: z.array(mcpServerConfigSchema).catch([]),
+      routingMode: z.enum(MCP_ROUTING_MODES).catch('auto'),
+      connections: z.array(mcpConnectionConfigSchema).catch([]),
     })
     .catch({
-      servers: [],
+      routingMode: 'auto',
+      connections: [],
     }),
 
   // Chat options

@@ -91,4 +91,71 @@ describe('ResponseGenerator local tools', () => {
       status: ToolCallResponseStatus.Error,
     })
   })
+
+  it('discovers on-demand MCP connections locally before exposing tools', async () => {
+    const listAvailableTools = jest.fn().mockResolvedValue([])
+    const searchToolCatalog = jest.fn().mockReturnValue([
+      {
+        connectionId: 'law-connection',
+        connectionName: 'Korean Law',
+        toolName: 'search_statutes',
+      },
+    ])
+    const providerClient = {
+      streamResponse: jest.fn().mockResolvedValue(
+        (async function* () {
+          yield { choices: [{ delta: { content: '' } }] }
+        })(),
+      ),
+    }
+    const promptGenerator = {
+      generateRequestMessages: jest.fn().mockResolvedValue([]),
+    }
+    const generator = new ResponseGenerator({
+      providerClient: providerClient as never,
+      model: {
+        id: 'gpt-5.6-sol (plan)',
+        model: 'gpt-5.6-sol',
+        providerId: 'openai-plan',
+        providerType: 'openai-plan',
+      },
+      messages: [],
+      conversationId: 'conversation',
+      enableTools: true,
+      maxAutoIterations: 1,
+      promptGenerator: promptGenerator as never,
+      mcpManager: {
+        listAvailableTools,
+        searchToolCatalog,
+        callTool: jest.fn(),
+      } as never,
+      mcpRoutingMode: 'on-demand',
+      mcpQuery: 'Find the relevant statute',
+    })
+    const callTool = (
+      generator as unknown as {
+        callTool: (request: ToolCallRequest) => Promise<unknown>
+        streamSingleResponse: () => Promise<unknown>
+      }
+    ).callTool.bind(generator)
+    const streamSingleResponse = (
+      generator as unknown as {
+        streamSingleResponse: () => Promise<unknown>
+      }
+    ).streamSingleResponse.bind(generator)
+
+    await callTool({
+      id: 'search-call',
+      name: 'search_mcp_tools',
+      arguments: '{"query":"Korean statute search"}',
+    })
+    await streamSingleResponse()
+
+    expect(searchToolCatalog).toHaveBeenCalledWith('Korean statute search', 12)
+    expect(listAvailableTools).toHaveBeenCalledWith({
+      mode: 'on-demand',
+      query: 'Find the relevant statute',
+      connectionIds: ['law-connection'],
+    })
+  })
 })

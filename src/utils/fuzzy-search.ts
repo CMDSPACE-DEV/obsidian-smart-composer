@@ -2,6 +2,7 @@ import fuzzysort from 'fuzzysort'
 import { App, TFile, TFolder } from 'obsidian'
 
 import {
+  MentionableConnection,
   MentionableFile,
   MentionableFolder,
   MentionableVault,
@@ -13,6 +14,7 @@ export type SearchableMentionable =
   | MentionableFile
   | MentionableFolder
   | MentionableVault
+  | MentionableConnection
 
 type VaultSearchItem = {
   type: 'vault'
@@ -185,6 +187,28 @@ export function fuzzySearch(app: App, query: string): SearchableMentionable[] {
   })
 
   return results.map((result) => searchItemToMentionable(result.obj))
+}
+
+export function fuzzySearchWithConnections(
+  app: App,
+  query: string,
+  connections: MentionableConnection[],
+): SearchableMentionable[] {
+  const vaultResults = fuzzySearch(app, query)
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const connectionResults = connections
+    .filter(
+      (connection) =>
+        !normalizedQuery ||
+        connection.name.toLocaleLowerCase().includes(normalizedQuery),
+    )
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  const visibleConnections = connectionResults.slice(0, 6)
+  return [
+    ...vaultResults.slice(0, 20 - visibleConnections.length),
+    ...visibleConnections,
+  ]
 }
 
 function searchItemToMentionable(item: SearchItem): SearchableMentionable {

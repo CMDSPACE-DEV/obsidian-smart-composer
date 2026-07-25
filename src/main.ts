@@ -7,6 +7,10 @@ import { CHAT_VIEW_TYPE } from './constants'
 import { ConversationRunManager } from './core/conversation/ConversationRunManager'
 import type { InlineEditController } from './core/inline/InlineEditController'
 import type { McpManager } from './core/mcp/mcpManager'
+import {
+  McpSecretStore,
+  migrateLegacyMcpSecrets,
+} from './core/mcp/McpSecretStore'
 import type { RAGEngine } from './core/rag/ragEngine'
 import { BackgroundTaskManager } from './core/tasks/BackgroundTaskManager'
 import { LazyBackgroundTaskAdapter } from './core/tasks/LazyBackgroundTaskAdapter'
@@ -60,6 +64,16 @@ export default class SmartComposerPlugin extends Plugin {
             () => this.settings,
             (settings) => this.setSettings(settings),
           )
+        }),
+      ),
+    )
+    this.register(
+      taskManager.registerAdapter(
+        new LazyBackgroundTaskAdapter('mcp-tool-call', async () => {
+          const { McpToolTaskAdapter } = await import(
+            './core/mcp/McpToolTaskAdapter'
+          )
+          return new McpToolTaskAdapter(this)
         }),
       ),
     )
@@ -234,7 +248,12 @@ export default class SmartComposerPlugin extends Plugin {
   }
 
   async loadSettings() {
-    this.settings = parseSmartComposerSettings(await this.loadData())
+    const parsedSettings = parseSmartComposerSettings(await this.loadData())
+    const secretMigration = migrateLegacyMcpSecrets(
+      parsedSettings,
+      new McpSecretStore(this.app),
+    )
+    this.settings = secretMigration.settings
     await this.saveData(this.settings) // Save updated settings
     this.settingsSaveQueue = new SettingsSaveQueue(this.settings)
   }
@@ -402,7 +421,9 @@ ${validationResult.error.issues.map((v) => v.message).join('\n')}`)
       this.mcpManagerInitPromise = (async () => {
         const { McpManager } = await import('./core/mcp/mcpManager')
         const manager = new McpManager({
+          app: this.app,
           settings: this.settings,
+          setSettings: (settings) => this.setSettings(settings),
           registerSettingsListener: (
             listener: (settings: SmartComposerSettings) => void,
           ) => this.addSettingsChangeListener(listener),

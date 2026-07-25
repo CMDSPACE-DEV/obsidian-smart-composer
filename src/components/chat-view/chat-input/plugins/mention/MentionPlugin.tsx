@@ -9,7 +9,7 @@
 
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
 import { $createTextNode, COMMAND_PRIORITY_NORMAL, TextNode } from 'lexical'
-import { useCallback, useMemo, useState } from 'react'
+import { Fragment, useCallback, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { Mentionable } from '../../../../../types/mentionable'
@@ -121,6 +121,11 @@ class MentionTypeaheadOption extends MenuOption {
       case 'vault':
         super('vault')
         this.name = 'Vault'
+        this.mentionable = result
+        break
+      case 'connection':
+        super(`connection:${result.connectionId}`)
+        this.name = result.name
         this.mentionable = result
         break
     }
@@ -252,21 +257,40 @@ export default function NewMentionsPlugin({
                 }}
               >
                 <ul>
-                  {options.map((option, i: number) => (
-                    <MentionsTypeaheadMenuItem
-                      index={i}
-                      isSelected={selectedIndex === i}
-                      onClick={() => {
-                        setHighlightedIndex(i)
-                        selectOptionAndCleanUp(option)
-                      }}
-                      onMouseEnter={() => {
-                        setHighlightedIndex(i)
-                      }}
-                      key={option.key}
-                      option={option}
-                    />
-                  ))}
+                  {options.map((option, i: number) => {
+                    const showConnectionHeading =
+                      option.mentionable.type === 'connection' &&
+                      options
+                        .slice(0, i)
+                        .every(
+                          (candidate) =>
+                            candidate.mentionable.type !== 'connection',
+                        )
+                    return (
+                      <Fragment key={option.key}>
+                        {showConnectionHeading && (
+                          <li
+                            className="smtcmp-mention-popover-section"
+                            role="presentation"
+                          >
+                            Apps and tools
+                          </li>
+                        )}
+                        <MentionsTypeaheadMenuItem
+                          index={i}
+                          isSelected={selectedIndex === i}
+                          onClick={() => {
+                            setHighlightedIndex(i)
+                            selectOptionAndCleanUp(option)
+                          }}
+                          onMouseEnter={() => {
+                            setHighlightedIndex(i)
+                          }}
+                          option={option}
+                        />
+                      </Fragment>
+                    )
+                  })}
                 </ul>
               </div>,
               anchorElementRef.current,

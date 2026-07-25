@@ -51,7 +51,8 @@ describe('parseSmartComposerSettings', () => {
       },
 
       mcp: {
-        servers: [],
+        routingMode: 'auto',
+        connections: [],
       },
 
       chatOptions: {
@@ -122,7 +123,7 @@ describe('parseSmartComposerSettings', () => {
     const result = parseSmartComposerSettings(input)
 
     expect(input).toEqual(before)
-    expect(result.version).toBe(20)
+    expect(result.version).toBe(21)
     expect(result.chatModelId).toBe('gpt-5.6-sol (plan)')
     expect(result.inlineEdit.modelId).toBe('claude-sonnet-5 (plan)')
     expect(result.providers).toEqual(input.providers)

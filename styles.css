@@ -1826,7 +1826,7 @@ button.smtcmp-chat-input-effort-select {
 
 .smtcmp-mcp-servers-header {
   display: grid;
-  grid-template-columns: 1fr 128px 64px 112px; /* Match columns with .smtcmp-mcp-server-row to ensure proper alignment */
+  grid-template-columns: 1fr 128px 64px 152px; /* Match columns with .smtcmp-mcp-server-row to ensure proper alignment */
   gap: var(--size-4-4);
   align-items: center;
   min-height: var(--size-4-10);
@@ -1865,7 +1865,7 @@ button.smtcmp-chat-input-effort-select {
 
 .smtcmp-mcp-server-row {
   display: grid;
-  grid-template-columns: 1fr 128px 64px 112px; /* Match columns with .smtcmp-mcp-servers-header to ensure proper alignment */
+  grid-template-columns: 1fr 128px 64px 152px; /* Match columns with .smtcmp-mcp-servers-header to ensure proper alignment */
   gap: var(--size-4-4);
   align-items: center;
   min-height: var(--size-4-10);
@@ -2758,6 +2758,48 @@ button.smtcmp-chat-input-effort-select {
   justify-content: flex-start;
   color: var(--ach-muted);
   font-size: 11px;
+}
+
+.smtcmp-shell .smtcmp-tools-control-popover__modes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+}
+
+.smtcmp-shell .smtcmp-mcp-task-result {
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+  border: 1px solid var(--smtcmp-border);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--smtcmp-surface) 86%, transparent);
+  color: var(--smtcmp-text);
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.smtcmp-shell .smtcmp-tools-control-popover__modes > button {
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--smtcmp-border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--smtcmp-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.smtcmp-shell
+  .smtcmp-tools-control-popover__modes
+  > button[data-active='true'] {
+  border-color: var(--smtcmp-accent);
+  background: color-mix(in srgb, var(--smtcmp-accent) 12%, transparent);
+  color: var(--smtcmp-text);
 }
 
 @property --smtcmp-composer-orbit-angle {

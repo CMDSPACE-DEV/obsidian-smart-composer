@@ -20,11 +20,14 @@ export type AssistantToolMessageGroupItemProps = {
 
 export default function AssistantToolMessageGroupItem({
   messages,
-  contextMessages: _contextMessages,
+  contextMessages,
   conversationId,
   isStreaming,
   onToolMessageUpdate,
 }: AssistantToolMessageGroupItemProps) {
+  const originMessageId = [...contextMessages]
+    .reverse()
+    .find((message) => message.role === 'user')?.id
   return (
     <div className="smtcmp-assistant-tool-message-group">
       {messages.map((message) =>
@@ -50,6 +53,7 @@ export default function AssistantToolMessageGroupItem({
             <ToolMessage
               message={message}
               conversationId={conversationId}
+              originMessageId={originMessageId ?? message.id}
               onMessageUpdate={onToolMessageUpdate}
             />
           </div>

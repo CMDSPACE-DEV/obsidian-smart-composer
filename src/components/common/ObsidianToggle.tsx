@@ -6,9 +6,14 @@ import { useObsidianSetting } from './ObsidianSetting'
 type ObsidianToggleProps = {
   value: boolean
   onChange: (value: boolean) => void
+  disabled?: boolean
 }
 
-export function ObsidianToggle({ value, onChange }: ObsidianToggleProps) {
+export function ObsidianToggle({
+  value,
+  onChange,
+  disabled = false,
+}: ObsidianToggleProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const { setting } = useObsidianSetting()
   const [toggleComponent, setToggleComponent] =
@@ -48,7 +53,8 @@ export function ObsidianToggle({ value, onChange }: ObsidianToggleProps) {
   useEffect(() => {
     if (!toggleComponent) return
     toggleComponent.setValue(value)
-  }, [toggleComponent, value])
+    toggleComponent.setDisabled(disabled)
+  }, [disabled, toggleComponent, value])
 
   return <div ref={containerRef} style={{ display: 'contents' }} />
 }

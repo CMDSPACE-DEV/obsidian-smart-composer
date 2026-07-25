@@ -33,6 +33,7 @@ premature synthesis.
 | R-008 | Smart Composer 2.1 performance-refactor baseline, bundle budget, and compatibility gates | **Verified** | **Mandatory** | [R-008 report](R-008-performance-refactor-baseline-and-gates.md) |
 | R-009 | Parallel inline-edit note/folder reference mentions (`@vault` deferred) | **Verified + Implemented in 2.2.0** | **Mandatory** | [R-009 report](R-009-inline-edit-vault-references.md) |
 | R-010 | Beginner-safe MCP connection, authentication, tool discovery, and chat invocation UX | **Verified** | **Mandatory** | [R-010 report](R-010-mcp-connection-authentication-and-invocation-ux.md) |
+| R-011 | Smart Composer 2.3 MCP implementation and automated verification | **Verified + Implemented in 2.3.0** | **Mandatory** | [R-011 report](R-011-mcp-2.3-implementation-verification.md) |
 
 ## Mandatory Synthesis Rule
 

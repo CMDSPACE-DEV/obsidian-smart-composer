@@ -1,6 +1,6 @@
 import { SerializedChatMessage } from '../../../types/chat'
 
-export const CHAT_SCHEMA_VERSION = 2
+export const CHAT_SCHEMA_VERSION = 3
 
 export type SerializedQueuedPrompt = {
   id: string

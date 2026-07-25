@@ -1,10 +1,12 @@
 import clsx from 'clsx'
 import { Check, ChevronDown, ChevronRight, Loader2, X } from 'lucide-react'
-import { memo, useCallback, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 
+import { useBackgroundTasks } from '../../contexts/background-tasks-context'
 import { useMcp } from '../../contexts/mcp-context'
 import { useSettings } from '../../contexts/settings-context'
 import { InvalidToolNameException } from '../../core/mcp/exception'
+import type { McpToolInfo } from '../../core/mcp/mcpManager'
 import { parseToolName } from '../../core/mcp/tool-name-utils'
 import { ChatToolMessage } from '../../types/chat'
 import {
@@ -51,10 +53,12 @@ export const getToolMessageContent = (message: ChatToolMessage): string => {
 const ToolMessage = memo(function ToolMessage({
   message,
   conversationId,
+  originMessageId,
   onMessageUpdate,
 }: {
   message: ChatToolMessage
   conversationId: string
+  originMessageId: string
   onMessageUpdate: (message: ChatToolMessage) => void
 }) {
   return (
@@ -68,6 +72,7 @@ const ToolMessage = memo(function ToolMessage({
             request={toolCall.request}
             response={toolCall.response}
             conversationId={conversationId}
+            originMessageId={originMessageId}
             onResponseUpdate={(response) =>
               onMessageUpdate({
                 ...message,
@@ -87,19 +92,23 @@ function ToolCallItem({
   request,
   response,
   conversationId,
+  originMessageId,
   onResponseUpdate,
 }: {
   request: ToolCallRequest
   response: ToolCallResponse
   conversationId: string
+  originMessageId: string
   onResponseUpdate: (response: ToolCallResponse) => void
 }) {
   const {
     handleToolCall,
     handleAllowForConversation,
     handleAllowAutoExecution,
+    handleBackgroundToolCall,
     handleReject,
     handleAbort,
+    toolInfo,
   } = useToolCall(request, conversationId, onResponseUpdate)
 
   const [isOpen, setIsOpen] = useState(
@@ -144,8 +153,13 @@ function ToolCallItem({
           <span>{STATUS_LABELS[response.status] || 'Unknown'}</span>
           <span>&nbsp;&nbsp;</span>
           <span className="smtcmp-toolcall-header-tool-name">
-            {serverName ? `${serverName}:${toolName}` : toolName}
+            {serverName
+              ? `${toolInfo?.connection.name ?? serverName}:${toolName}`
+              : toolName}
           </span>
+          {toolInfo && (
+            <span className="smtcmp-toolcall-risk">{toolInfo.risk}</span>
+          )}
         </div>
         <div className="smtcmp-toolcall-header-icon smtcmp-toolcall-header-icon--status">
           <StatusIcon status={response.status} />
@@ -183,19 +197,32 @@ function ToolCallItem({
                   setIsOpen(false)
                 }}
                 menuOptions={[
-                  {
-                    label: 'Always allow this tool',
-                    onClick: () => {
-                      handleToolCall()
-                      handleAllowAutoExecution()
-                      setIsOpen(false)
-                    },
-                  },
+                  ...(toolInfo?.risk !== 'delete'
+                    ? [
+                        {
+                          label: 'Always allow this tool',
+                          onClick: () => {
+                            handleToolCall()
+                            handleAllowAutoExecution()
+                            setIsOpen(false)
+                          },
+                        },
+                      ]
+                    : []),
                   {
                     label: 'Allow for this chat',
                     onClick: () => {
                       handleToolCall()
                       handleAllowForConversation()
+                      setIsOpen(false)
+                    },
+                  },
+                  {
+                    label: toolInfo?.supportsServerTask
+                      ? 'Run in background (resumable)'
+                      : 'Run in background',
+                    onClick: () => {
+                      handleBackgroundToolCall(originMessageId)
                       setIsOpen(false)
                     },
                   },
@@ -229,6 +256,18 @@ function useToolCall(
 ) {
   const { settings, setSettings } = useSettings()
   const { getMcpManager } = useMcp()
+  const { manager: backgroundTaskManager } = useBackgroundTasks()
+  const [toolInfo, setToolInfo] = useState<McpToolInfo | null>(null)
+
+  useEffect(() => {
+    let active = true
+    void getMcpManager().then((manager) => {
+      if (active) setToolInfo(manager.getToolInfo(request.name))
+    })
+    return () => {
+      active = false
+    }
+  }, [getMcpManager, request.name])
 
   const handleToolCall = useCallback(async () => {
     const mcpManager = await getMcpManager()
@@ -249,12 +288,17 @@ function useToolCall(
   }, [request, conversationId, getMcpManager])
 
   const handleAllowAutoExecution = useCallback(async () => {
-    const { serverName, toolName } = parseToolName(request.name)
-    const server = settings.mcp.servers.find((s) => s.id === serverName)
-    if (!server) {
-      throw new Error(`Server ${serverName} not found`)
+    const mcpManager = await getMcpManager()
+    const info = mcpManager.getToolInfo(request.name)
+    if (!info) {
+      throw new Error('MCP tool is not available.')
     }
-    const toolOptions = { ...server.toolOptions }
+    if (info.risk === 'delete') {
+      throw new Error('Delete tools cannot be auto-executed.')
+    }
+    const toolName = info.tool.name
+    const connection = info.connection
+    const toolOptions = { ...connection.toolOptions }
     if (!toolOptions[toolName]) {
       // If the tool is not in the toolOptions, add it with default values
       toolOptions[toolName] = {
@@ -271,17 +315,80 @@ function useToolCall(
       ...settings,
       mcp: {
         ...settings.mcp,
-        servers: settings.mcp.servers.map((s) =>
-          s.id === server.id
+        connections: settings.mcp.connections.map((candidate) =>
+          candidate.id === connection.id
             ? {
-                ...s,
+                ...candidate,
                 toolOptions: toolOptions,
               }
-            : s,
+            : candidate,
         ),
       },
     })
-  }, [request, settings, setSettings])
+  }, [getMcpManager, request.name, settings, setSettings])
+
+  const handleBackgroundToolCall = useCallback(
+    async (originMessageId: string) => {
+      if (!backgroundTaskManager) {
+        onResponseUpdate({
+          status: ToolCallResponseStatus.Error,
+          error: 'Background task manager is unavailable.',
+        })
+        return
+      }
+      try {
+        const mcpManager = await getMcpManager()
+        const info = mcpManager.getToolInfo(request.name)
+        if (!info) {
+          onResponseUpdate({
+            status: ToolCallResponseStatus.Error,
+            error: 'MCP tool is unavailable.',
+          })
+          return
+        }
+        let args: Record<string, unknown> = {}
+        if (request.arguments) {
+          args = JSON.parse(request.arguments) as Record<string, unknown>
+        }
+        const task = await backgroundTaskManager.enqueue({
+          conversationId,
+          originMessageId,
+          kind: 'mcp-tool-call',
+          payload: {
+            connectionId: info.connection.id,
+            connectionName: info.connection.name,
+            toolName: info.tool.name,
+            arguments: args,
+            displayName: `${info.connection.name}: ${info.tool.name}`,
+            execution: info.supportsServerTask
+              ? 'server-task'
+              : 'client-wrapper',
+            resumable: false,
+          },
+        })
+        onResponseUpdate({
+          status: ToolCallResponseStatus.Success,
+          data: {
+            type: 'text',
+            text: `Background MCP task queued (${task.id}). Its result is anchored to the originating message and has not been used in this answer.`,
+          },
+        })
+      } catch (error) {
+        onResponseUpdate({
+          status: ToolCallResponseStatus.Error,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    },
+    [
+      backgroundTaskManager,
+      conversationId,
+      getMcpManager,
+      onResponseUpdate,
+      request.arguments,
+      request.name,
+    ],
+  )
 
   const handleReject = useCallback(async () => {
     onResponseUpdate({
@@ -301,8 +408,10 @@ function useToolCall(
     handleToolCall,
     handleAllowForConversation,
     handleAllowAutoExecution,
+    handleBackgroundToolCall,
     handleReject,
     handleAbort,
+    toolInfo,
   }
 }
 

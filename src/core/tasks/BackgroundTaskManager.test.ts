@@ -303,4 +303,92 @@ describe('BackgroundTaskManager', () => {
     expect(subscriber).toHaveBeenCalledTimes(1)
     unsubscribe()
   })
+
+  it('restores a resumable MCP server task at the same origin', async () => {
+    const app = createApp()
+    const firstManager = new BackgroundTaskManager(app)
+    await firstManager.initialize()
+    const task = await firstManager.enqueue({
+      conversationId: 'conversation',
+      originMessageId: 'origin-message',
+      kind: 'mcp-tool-call',
+      payload: {
+        externalTaskId: 'remote-task-1',
+        resumable: true,
+      },
+    })
+    await firstManager.updateInput(task.id, task.input, 'running')
+    await firstManager.cleanup()
+
+    const reloaded = new BackgroundTaskManager(app)
+    await reloaded.initialize()
+    expect(reloaded.getTasks()[0]).toMatchObject({
+      id: task.id,
+      originMessageId: 'origin-message',
+      status: 'waiting-connection',
+    })
+
+    reloaded.registerAdapter({
+      kind: 'mcp-tool-call',
+      run: async (restored) => ({
+        status: 'succeeded',
+        input: {
+          ...restored.input,
+          resultText: 'resumed result',
+        },
+      }),
+    })
+    const completed = await waitForTask(
+      reloaded,
+      (candidate) =>
+        candidate.id === task.id && candidate.status === 'succeeded',
+    )
+    expect(completed.originMessageId).toBe('origin-message')
+    expect(completed.input.resultText).toBe('resumed result')
+  })
+
+  it('does not restart a non-resumable MCP client wrapper after reload', async () => {
+    const app = createApp()
+    const firstManager = new BackgroundTaskManager(app)
+    await firstManager.initialize()
+    const task = await firstManager.enqueue({
+      conversationId: 'conversation',
+      originMessageId: 'origin-message',
+      kind: 'mcp-tool-call',
+      payload: { resumable: false, execution: 'client-wrapper' },
+    })
+    await firstManager.updateInput(task.id, task.input, 'running')
+    await firstManager.cleanup()
+
+    const reloaded = new BackgroundTaskManager(app)
+    await reloaded.initialize()
+    const run = jest.fn()
+    reloaded.registerAdapter({
+      kind: 'mcp-tool-call',
+      run,
+    })
+
+    expect(reloaded.getTasks()[0]).toMatchObject({
+      status: 'interrupted',
+      error: 'Plugin unloaded before this task completed.',
+    })
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it('lets a waiting MCP task be canceled and dismissed', async () => {
+    const manager = new BackgroundTaskManager(createApp())
+    await manager.initialize()
+    const task = await manager.enqueue({
+      conversationId: 'conversation',
+      originMessageId: 'origin-message',
+      kind: 'mcp-tool-call',
+      payload: { externalTaskId: 'remote-task', resumable: true },
+    })
+    await manager.updateInput(task.id, task.input, 'waiting-connection')
+
+    await manager.cancel(task.id)
+    expect(manager.getTasks()[0].status).toBe('canceled')
+    await expect(manager.dismiss(task.id)).resolves.toBe(true)
+    expect(manager.getTasks()).toEqual([])
+  })
 })

@@ -1,72 +1,41 @@
 import * as Popover from '@radix-ui/react-popover'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import { Settings2, Wrench } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { useApp } from '../../../contexts/app-context'
 import { useDialogContainer } from '../../../contexts/dialog-container-context'
-import { useMcp } from '../../../contexts/mcp-context'
 import { usePlugin } from '../../../contexts/plugin-context'
 import { useSettings } from '../../../contexts/settings-context'
-import type { McpManager } from '../../../core/mcp/mcpManager'
+import type { McpRoutingMode } from '../../../types/mcp.types'
 
 export function ToolsControl() {
   const app = useApp()
   const plugin = usePlugin()
   const dialogContainer = useDialogContainer()
-  const { getMcpManager } = useMcp()
   const { settings, setSettings } = useSettings()
   const [open, setOpen] = useState(false)
-  const [manager, setManager] = useState<McpManager | null>(null)
-  const [toolCount, setToolCount] = useState<number | null>(null)
-  const [loading, setLoading] = useState(false)
+  const toolCount = useMemo(
+    () =>
+      settings.mcp.connections
+        .filter((connection) => connection.enabled)
+        .reduce(
+          (count, connection) =>
+            count +
+            (connection.toolSnapshot?.tools.filter(
+              (tool) =>
+                !connection.toolOptions[tool.name]?.disabled &&
+                connection.toolOptions[tool.name]?.reviewedSchemaHash ===
+                  tool.schemaHash,
+            ).length ?? 0),
+          0,
+        ),
+    [settings.mcp.connections],
+  )
 
-  const refreshToolCount = useCallback(async (mcpManager: McpManager) => {
-    const tools = await mcpManager.listAvailableTools()
-    setToolCount(tools.length)
-  }, [])
-
-  useEffect(() => {
-    if (!open || manager || loading) return
-
-    let active = true
-    setLoading(true)
-    void getMcpManager()
-      .then(async (mcpManager) => {
-        if (!active) return
-        setManager(mcpManager)
-        await refreshToolCount(mcpManager)
-      })
-      .catch((error) => {
-        console.error('Failed to load MCP tools', error)
-        if (active) setToolCount(0)
-      })
-      .finally(() => {
-        if (active) setLoading(false)
-      })
-
-    return () => {
-      active = false
-    }
-  }, [getMcpManager, loading, manager, open, refreshToolCount])
-
-  useEffect(() => {
-    if (!manager) return
-    const unsubscribe = manager.subscribeServersChange(() => {
-      void refreshToolCount(manager)
-    })
-    return () => {
-      unsubscribe()
-    }
-  }, [manager, refreshToolCount])
-
-  const toolsEnabled = settings.chatOptions.enableTools
-  const countLabel =
-    toolCount === null
-      ? loading
-        ? 'Loading available tools'
-        : 'Tool count loads when opened'
-      : `${toolCount} tool${toolCount === 1 ? '' : 's'} available`
+  const toolsEnabled =
+    settings.chatOptions.enableTools && settings.mcp.routingMode !== 'off'
+  const countLabel = `${toolCount} reviewed tool${toolCount === 1 ? '' : 's'}`
 
   const handleToggle = () => {
     void setSettings({
@@ -74,6 +43,28 @@ export function ToolsControl() {
       chatOptions: {
         ...settings.chatOptions,
         enableTools: !toolsEnabled,
+      },
+      mcp: {
+        ...settings.mcp,
+        routingMode: toolsEnabled
+          ? 'off'
+          : settings.mcp.routingMode === 'off'
+            ? 'auto'
+            : settings.mcp.routingMode,
+      },
+    })
+  }
+
+  const setRoutingMode = (routingMode: McpRoutingMode) => {
+    void setSettings({
+      ...settings,
+      chatOptions: {
+        ...settings.chatOptions,
+        enableTools: routingMode !== 'off',
+      },
+      mcp: {
+        ...settings.mcp,
+        routingMode,
       },
     })
   }
@@ -137,13 +128,38 @@ export function ToolsControl() {
               <span />
             </span>
           </button>
+          <div
+            className="smtcmp-tools-control-popover__modes"
+            role="radiogroup"
+            aria-label="MCP tool routing"
+          >
+            {(
+              [
+                ['auto', 'Auto'],
+                ['always', 'Always'],
+                ['on-demand', 'On demand'],
+                ['off', 'Off'],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                type="button"
+                role="radio"
+                aria-checked={settings.mcp.routingMode === value}
+                data-active={String(settings.mcp.routingMode === value)}
+                key={value}
+                onClick={() => setRoutingMode(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             className="smtcmp-tools-control-popover__manage"
             onClick={() => void handleManage()}
           >
             <Settings2 size={14} aria-hidden="true" />
-            <span>Manage MCP servers</span>
+            <span>Manage connections</span>
           </button>
         </Popover.Content>
       </Popover.Portal>

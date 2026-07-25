@@ -29,11 +29,16 @@ export function BackgroundTaskCards({
   originMessageId,
   taskScope = 'message',
   onLocateOrigin,
+  onUseResult,
 }: {
   conversationId: string
   originMessageId?: string
   taskScope?: 'message' | 'image-queue'
   onLocateOrigin?: (messageId: string) => void
+  onUseResult?: (
+    task: BackgroundTaskRecord,
+    result: string,
+  ) => boolean | Promise<boolean>
 }) {
   const app = useApp()
   const { artifacts, manager, tasks: allTasks } = useBackgroundTasks()
@@ -148,14 +153,20 @@ export function BackgroundTaskCards({
                 ? task.kind === 'image-generation'
                   ? 'Image generation canceled'
                   : 'Task canceled'
-                : (task.progress?.message ??
-                  task.error ??
-                  task.status.replace(/-/g, ' '))
+                : task.kind === 'mcp-tool-call' && task.status === 'succeeded'
+                  ? 'MCP result ready'
+                  : task.status === 'waiting-connection'
+                    ? 'Waiting for MCP connection'
+                    : (task.progress?.message ??
+                      task.error ??
+                      task.status.replace(/-/g, ' '))
         const dismissibleImageTask =
           task.kind === 'image-generation' &&
           ['succeeded', 'failed', 'canceled', 'interrupted'].includes(
             task.status,
           )
+        const dismissibleMcpTask =
+          task.kind === 'mcp-tool-call' && isTerminalTask(task)
         const dismissLabel =
           task.status === 'succeeded'
             ? 'Dismiss completed image task'
@@ -180,9 +191,11 @@ export function BackgroundTaskCards({
                 <LoaderCircle className="smtcmp-task-spinner" size={16} />
               ) : task.status === 'succeeded' ? (
                 <Check size={16} />
-              ) : ['awaiting-destination', 'awaiting-approval'].includes(
-                  task.status,
-                ) ? (
+              ) : [
+                  'awaiting-destination',
+                  'awaiting-approval',
+                  'waiting-connection',
+                ].includes(task.status) ? (
                 <CircleEllipsis size={15} />
               ) : task.status === 'canceled' ? (
                 <Square size={14} />
@@ -214,7 +227,27 @@ export function BackgroundTaskCards({
                   <X size={13} />
                 </button>
               )}
+              {taskScope === 'message' && dismissibleMcpTask && (
+                <button
+                  type="button"
+                  className="smtcmp-task-card__dismiss"
+                  onClick={() => void manager.dismiss(task.id)}
+                  aria-label="Dismiss MCP task"
+                  title="Dismiss MCP task"
+                >
+                  <X size={13} />
+                </button>
+              )}
             </div>
+            {task.kind === 'mcp-tool-call' &&
+              typeof task.input.displayName === 'string' && (
+                <div className="smtcmp-task-card__prompt">
+                  {task.input.displayName}
+                  {task.input.execution === 'server-task'
+                    ? ' · server task'
+                    : ' · background wrapper'}
+                </div>
+              )}
             {taskScope === 'image-queue' && displayPrompt && (
               <div className="smtcmp-task-card__prompt" title={displayPrompt}>
                 {displayPrompt}
@@ -310,6 +343,57 @@ export function BackgroundTaskCards({
                 </div>
               </>
             )}
+            {task.kind === 'mcp-tool-call' &&
+              task.status === 'succeeded' &&
+              typeof task.input.resultText === 'string' && (
+                <>
+                  <div className="smtcmp-mcp-task-result">
+                    {task.input.resultText.slice(0, 4000)}
+                    {task.input.resultText.length > 4000
+                      ? '\n\n[Preview truncated]'
+                      : ''}
+                  </div>
+                  <div className="smtcmp-task-card__actions">
+                    {onUseResult && task.input.usedResult !== true && (
+                      <button
+                        onClick={() =>
+                          void Promise.resolve(
+                            onUseResult(task, task.input.resultText as string),
+                          ).then((used) => {
+                            if (!used) return
+                            return manager.updateInput(
+                              task.id,
+                              { ...task.input, usedResult: true },
+                              'succeeded',
+                            )
+                          })
+                        }
+                      >
+                        <Check size={14} /> Use result
+                      </button>
+                    )}
+                    <button
+                      onClick={() =>
+                        void navigator.clipboard.writeText(
+                          task.input.resultText as string,
+                        )
+                      }
+                    >
+                      Copy result
+                    </button>
+                  </div>
+                </>
+              )}
+            {task.status === 'waiting-connection' && (
+              <div className="smtcmp-task-card__actions">
+                <button onClick={() => void manager.resume(task.id)}>
+                  <RotateCcw size={14} /> Reconnect and resume
+                </button>
+                <button onClick={() => void manager.cancel(task.id)}>
+                  <Square size={14} /> Cancel task
+                </button>
+              </div>
+            )}
             {['failed', 'interrupted', 'canceled'].includes(task.status) && (
               <button onClick={() => void manager.retry(task.id)}>
                 <RotateCcw size={14} /> Retry
@@ -337,6 +421,12 @@ export function BackgroundTaskCards({
         </div>
       )}
     </div>
+  )
+}
+
+function isTerminalTask(task: BackgroundTaskRecord): boolean {
+  return ['succeeded', 'failed', 'canceled', 'interrupted'].includes(
+    task.status,
   )
 }
 

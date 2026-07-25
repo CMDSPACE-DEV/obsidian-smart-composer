@@ -16,6 +16,9 @@ export type ToolCallResponse =
       data: {
         type: 'text'
         text: string
+        structuredContent?: Record<string, unknown>
+        artifactIds?: string[]
+        truncated?: boolean
       }
     }
   | {
