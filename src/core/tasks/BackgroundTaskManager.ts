@@ -45,7 +45,7 @@ export class BackgroundTaskManager {
       const task = ACTIVE_STATUSES.has(storedTask.status)
         ? {
             ...storedTask,
-            schemaVersion: 2 as const,
+            schemaVersion: 3 as const,
             status: resumableMcpTask
               ? ('waiting-connection' as const)
               : ('interrupted' as const),
@@ -56,7 +56,7 @@ export class BackgroundTaskManager {
           }
         : {
             ...storedTask,
-            schemaVersion: 2 as const,
+            schemaVersion: 3 as const,
           }
       this.tasks.set(task.id, task)
       if (task !== storedTask) await this.repository.saveTask(task)
@@ -86,6 +86,10 @@ export class BackgroundTaskManager {
         (task) => !conversationId || task.conversationId === conversationId,
       )
       .sort((a, b) => a.createdAt - b.createdAt)
+  }
+
+  getTask(id: string): BackgroundTaskRecord | null {
+    return this.tasks.get(id) ?? null
   }
 
   async saveArtifact(artifact: ArtifactRecord): Promise<void> {
@@ -147,7 +151,7 @@ export class BackgroundTaskManager {
   }): Promise<BackgroundTaskRecord> {
     const now = Date.now()
     const task: BackgroundTaskRecord = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       id: uuidv4(),
       conversationId: input.conversationId,
       originMessageId: input.originMessageId,
@@ -178,6 +182,18 @@ export class BackgroundTaskManager {
     })
   }
 
+  async pause(id: string): Promise<void> {
+    const task = this.tasks.get(id)
+    if (!task || !['queued', 'running'].includes(task.status)) return
+    this.controllers.get(id)?.abort()
+    await this.replace({
+      ...task,
+      status: 'paused',
+      updatedAt: Date.now(),
+      error: undefined,
+    })
+  }
+
   async retry(id: string): Promise<void> {
     const task = this.tasks.get(id)
     if (!task || !['failed', 'interrupted', 'canceled'].includes(task.status)) {
@@ -196,7 +212,12 @@ export class BackgroundTaskManager {
 
   async resume(id: string): Promise<void> {
     const task = this.tasks.get(id)
-    if (!task || task.status !== 'waiting-connection') return
+    if (
+      !task ||
+      !['waiting-connection', 'paused', 'interrupted'].includes(task.status)
+    ) {
+      return
+    }
     await this.replace({
       ...task,
       status: 'queued',
@@ -210,8 +231,10 @@ export class BackgroundTaskManager {
     const task = this.tasks.get(id)
     if (
       !task ||
-      !['image-generation', 'mcp-tool-call'].includes(task.kind) ||
-      !isTerminal(task.status)
+      !['image-generation', 'mcp-tool-call', 'document-edit'].includes(
+        task.kind,
+      ) ||
+      (!isTerminal(task.status) && task.status !== 'review')
     ) {
       return false
     }
@@ -288,13 +311,29 @@ export class BackgroundTaskManager {
             task.kind === 'image-generation' &&
             (task.status === 'running' || this.runningIds.has(task.id)),
         )
-        const next = Array.from(this.tasks.values()).find(
-          (task) =>
-            task.status === 'queued' &&
-            !this.runningIds.has(task.id) &&
-            this.adapters.has(task.kind) &&
-            !(task.kind === 'image-generation' && runningImage),
-        )
+        const runnable = Array.from(this.tasks.values())
+          .filter((task) => {
+            const adapter = this.adapters.get(task.kind)
+            if (
+              task.status !== 'queued' ||
+              this.runningIds.has(task.id) ||
+              !adapter ||
+              (task.kind === 'image-generation' && runningImage)
+            ) {
+              return false
+            }
+            const runningForKind = Array.from(this.runningIds).filter(
+              (id) => this.tasks.get(id)?.kind === task.kind,
+            ).length
+            return (
+              runningForKind <
+              Math.max(1, adapter.getMaxConcurrency?.() ?? Number.MAX_VALUE)
+            )
+          })
+          .sort(
+            (a, b) => a.updatedAt - b.updatedAt || a.createdAt - b.createdAt,
+          )
+        const next = runnable[0]
         if (!next) {
           hasRunnableTask = false
           continue
@@ -324,6 +363,7 @@ export class BackgroundTaskManager {
     })
 
     try {
+      if (controller.signal.aborted) return
       const result = await adapter.run(task, {
         signal: controller.signal,
         updateProgress: async (progress) => {
@@ -346,7 +386,9 @@ export class BackgroundTaskManager {
       if (
         !current ||
         current.attempt !== attempt ||
-        current.status === 'canceled'
+        controller.signal.aborted ||
+        isTerminal(current.status) ||
+        current.status === 'paused'
       ) {
         return
       }
@@ -362,13 +404,15 @@ export class BackgroundTaskManager {
       if (
         !current ||
         current.attempt !== attempt ||
-        current.status === 'canceled'
+        controller.signal.aborted ||
+        isTerminal(current.status) ||
+        current.status === 'paused'
       ) {
         return
       }
       await this.replace({
         ...current,
-        status: controller.signal.aborted ? 'canceled' : 'failed',
+        status: 'failed',
         updatedAt: Date.now(),
         error: error instanceof Error ? error.message : String(error),
       })

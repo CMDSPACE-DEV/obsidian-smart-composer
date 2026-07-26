@@ -1,14 +1,15 @@
 # R-013: Long Output Budgets and Document-Scale Editing
 
 > [!IMPORTANT]
-> **Status: Verified source/documentation investigation with architectural recommendations**
+> **Status: Verified investigation; document-scale inline jobs implemented in 2.4.0**
 >
 > **Planning use: Mandatory**
 >
 > This report records the 2026-07-26 investigation of long Smart Composer
 > responses and 100-200 page document workflows produced by HanMark. It
-> separates verified current behavior from proposed implementation. No
-> document-scale edit feature was implemented during this investigation.
+> separates verified current behavior from proposed implementation. The
+> original investigation implemented no document-scale feature; Section 17
+> records the subsequent 2.4.0 implementation and verification.
 
 ## 1. Executive Summary
 
@@ -926,3 +927,73 @@ key, or provider secret was read or recorded. Source inspection used public
 repositories, local Smart Composer code, public documentation, and prior
 sanitized reports.
 
+## 17. Smart Composer 2.4.0 Implementation Addendum
+
+### 17.1 Implemented scope
+
+Smart Composer 2.4.0 implements the document-scale **inline-edit** path from
+Phase 2 while preserving the ordinary bounded inline workflow:
+
+- Settings schema 22 adds document-job routing, draft destination,
+  frontmatter protection, concurrency, and retry controls.
+- Large inline requests are conservatively detected from source size,
+  estimated input/output, and task shape.
+- `Auto-confirm` shows a truthful preflight instead of silently starting an
+  expensive job. The user may choose hierarchical synthesis, full rewrite,
+  one ordinary response, or cancel.
+- Summary, extraction, and insert-below tasks use checkpointed map/reduce.
+- Proofread, rewrite, translation, and reformat tasks use structure-preserving
+  chunk transforms.
+- Source text, referenced note/folder context, edit specification, unit
+  checksums, outputs, and reduction checkpoints are snapshotted under the
+  plugin's hidden JSON database.
+- Markdown is split by frontmatter, headings, blocks, and fenced regions, with
+  deterministic fallback splitting for oversized units.
+- Every provider pass advances one durable checkpoint. Pause, resume, retry,
+  cancel, interrupted recovery, and source fallback operate without
+  regenerating completed units.
+- Assembly verifies unit coverage, order, and Markdown fence balance before a
+  collision-safe visible draft is written.
+- Synthesis results return to the existing insert-below preview. Full
+  transforms open a section review and a separate draft; the source is not
+  overwritten by default.
+- The original selection and document snapshot are checked again before any
+  inline insertion or replacement.
+- Multiple document jobs use the existing background-task manager, so chat,
+  image generation, MCP work, and other parallel inline sessions remain
+  independently usable.
+
+GPT Plan requests continue to omit unsupported explicit output-token fields.
+The job gains reliability through bounded structural requests and checkpoints,
+not through a fictitious unlimited-output setting.
+
+### 17.2 Automated verification
+
+The 2.4.0 implementation passed:
+
+```text
+TypeScript: npm run type:check
+Formatting and ESLint: npm run lint:check
+Jest: 69 suites, 433 tests
+Production build: 5,081,828 / 5,452,595 bytes
+```
+
+Coverage includes settings migration, conservative routing, Markdown
+segmentation, frontmatter and fence handling, deterministic assembly,
+collision-safe drafts, checkpoint progression, pause/resume, interrupted
+recovery, source fallback, and all existing chat, RAG, image, MCP, provider,
+history, and inline-edit regressions.
+
+### 17.3 Deliberately deferred scope
+
+The following R-013 recommendations are not represented as completed features:
+
+- side-chat prose output presets and automatic prose continuation;
+- provider-specific `Long` and `Maximum` budgets;
+- side-chat and slash-command entry points for document jobs;
+- automatic HanMark frontmatter labeling and export handoff;
+- live private-provider validation with a synthetic 100-200 page document.
+
+These remain follow-up validation and implementation work. Smart Composer
+2.4.0 should be described as resumable document-scale inline editing, not
+unlimited single-response generation.

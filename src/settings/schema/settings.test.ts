@@ -25,6 +25,13 @@ describe('parseSmartComposerSettings', () => {
         modelId: null,
         contextCharacters: 4000,
       },
+      documentEditing: {
+        largeEditRouting: 'auto-confirm',
+        destinationFolder: 'Smart Composer/Document Drafts',
+        preserveFrontmatter: true,
+        concurrency: 1,
+        retryLimit: 2,
+      },
       imageGeneration: {
         modelId: 'gpt-5.6-sol (plan)',
         outputFolder: 'Smart Composer/Generated Images',
@@ -123,7 +130,7 @@ describe('parseSmartComposerSettings', () => {
     const result = parseSmartComposerSettings(input)
 
     expect(input).toEqual(before)
-    expect(result.version).toBe(21)
+    expect(result.version).toBe(22)
     expect(result.chatModelId).toBe('gpt-5.6-sol (plan)')
     expect(result.inlineEdit.modelId).toBe('claude-sonnet-5 (plan)')
     expect(result.providers).toEqual(input.providers)

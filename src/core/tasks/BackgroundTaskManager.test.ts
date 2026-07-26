@@ -391,4 +391,119 @@ describe('BackgroundTaskManager', () => {
     await expect(manager.dismiss(task.id)).resolves.toBe(true)
     expect(manager.getTasks()).toEqual([])
   })
+
+  it('runs checkpointed queued steps until the document job reaches review', async () => {
+    const manager = new BackgroundTaskManager(createApp())
+    await manager.initialize()
+    const run = jest
+      .fn()
+      .mockResolvedValueOnce({
+        status: 'queued',
+        input: { jobId: 'job', phase: 'processing' },
+      })
+      .mockResolvedValueOnce({
+        status: 'queued',
+        input: { jobId: 'job', phase: 'assembling' },
+      })
+      .mockResolvedValueOnce({
+        status: 'review',
+        input: { jobId: 'job', phase: 'review' },
+      })
+    manager.registerAdapter({ kind: 'document-edit', run })
+
+    const task = await manager.enqueue({
+      conversationId: 'inline:note.md',
+      originMessageId: 'inline-session',
+      kind: 'document-edit',
+      payload: { jobId: 'job', phase: 'planning' },
+    })
+    const review = await waitForTask(
+      manager,
+      (candidate) => candidate.id === task.id && candidate.status === 'review',
+    )
+
+    expect(run).toHaveBeenCalledTimes(3)
+    expect(review.input.phase).toBe('review')
+  })
+
+  it('pauses and resumes one running document task without losing its identity', async () => {
+    const manager = new BackgroundTaskManager(createApp())
+    await manager.initialize()
+    let markStarted = () => {}
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+    const run = jest
+      .fn()
+      .mockImplementationOnce(
+        (_task: BackgroundTaskRecord, context) =>
+          new Promise((_, reject) => {
+            markStarted()
+            context.signal.addEventListener(
+              'abort',
+              () => reject(new DOMException('Aborted', 'AbortError')),
+              { once: true },
+            )
+          }),
+      )
+      .mockResolvedValueOnce({ status: 'review' })
+    manager.registerAdapter({
+      kind: 'document-edit',
+      getMaxConcurrency: () => 1,
+      run,
+    })
+    const task = await manager.enqueue({
+      conversationId: 'inline:note.md',
+      originMessageId: 'inline-session',
+      kind: 'document-edit',
+      payload: { jobId: 'job' },
+    })
+    await waitForTask(
+      manager,
+      (candidate) => candidate.id === task.id && candidate.status === 'running',
+    )
+    await started
+
+    await manager.pause(task.id)
+    expect(manager.getTask(task.id)?.status).toBe('paused')
+    await manager.resume(task.id)
+    const review = await waitForTask(
+      manager,
+      (candidate) => candidate.id === task.id && candidate.status === 'review',
+    )
+
+    expect(review.id).toBe(task.id)
+    expect(run).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps interrupted status when an aborted adapter settles during cleanup', async () => {
+    const manager = new BackgroundTaskManager(createApp())
+    await manager.initialize()
+    manager.registerAdapter({
+      kind: 'document-edit',
+      run: async (_task, context) =>
+        new Promise((_, reject) => {
+          context.signal.addEventListener(
+            'abort',
+            () => reject(new DOMException('Aborted', 'AbortError')),
+            { once: true },
+          )
+        }),
+    })
+    const task = await manager.enqueue({
+      conversationId: 'inline:note.md',
+      originMessageId: 'inline-session',
+      kind: 'document-edit',
+      payload: { jobId: 'job' },
+    })
+    await waitForTask(
+      manager,
+      (candidate) => candidate.id === task.id && candidate.status === 'running',
+    )
+
+    await manager.cleanup()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(manager.getTask(task.id)?.status).toBe('interrupted')
+  })
 })

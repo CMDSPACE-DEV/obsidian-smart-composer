@@ -63,6 +63,26 @@ export const smartComposerSettingsSchema = z.object({
       contextCharacters: 4000,
     }),
 
+  documentEditing: z
+    .object({
+      largeEditRouting: z.enum([
+        'auto-confirm',
+        'always-job',
+        'single-response',
+      ]),
+      destinationFolder: z.string(),
+      preserveFrontmatter: z.boolean(),
+      concurrency: z.union([z.literal(1), z.literal(2)]),
+      retryLimit: z.number().int().min(0).max(5),
+    })
+    .catch({
+      largeEditRouting: 'auto-confirm',
+      destinationFolder: 'Smart Composer/Document Drafts',
+      preserveFrontmatter: true,
+      concurrency: 1,
+      retryLimit: 2,
+    }),
+
   imageGeneration: z
     .object({
       modelId: z.string(),

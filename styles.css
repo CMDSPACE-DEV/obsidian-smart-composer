@@ -3830,3 +3830,106 @@ button.smtcmp-chat-input-effort-select {
     color: HighlightText;
   }
 }
+
+.smtcmp-document-review-modal,
+.smtcmp-document-jobs-modal {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.smtcmp-document-review-summary,
+.smtcmp-document-job-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+}
+
+.smtcmp-document-review-summary > span,
+.smtcmp-document-job-card > span {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.smtcmp-document-review-warning {
+  color: var(--text-error) !important;
+}
+
+.smtcmp-document-review-navigation {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.smtcmp-document-review-navigation select {
+  width: 100%;
+}
+
+.smtcmp-document-review-comparison {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.smtcmp-document-review-pane {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+}
+
+.smtcmp-document-review-pane > strong {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.smtcmp-document-review-pane pre {
+  max-height: 52vh;
+  margin: 0;
+  overflow: auto;
+  color: var(--text-normal);
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-small);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.smtcmp-document-review-footer,
+.smtcmp-document-review-choice,
+.smtcmp-document-job-card__actions {
+  flex-wrap: wrap;
+}
+
+.smtcmp-document-job-card__heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.smtcmp-document-job-card__heading strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.smtcmp-document-job-card__heading span {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+@media (max-width: 700px) {
+  .smtcmp-document-review-comparison {
+    grid-template-columns: 1fr;
+  }
+}

@@ -4,6 +4,7 @@ export type BackgroundTaskKind =
   | 'artifact-write'
   | 'mcp-reserved'
   | 'mcp-tool-call'
+  | 'document-edit'
 
 export type BackgroundTaskStatus =
   | 'queued'
@@ -15,9 +16,11 @@ export type BackgroundTaskStatus =
   | 'canceled'
   | 'interrupted'
   | 'waiting-connection'
+  | 'paused'
+  | 'review'
 
 export type BackgroundTaskRecord = {
-  schemaVersion: 1 | 2
+  schemaVersion: 1 | 2 | 3
   id: string
   conversationId: string
   originMessageId: string
@@ -37,7 +40,12 @@ export type BackgroundTaskRecord = {
   error?: string
 }
 
-export type ArtifactKind = 'image' | 'canvas' | 'base' | 'excalidraw'
+export type ArtifactKind =
+  | 'image'
+  | 'canvas'
+  | 'base'
+  | 'excalidraw'
+  | 'markdown-draft'
 
 export type ArtifactRecord = {
   schemaVersion: 1
@@ -57,9 +65,11 @@ export type ArtifactRecord = {
 
 export type BackgroundTaskRunResult = {
   status:
+    | 'queued'
     | 'awaiting-destination'
     | 'awaiting-approval'
     | 'waiting-connection'
+    | 'review'
     | 'succeeded'
   artifactIds?: string[]
   input?: Record<string, unknown>
@@ -74,6 +84,7 @@ export type BackgroundTaskRunContext = {
 
 export type BackgroundTaskAdapter = {
   readonly kind: BackgroundTaskKind
+  getMaxConcurrency?(): number
   run(
     task: BackgroundTaskRecord,
     context: BackgroundTaskRunContext,

@@ -12,7 +12,14 @@ export class LazyBackgroundTaskAdapter implements BackgroundTaskAdapter {
   constructor(
     readonly kind: BackgroundTaskKind,
     private readonly load: () => Promise<BackgroundTaskAdapter>,
+    private readonly getConcurrency?: () => number,
   ) {}
+
+  getMaxConcurrency(): number {
+    return this.getConcurrency
+      ? Math.max(1, this.getConcurrency())
+      : Number.MAX_SAFE_INTEGER
+  }
 
   async run(
     task: BackgroundTaskRecord,

@@ -85,7 +85,7 @@ describe('processQueryWithPlanRerank', () => {
     const { results, retrievalMetadata } = await processQueryWithPlanRerank({
       app,
       settings: {
-        version: 21,
+        version: 22,
         providers: [],
         chatModels: [],
         embeddingModels: [],
@@ -96,6 +96,13 @@ describe('processQueryWithPlanRerank', () => {
           outputFolder: 'Smart Composer/Generated Images',
           quality: 'high',
           concurrency: 1,
+        },
+        documentEditing: {
+          largeEditRouting: 'auto-confirm',
+          destinationFolder: 'Smart Composer/Document Drafts',
+          preserveFrontmatter: true,
+          concurrency: 1,
+          retryLimit: 2,
         },
         appearance: { skinMode: 'follow-obsidian' },
         embeddingModelId: 'openai/text-embedding-3-small',
@@ -182,7 +189,7 @@ describe('processQueryWithPlanRerank', () => {
     const result = await processQueryWithPlanRerank({
       app,
       settings: {
-        version: 21,
+        version: 22,
         providers: [],
         chatModels: [],
         embeddingModels: [],
@@ -193,6 +200,13 @@ describe('processQueryWithPlanRerank', () => {
           outputFolder: 'Smart Composer/Generated Images',
           quality: 'high',
           concurrency: 1,
+        },
+        documentEditing: {
+          largeEditRouting: 'auto-confirm',
+          destinationFolder: 'Smart Composer/Document Drafts',
+          preserveFrontmatter: true,
+          concurrency: 1,
+          retryLimit: 2,
         },
         appearance: { skinMode: 'follow-obsidian' },
         embeddingModelId: 'openai/text-embedding-3-small',

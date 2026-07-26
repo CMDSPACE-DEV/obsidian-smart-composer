@@ -87,6 +87,20 @@ export default class SmartComposerPlugin extends Plugin {
         }),
       ),
     )
+    this.register(
+      taskManager.registerAdapter(
+        new LazyBackgroundTaskAdapter(
+          'document-edit',
+          async () => {
+            const { DocumentEditTaskAdapter } = await import(
+              './core/document-edit/DocumentEditTaskAdapter'
+            )
+            return new DocumentEditTaskAdapter(this, taskManager)
+          },
+          () => this.settings.documentEditing.concurrency,
+        ),
+      ),
+    )
     this.conversationRunManager = new ConversationRunManager(this.app)
 
     this.registerView(CHAT_VIEW_TYPE, (leaf) => new ChatView(leaf, this))
@@ -117,6 +131,18 @@ export default class SmartComposerPlugin extends Plugin {
       hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'k' }],
       editorCallback: (editor: Editor, view: MarkdownView) => {
         void this.openInlineEdit(editor, view)
+      },
+    })
+
+    this.addCommand({
+      id: 'review-document-edit-jobs',
+      name: 'Review document edit jobs',
+      callback: () => {
+        void import('./core/document-edit/DocumentEditReviewModal').then(
+          ({ DocumentEditJobsModal }) => {
+            new DocumentEditJobsModal(this).open()
+          },
+        )
       },
     })
 

@@ -1,13 +1,29 @@
 import { StateEffect, StateField } from '@codemirror/state'
 import type { ChangeDesc } from '@codemirror/state'
 import { Decoration, EditorView, WidgetType } from '@codemirror/view'
-import { App, Editor, MarkdownRenderer, MarkdownView, Notice } from 'obsidian'
+import {
+  App,
+  Editor,
+  MarkdownRenderer,
+  MarkdownView,
+  Notice,
+  TFile,
+} from 'obsidian'
 import { v4 as uuidv4 } from 'uuid'
 
 import type { QueryProgressState } from '../../components/chat-view/QueryProgress'
 import type SmartComposerPlugin from '../../main'
+import type { BackgroundTaskRecord } from '../../types/background-task'
 import { RetrievalMetadata } from '../../types/chat'
 import { getNestedFiles } from '../../utils/obsidian'
+import { analyzeDocumentEdit } from '../document-edit/analysis'
+import { createDocumentEditJob } from '../document-edit/createDocumentEditJob'
+import { DocumentJobRepository } from '../document-edit/DocumentJobRepository'
+import type {
+  DocumentEditAnalysis,
+  DocumentEditJobManifest,
+  DocumentEditStrategy,
+} from '../document-edit/types'
 import {
   CompiledVaultReferences,
   VaultReferenceScope,
@@ -20,7 +36,15 @@ import {
   mountInlineReferencePicker,
 } from './InlineReferencePicker'
 
-type InlineStatus = 'prompt' | 'loading' | 'clarification' | 'preview' | 'error'
+type InlineStatus =
+  | 'prompt'
+  | 'loading'
+  | 'clarification'
+  | 'preview'
+  | 'large-confirm'
+  | 'document-task'
+  | 'document-review'
+  | 'error'
 type InlineReferencePhase =
   | 'reading'
   | 'selecting'
@@ -61,6 +85,12 @@ type InlineSession = {
   retrievalMetadata?: RetrievalMetadata
   referenceWarnings: string[]
   referenceSources: CompiledVaultReferences['sourceFiles']
+  documentAnalysis?: DocumentEditAnalysis
+  documentStrategy?: DocumentEditStrategy
+  documentTask?: BackgroundTaskRecord
+  documentJobId?: string
+  documentDraftPath?: string
+  documentResultPath?: string
   getDraft: () => InlineDraft
   updateDraft: (draft: InlineDraft) => void
   submit: (
@@ -71,7 +101,44 @@ type InlineSession = {
   ) => void
   accept: () => void
   close: () => void
+  startDocumentJob?: () => void
+  runSingleResponse?: () => void
+  setDocumentStrategy?: (strategy: DocumentEditStrategy) => void
+  pauseDocumentJob?: () => void
+  resumeDocumentJob?: () => void
+  cancelDocumentJob?: () => void
+  retryDocumentJob?: () => void
+  useSourceForFailed?: () => void
+  openDocumentReview?: () => void
+  openDocumentDraft?: () => void
+  applyDocumentResult?: () => void
+  keepDocumentDraft?: () => void
   renderMarkdown: (content: string, target: HTMLElement) => Promise<void>
+}
+
+type InlineRequestInput = {
+  app: App
+  id: string
+  from: number
+  to: number
+  original: string
+  snapshot: string
+  filePath: string
+  targetLabel: 'Selection' | 'Current line'
+  prompt: string
+  mode: InlineEditMode
+  references: InlineVaultReference[]
+  referenceScope: VaultReferenceScope
+  referenceWarnings: string[]
+  referenceSources: CompiledVaultReferences['sourceFiles']
+  getDraft: () => InlineDraft
+  updateDraft: (draft: InlineDraft) => void
+  editorView: EditorView
+  submit: InlineSession['submit']
+  accept: () => void
+  close: () => void
+  renderMarkdown: (content: string, target: HTMLElement) => Promise<void>
+  compiledReferences?: CompiledVaultReferences
 }
 
 type InlineSessionMap = ReadonlyMap<string, InlineSession>
@@ -98,6 +165,13 @@ class InlineEditWidget extends WidgetType {
       other.session.referencePhase === this.session.referencePhase &&
       other.session.referenceWarnings.join('\n') ===
         this.session.referenceWarnings.join('\n') &&
+      other.session.documentStrategy === this.session.documentStrategy &&
+      other.session.documentAnalysis?.estimatedSourceTokens ===
+        this.session.documentAnalysis?.estimatedSourceTokens &&
+      getDocumentTaskSummary(other.session.documentTask) ===
+        getDocumentTaskSummary(this.session.documentTask) &&
+      other.session.documentDraftPath === this.session.documentDraftPath &&
+      other.session.documentResultPath === this.session.documentResultPath &&
       getRetrievalSummary(other.session) === getRetrievalSummary(this.session)
     )
   }
@@ -126,6 +200,9 @@ class InlineEditWidget extends WidgetType {
     const panel = doc.createElement('section')
     panel.className = 'panel'
     panel.dataset.status = this.session.status
+    if (this.session.documentTask) {
+      panel.dataset.taskStatus = this.session.documentTask.status
+    }
     panel.setAttribute('aria-live', 'polite')
     panel.setAttribute('aria-label', 'Smart Composer inline edit')
     shadow.appendChild(panel)
@@ -305,6 +382,223 @@ class InlineEditWidget extends WidgetType {
         input.focus({ preventScroll: true })
         input.setSelectionRange(input.value.length, input.value.length)
       })
+    } else if (this.session.status === 'large-confirm') {
+      const analysis = this.session.documentAnalysis
+      if (!analysis) throw new Error('Large-edit analysis is unavailable.')
+      const preflight = doc.createElement('div')
+      preflight.className = 'document-preflight'
+      const message = doc.createElement('p')
+      message.className = 'document-preflight__message'
+      message.textContent =
+        'This selection is safer as a resumable document job. Every section is checkpointed and the original note stays unchanged until you approve a result.'
+      const metrics = doc.createElement('div')
+      metrics.className = 'document-metrics'
+      metrics.append(
+        makeMetric(
+          doc,
+          'Estimated input',
+          `~${analysis.estimatedSourceTokens.toLocaleString()} tokens`,
+        ),
+        makeMetric(
+          doc,
+          'Planned sections',
+          analysis.estimatedChunks.toLocaleString(),
+        ),
+        makeMetric(
+          doc,
+          'Result shape',
+          analysis.strategy === 'transform'
+            ? 'Full rewrite draft'
+            : 'Synthesis / insertion',
+        ),
+      )
+      const strategy = doc.createElement('div')
+      strategy.className = 'document-strategy'
+      strategy.setAttribute('role', 'group')
+      strategy.setAttribute('aria-label', 'Document edit strategy')
+      const synthesis = makeButton(
+        doc,
+        'Synthesis',
+        () => this.session.setDocumentStrategy?.('map-reduce'),
+        analysis.strategy === 'map-reduce' ? 'primary' : 'secondary',
+      )
+      const transform = makeButton(
+        doc,
+        'Full rewrite',
+        () => this.session.setDocumentStrategy?.('transform'),
+        analysis.strategy === 'transform' ? 'primary' : 'secondary',
+      )
+      strategy.append(synthesis, transform)
+      const reason = doc.createElement('small')
+      reason.className = 'document-preflight__reason'
+      reason.textContent = analysis.reason
+      preflight.append(message, metrics, strategy, reason)
+      const actions = doc.createElement('div')
+      actions.className = 'actions'
+      actions.append(
+        makeButton(
+          doc,
+          'Cancel',
+          () => this.session.close(),
+          'secondary',
+          'Esc',
+        ),
+        makeButton(
+          doc,
+          'Generate once',
+          () => this.session.runSingleResponse?.(),
+          'secondary',
+        ),
+        makeButton(
+          doc,
+          'Start document job',
+          () => this.session.startDocumentJob?.(),
+          'primary',
+          'Enter',
+        ),
+      )
+      panel.append(preflight, actions)
+    } else if (this.session.status === 'document-task') {
+      const task = this.session.documentTask
+      const progress = doc.createElement('div')
+      progress.className = 'document-progress'
+      const status = doc.createElement('div')
+      status.className = 'document-progress__status'
+      const title = doc.createElement('strong')
+      title.textContent = getDocumentTaskTitle(task)
+      const detail = doc.createElement('small')
+      detail.textContent =
+        task?.progress?.message ??
+        (task ? task.status.replace(/-/g, ' ') : 'Preparing task')
+      status.append(title, detail)
+      const meter = doc.createElement('progress')
+      meter.max = Math.max(1, task?.progress?.total ?? 1)
+      meter.value = Math.max(0, task?.progress?.current ?? 0)
+      meter.setAttribute(
+        'aria-label',
+        `${meter.value} of ${meter.max} document sections`,
+      )
+      progress.append(status, meter)
+      if (this.session.referenceWarnings.length > 0) {
+        const warnings = doc.createElement('div')
+        warnings.className = 'document-warnings'
+        warnings.textContent = this.session.referenceWarnings.join(' · ')
+        progress.append(warnings)
+      }
+      const actions = doc.createElement('div')
+      actions.className = 'actions'
+      if (task?.status === 'running' || task?.status === 'queued') {
+        actions.append(
+          makeButton(
+            doc,
+            'Pause',
+            () => this.session.pauseDocumentJob?.(),
+            'secondary',
+          ),
+        )
+      } else if (
+        task &&
+        ['paused', 'interrupted', 'waiting-connection'].includes(task.status)
+      ) {
+        actions.append(
+          makeButton(
+            doc,
+            'Resume',
+            () => this.session.resumeDocumentJob?.(),
+            'primary',
+          ),
+        )
+      } else if (task && ['failed', 'canceled'].includes(task.status)) {
+        actions.append(
+          makeButton(
+            doc,
+            'Retry',
+            () => this.session.retryDocumentJob?.(),
+            'primary',
+          ),
+        )
+      }
+      if (task?.status === 'review' && task.input.phase === 'blocked') {
+        actions.append(
+          makeButton(
+            doc,
+            'Retry failed',
+            () => this.session.retryDocumentJob?.(),
+            'primary',
+          ),
+          makeButton(
+            doc,
+            'Review sections',
+            () => this.session.openDocumentReview?.(),
+            'secondary',
+          ),
+        )
+        if (task.input.strategy === 'transform') {
+          actions.append(
+            makeButton(
+              doc,
+              'Keep source for failed',
+              () => this.session.useSourceForFailed?.(),
+              'secondary',
+            ),
+          )
+        }
+      }
+      if (task && !['succeeded', 'failed', 'canceled'].includes(task.status)) {
+        actions.append(
+          makeButton(
+            doc,
+            'Cancel job',
+            () => this.session.cancelDocumentJob?.(),
+            'secondary',
+          ),
+        )
+      }
+      actions.append(
+        makeButton(doc, 'Hide panel', () => this.session.close(), 'secondary'),
+      )
+      panel.append(progress, actions)
+    } else if (this.session.status === 'document-review') {
+      const review = doc.createElement('div')
+      review.className = 'document-ready'
+      const title = doc.createElement('strong')
+      title.textContent = 'Document draft ready'
+      const detail = doc.createElement('p')
+      detail.textContent =
+        'The complete result was assembled from checkpointed sections. Review the draft before replacing the source selection.'
+      const path = doc.createElement('small')
+      path.textContent =
+        this.session.documentDraftPath ?? 'Recoverable result saved'
+      review.append(title, detail, path)
+      const actions = doc.createElement('div')
+      actions.className = 'actions'
+      actions.append(
+        makeButton(
+          doc,
+          'Open draft',
+          () => this.session.openDocumentDraft?.(),
+          'secondary',
+        ),
+        makeButton(
+          doc,
+          'Review sections',
+          () => this.session.openDocumentReview?.(),
+          'secondary',
+        ),
+        makeButton(
+          doc,
+          'Keep draft',
+          () => this.session.keepDocumentDraft?.(),
+          'secondary',
+        ),
+        makeButton(
+          doc,
+          'Replace selection',
+          () => this.session.applyDocumentResult?.(),
+          'primary',
+        ),
+      )
+      panel.append(review, actions)
     } else if (this.session.status === 'loading') {
       const loading = doc.createElement('div')
       loading.className = 'loading'
@@ -483,15 +777,35 @@ const inlineEditField = StateField.define<InlineSessionMap>({
 export class InlineEditController {
   private readonly controllers = new Map<string, AbortController>()
   private readonly drafts = new Map<string, InlineDraft>()
+  private readonly documentRepository: DocumentJobRepository
+  private readonly documentBindings = new Map<
+    string,
+    { editorView: EditorView; sessionId: string }
+  >()
+  private readonly resolvingDocumentTasks = new Set<string>()
+  private readonly unsubscribeTasks: () => void
 
-  constructor(private readonly plugin: SmartComposerPlugin) {}
+  constructor(private readonly plugin: SmartComposerPlugin) {
+    this.documentRepository = new DocumentJobRepository(plugin.app)
+    this.unsubscribeTasks =
+      plugin.backgroundTaskManager?.subscribe((tasks) => {
+        for (const task of tasks) {
+          if (task.kind === 'document-edit') {
+            void this.handleDocumentTaskUpdate(task)
+          }
+        }
+      }) ?? (() => {})
+  }
 
   cleanup(): void {
+    this.unsubscribeTasks()
     for (const controller of this.controllers.values()) {
       controller.abort()
     }
     this.controllers.clear()
     this.drafts.clear()
+    this.documentBindings.clear()
+    this.resolvingDocumentTasks.clear()
   }
 
   open(editor: Editor, markdownView: MarkdownView): void {
@@ -546,6 +860,7 @@ export class InlineEditController {
       this.controllers.get(id)?.abort()
       this.controllers.delete(id)
       this.drafts.delete(id)
+      this.removeDocumentBinding(id)
       editorView.dispatch({ effects: removeInlineSession.of(id) })
       editorView.focus()
     }
@@ -612,6 +927,7 @@ export class InlineEditController {
             }
       this.controllers.delete(id)
       this.drafts.delete(id)
+      this.removeDocumentBinding(id)
       editorView.dispatch({
         changes: change,
         effects:
@@ -625,6 +941,12 @@ export class InlineEditController {
               ]
             : removeInlineSession.of(id),
       })
+      if (session.documentJobId && session.documentTask) {
+        void this.finishDocumentJob(
+          session.documentJobId,
+          session.documentTask.id,
+        )
+      }
       editorView.focus()
     }
     const submit = (
@@ -634,7 +956,7 @@ export class InlineEditController {
       referenceScope: VaultReferenceScope,
     ) => {
       updateDraft({ prompt, mode, references, referenceScope })
-      void this.generate({
+      this.routeRequest({
         app: this.plugin.app,
         id,
         from,
@@ -710,30 +1032,469 @@ export class InlineEditController {
     })
   }
 
-  private async generate(input: {
-    app: App
-    id: string
-    from: number
-    to: number
-    original: string
-    snapshot: string
-    filePath: string
-    targetLabel: 'Selection' | 'Current line'
-    prompt: string
-    mode: InlineEditMode
-    references: InlineVaultReference[]
-    referenceScope: VaultReferenceScope
-    referenceWarnings: string[]
-    referenceSources: CompiledVaultReferences['sourceFiles']
-    getDraft: () => InlineDraft
-    updateDraft: (draft: InlineDraft) => void
-    editorView: EditorView
-    submit: InlineSession['submit']
-    accept: () => void
-    close: () => void
-    renderMarkdown: (content: string, target: HTMLElement) => Promise<void>
+  private routeRequest(input: InlineRequestInput): void {
+    const placement = resolveInlineEditPlacement(input.prompt, input.mode)
+    const analysis = analyzeDocumentEdit({
+      source: input.original,
+      instruction: input.prompt,
+      placement,
+    })
+    const routing = this.plugin.settings.documentEditing.largeEditRouting
+    if (
+      routing === 'single-response' ||
+      (routing === 'auto-confirm' && !analysis.shouldPromote)
+    ) {
+      void this.generate(input)
+      return
+    }
+    this.showDocumentPreflight(input, analysis.strategy)
+  }
+
+  private showDocumentPreflight(
+    input: InlineRequestInput,
+    strategy: DocumentEditStrategy,
+  ): void {
+    const placement = resolveInlineEditPlacement(input.prompt, input.mode)
+    const analysis = analyzeDocumentEdit({
+      source: input.original,
+      instruction: input.prompt,
+      placement,
+      strategy,
+    })
+    const showStrategy = (next: DocumentEditStrategy) =>
+      this.showDocumentPreflight(input, next)
+    this.show(input.editorView, {
+      ...input,
+      insertAt: input.to,
+      ignoredInsertions: [],
+      status: 'large-confirm',
+      placement,
+      documentAnalysis: analysis,
+      documentStrategy: analysis.strategy,
+      startDocumentJob: () => {
+        void this.startDocumentJob(input, analysis)
+      },
+      runSingleResponse: () => {
+        void this.generate(input)
+      },
+      setDocumentStrategy: showStrategy,
+    })
+  }
+
+  private async startDocumentJob(
+    input: InlineRequestInput,
+    analysis: DocumentEditAnalysis,
+  ): Promise<void> {
+    const placement = resolveInlineEditPlacement(input.prompt, input.mode)
+    this.controllers.get(input.id)?.abort()
+    const controller = new AbortController()
+    this.controllers.set(input.id, controller)
+    const base: InlineSession = {
+      ...input,
+      insertAt: input.to,
+      ignoredInsertions: [],
+      status: 'loading',
+      placement,
+      documentAnalysis: analysis,
+      documentStrategy: analysis.strategy,
+      referencePhase: input.references.length > 0 ? 'reading' : 'generating',
+    }
+    this.show(input.editorView, base)
+    try {
+      const settings = this.plugin.settings
+      const modelId = settings.inlineEdit.modelId ?? settings.chatModelId
+      const resolvedReferenceScope =
+        input.referenceScope === 'auto' && isExhaustiveReadIntent(input.prompt)
+          ? 'entire'
+          : input.referenceScope
+      const compiledReferences = await compileVaultReferences({
+        app: this.plugin.app,
+        settings,
+        setSettings: (next) => this.plugin.setSettings(next),
+        getRagEngine: () => this.plugin.getRAGEngine(),
+        query: input.prompt,
+        references: input.references,
+        targetFilePath: input.filePath,
+        modelId,
+        scope: input.referenceScope,
+        signal: controller.signal,
+        onProgress: (state) => {
+          if (
+            controller.signal.aborted ||
+            !this.hasSession(input.editorView, input.id)
+          ) {
+            return
+          }
+          this.show(input.editorView, {
+            ...base,
+            referencePhase: getReferencePhase(
+              state.type,
+              resolvedReferenceScope,
+            ),
+          })
+        },
+      })
+      if (
+        controller.signal.aborted ||
+        !this.hasSession(input.editorView, input.id)
+      ) {
+        return
+      }
+      const created = await createDocumentEditJob({
+        plugin: this.plugin,
+        sessionId: input.id,
+        sourcePath: input.filePath,
+        sourceDocument: input.snapshot,
+        sourceFrom: input.from,
+        sourceTo: input.to,
+        sourceSelection: input.original,
+        instruction: input.prompt,
+        placement,
+        strategy: analysis.strategy,
+        modelId,
+        references: compiledReferences,
+      })
+      this.documentBindings.set(created.task.id, {
+        editorView: input.editorView,
+        sessionId: input.id,
+      })
+      const session = this.makeDocumentTaskSession({
+        input,
+        analysis,
+        task: created.task,
+        manifest: created.manifest,
+        compiledReferences,
+      })
+      this.show(input.editorView, session)
+      await this.handleDocumentTaskUpdate(
+        this.plugin.backgroundTaskManager?.getTask(created.task.id) ??
+          created.task,
+      )
+    } catch (error) {
+      if (
+        controller.signal.aborted ||
+        !this.hasSession(input.editorView, input.id)
+      ) {
+        return
+      }
+      this.show(input.editorView, {
+        ...base,
+        status: 'error',
+        error: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      if (this.controllers.get(input.id) === controller) {
+        this.controllers.delete(input.id)
+      }
+    }
+  }
+
+  private makeDocumentTaskSession(input: {
+    input: InlineRequestInput
+    analysis: DocumentEditAnalysis
+    task: BackgroundTaskRecord
+    manifest: DocumentEditJobManifest
     compiledReferences?: CompiledVaultReferences
-  }): Promise<void> {
+  }): InlineSession {
+    const { task, manifest } = input
+    const base: InlineSession = {
+      ...input.input,
+      insertAt: input.input.to,
+      ignoredInsertions: [],
+      status: 'document-task',
+      placement: manifest.placement,
+      documentAnalysis: input.analysis,
+      documentStrategy: manifest.strategy,
+      documentTask: task,
+      documentJobId: manifest.jobId,
+      documentDraftPath: manifest.draftPath,
+      documentResultPath: manifest.finalResultPath,
+      retrievalMetadata: input.compiledReferences?.retrievalMetadata,
+      referenceWarnings: Array.from(
+        new Set([
+          ...(input.compiledReferences?.warnings ?? []),
+          ...manifest.warnings,
+        ]),
+      ),
+      referenceSources:
+        input.compiledReferences?.sourceFiles ?? manifest.referenceSnapshots,
+    }
+    return {
+      ...base,
+      pauseDocumentJob: () => {
+        void this.plugin.backgroundTaskManager?.pause(task.id)
+      },
+      resumeDocumentJob: () => {
+        void this.plugin.backgroundTaskManager?.resume(task.id)
+      },
+      cancelDocumentJob: () => {
+        void this.plugin.backgroundTaskManager?.cancel(task.id)
+      },
+      retryDocumentJob: () => {
+        void this.retryDocumentJob(task.id, manifest.jobId)
+      },
+      useSourceForFailed: () => {
+        void this.useSourceForFailed(task.id, manifest.jobId)
+      },
+      openDocumentReview: () =>
+        this.openDocumentReview(manifest.jobId, task.id),
+      openDocumentDraft: () => {
+        void this.openDocumentDraft(manifest.jobId)
+      },
+      applyDocumentResult: () => {
+        void this.applyDocumentResult(
+          input.input.editorView,
+          input.input.id,
+          manifest.jobId,
+          task.id,
+        )
+      },
+      keepDocumentDraft: () => {
+        void this.keepDocumentDraft(
+          input.input.editorView,
+          input.input.id,
+          manifest.jobId,
+          task.id,
+        )
+      },
+    }
+  }
+
+  private async handleDocumentTaskUpdate(
+    task: BackgroundTaskRecord,
+  ): Promise<void> {
+    const binding = this.documentBindings.get(task.id)
+    if (!binding || !this.hasSession(binding.editorView, binding.sessionId)) {
+      return
+    }
+    const current = binding.editorView.state
+      .field(inlineEditField, false)
+      ?.get(binding.sessionId)
+    if (!current) return
+    const jobId =
+      current.documentJobId ??
+      (typeof task.input.jobId === 'string' ? task.input.jobId : undefined)
+    if (!jobId) return
+
+    if (
+      task.status === 'review' &&
+      task.input.phase === 'review' &&
+      !this.resolvingDocumentTasks.has(task.id)
+    ) {
+      this.resolvingDocumentTasks.add(task.id)
+      try {
+        const manifest = await this.documentRepository.readManifest(jobId)
+        if (!manifest.finalResultPath) return
+        if (manifest.strategy === 'map-reduce') {
+          const replacement = await this.documentRepository.readText(
+            manifest.finalResultPath,
+          )
+          this.show(binding.editorView, {
+            ...current,
+            status: 'preview',
+            replacement,
+            placement: manifest.placement,
+            documentTask: task,
+            documentJobId: jobId,
+            documentResultPath: manifest.finalResultPath,
+            referenceWarnings: Array.from(
+              new Set([...current.referenceWarnings, ...manifest.warnings]),
+            ),
+          })
+        } else {
+          this.show(binding.editorView, {
+            ...current,
+            status: 'document-review',
+            documentTask: task,
+            documentJobId: jobId,
+            documentDraftPath: manifest.draftPath,
+            documentResultPath: manifest.finalResultPath,
+            referenceWarnings: Array.from(
+              new Set([...current.referenceWarnings, ...manifest.warnings]),
+            ),
+          })
+        }
+      } finally {
+        this.resolvingDocumentTasks.delete(task.id)
+      }
+      return
+    }
+
+    this.show(binding.editorView, {
+      ...current,
+      status: 'document-task',
+      documentTask: task,
+      referenceWarnings: Array.from(
+        new Set([
+          ...current.referenceWarnings,
+          ...readStringArray(task.input.warnings),
+        ]),
+      ),
+    })
+  }
+
+  private async retryDocumentJob(taskId: string, jobId: string): Promise<void> {
+    const manager = this.plugin.backgroundTaskManager
+    const task = manager?.getTask(taskId)
+    if (!manager || !task) return
+    if (task.status === 'review' && task.input.phase === 'blocked') {
+      const manifest = await this.documentRepository.resetFailed(jobId)
+      await manager.updateInput(
+        taskId,
+        {
+          ...task.input,
+          phase: manifest.phase,
+          failedSections: 0,
+        },
+        'queued',
+      )
+      return
+    }
+    if (['failed', 'canceled', 'interrupted'].includes(task.status)) {
+      await manager.retry(taskId)
+    }
+  }
+
+  private async useSourceForFailed(
+    taskId: string,
+    jobId: string,
+  ): Promise<void> {
+    const manager = this.plugin.backgroundTaskManager
+    const task = manager?.getTask(taskId)
+    if (!manager || !task) return
+    const manifest = await this.documentRepository.useSourceForFailed(jobId)
+    await manager.updateInput(
+      taskId,
+      {
+        ...task.input,
+        phase: manifest.phase,
+        failedSections: 0,
+      },
+      'queued',
+    )
+  }
+
+  private openDocumentReview(jobId: string, taskId: string): void {
+    void import('../document-edit/DocumentEditReviewModal').then(
+      ({ DocumentEditReviewModal }) => {
+        new DocumentEditReviewModal(this.plugin, jobId, (manifest) => {
+          const task = this.plugin.backgroundTaskManager?.getTask(taskId)
+          if (task) void this.handleDocumentTaskUpdate(task)
+          if (manifest.draftPath) {
+            new Notice('Document draft choices updated.')
+          }
+        }).open()
+      },
+    )
+  }
+
+  private async openDocumentDraft(jobId: string): Promise<void> {
+    const manifest = await this.documentRepository.ensureVisibleResult(
+      jobId,
+      this.plugin.settings.documentEditing.destinationFolder,
+    )
+    const file = manifest.draftPath
+      ? this.plugin.app.vault.getFileByPath(manifest.draftPath)
+      : null
+    if (!(file instanceof TFile)) {
+      new Notice('The document draft could not be opened.')
+      return
+    }
+    await this.plugin.app.workspace.getLeaf('tab').openFile(file)
+  }
+
+  private async keepDocumentDraft(
+    editorView: EditorView,
+    sessionId: string,
+    jobId: string,
+    taskId: string,
+  ): Promise<void> {
+    await this.documentRepository.ensureVisibleResult(
+      jobId,
+      this.plugin.settings.documentEditing.destinationFolder,
+    )
+    await this.finishDocumentJob(jobId, taskId)
+    this.removeDocumentBinding(sessionId)
+    this.drafts.delete(sessionId)
+    editorView.dispatch({ effects: removeInlineSession.of(sessionId) })
+    new Notice('Document draft kept. The source note was not changed.')
+  }
+
+  private async applyDocumentResult(
+    editorView: EditorView,
+    sessionId: string,
+    jobId: string,
+    taskId: string,
+  ): Promise<void> {
+    const session = editorView.state
+      .field(inlineEditField, false)
+      ?.get(sessionId)
+    if (!session) return
+    const manifest = await this.documentRepository.readManifest(jobId)
+    if (!manifest.finalResultPath) {
+      new Notice('The document result is not ready.')
+      return
+    }
+    const currentDocument = editorView.state.doc.toString()
+    if (
+      !isInlineSourceCurrent(
+        currentDocument,
+        session,
+        session.original,
+        session.ignoredInsertions,
+      )
+    ) {
+      new Notice(
+        'The selected source changed after the document job started. The separate draft was preserved.',
+      )
+      return
+    }
+    const result = await this.documentRepository.readText(
+      manifest.finalResultPath,
+    )
+    const insertion =
+      manifest.placement === 'insert-after'
+        ? buildInlineInsertion(currentDocument, session.insertAt, result)
+        : ''
+    editorView.dispatch({
+      changes:
+        manifest.placement === 'insert-after'
+          ? { from: session.insertAt, insert: insertion }
+          : { from: session.from, to: session.to, insert: result },
+      effects:
+        manifest.placement === 'insert-after' && insertion
+          ? [
+              removeInlineSession.of(sessionId),
+              recordInlineInsertion.of({
+                sessionId,
+                at: session.insertAt,
+              }),
+            ]
+          : removeInlineSession.of(sessionId),
+    })
+    this.removeDocumentBinding(sessionId)
+    this.drafts.delete(sessionId)
+    await this.finishDocumentJob(jobId, taskId)
+    editorView.focus()
+  }
+
+  private async finishDocumentJob(
+    jobId: string,
+    taskId: string,
+  ): Promise<void> {
+    await this.documentRepository.markComplete(jobId)
+    await this.plugin.backgroundTaskManager?.complete(taskId, {})
+  }
+
+  private removeDocumentBinding(sessionId: string): void {
+    for (const [taskId, binding] of this.documentBindings) {
+      if (binding.sessionId === sessionId) {
+        this.documentBindings.delete(taskId)
+      }
+    }
+  }
+
+  private async generate(input: InlineRequestInput): Promise<void> {
     const placement = resolveInlineEditPlacement(input.prompt, input.mode)
     const base: InlineSession = {
       ...input,
@@ -1518,6 +2279,57 @@ function countReferencedMarkdownFiles(
   return paths.size
 }
 
+function makeMetric(doc: Document, label: string, value: string): HTMLElement {
+  const metric = doc.createElement('div')
+  const heading = doc.createElement('small')
+  heading.textContent = label
+  const content = doc.createElement('strong')
+  content.textContent = value
+  metric.append(heading, content)
+  return metric
+}
+
+function getDocumentTaskTitle(task?: BackgroundTaskRecord): string {
+  if (!task) return 'Starting document job'
+  if (task.status === 'review' && task.input.phase === 'blocked') {
+    return 'Document job needs review'
+  }
+  if (task.status === 'paused') return 'Document job paused'
+  if (task.status === 'waiting-connection') return 'Reconnect to continue'
+  if (task.status === 'failed') return 'Document job failed'
+  if (task.status === 'interrupted') return 'Document job interrupted'
+  if (task.status === 'canceled') return 'Document job canceled'
+  return task.progress?.phase === 'assembling'
+    ? 'Assembling document draft'
+    : task.progress?.phase === 'reducing'
+      ? 'Combining all section results'
+      : task.progress?.phase === 'planning'
+        ? 'Planning document edit'
+        : 'Editing document in sections'
+}
+
+function getDocumentTaskSummary(task?: BackgroundTaskRecord): string {
+  if (!task) return ''
+  return [
+    task.status,
+    task.updatedAt,
+    task.progress?.phase,
+    task.progress?.current,
+    task.progress?.total,
+    task.progress?.message,
+    task.error,
+    task.input.phase,
+    task.input.completedSections,
+    task.input.failedSections,
+  ].join('|')
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : []
+}
+
 function makeButton(
   doc: Document,
   label: string,
@@ -1549,11 +2361,17 @@ function makeHeader(doc: Document, session: InlineSession): HTMLElement {
   spark.setAttribute('aria-hidden', 'true')
   const title = doc.createElement('strong')
   title.textContent =
-    session.status === 'preview'
-      ? session.placement === 'insert-after'
-        ? 'Review insertion'
-        : 'Review inline edit'
-      : 'Inline edit'
+    session.status === 'large-confirm'
+      ? 'Large document edit'
+      : session.status === 'document-task'
+        ? 'Document edit job'
+        : session.status === 'document-review'
+          ? 'Review document draft'
+          : session.status === 'preview'
+            ? session.placement === 'insert-after'
+              ? 'Review insertion'
+              : 'Review inline edit'
+            : 'Inline edit'
   identity.append(spark, title)
   const context = doc.createElement('span')
   context.className = 'context'
@@ -1651,8 +2469,12 @@ const INLINE_STYLE = `
   border-radius:5px 14px 5px 14px;
   box-shadow:inset 2px 0 0 #b6ff00,0 10px 28px rgba(0,0,0,.6);
 }
-.panel[data-status="loading"]{isolation:isolate}
-.panel[data-status="loading"]::before{
+.panel[data-status="loading"],
+.panel[data-status="document-task"][data-task-status="running"],
+.panel[data-status="document-task"][data-task-status="queued"]{isolation:isolate}
+.panel[data-status="loading"]::before,
+.panel[data-status="document-task"][data-task-status="running"]::before,
+.panel[data-status="document-task"][data-task-status="queued"]::before{
   position:absolute;
   z-index:0;
   top:50%;
@@ -1672,7 +2494,9 @@ const INLINE_STYLE = `
   transform:translate(-50%,-50%) rotate(0deg);
   animation:inline-panel-border-orbit 1.8s linear infinite;
 }
-.panel[data-status="loading"]::after{
+.panel[data-status="loading"]::after,
+.panel[data-status="document-task"][data-task-status="running"]::after,
+.panel[data-status="document-task"][data-task-status="queued"]::after{
   position:absolute;
   z-index:1;
   inset:1.5px;
@@ -1681,7 +2505,9 @@ const INLINE_STYLE = `
   border-radius:inherit;
   background:var(--ach-surface);
 }
-.panel[data-status="loading"]>*{position:relative;z-index:2}
+.panel[data-status="loading"]>*,
+.panel[data-status="document-task"][data-task-status="running"]>*,
+.panel[data-status="document-task"][data-task-status="queued"]>*{position:relative;z-index:2}
 :host([data-skin="cmds-dark"]) .panel[data-status="loading"]{
   box-shadow:0 10px 28px rgba(0,0,0,.6);
 }
@@ -1945,6 +2771,19 @@ kbd{
 .thinking-dots{display:flex;align-items:center;justify-content:center;gap:3px;width:28px;height:28px;flex:0 0 auto}
 .thinking-dots i{width:4px;height:4px;border-radius:50%;background:var(--ach-heading);box-shadow:0 0 5px color-mix(in srgb,var(--ach-action) 34%,transparent);opacity:.58}
 .thinking-dots i:nth-child(2){opacity:1}
+.document-preflight,.document-progress,.document-ready{display:flex;min-width:0;flex-direction:column;gap:9px}
+.document-preflight__message,.document-ready p{margin:0;color:var(--ach-text)}
+.document-preflight__reason,.document-ready small,.document-progress__status small{color:var(--ach-muted);font-size:10px}
+.document-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.document-metrics>div{display:flex;min-width:0;flex-direction:column;gap:2px;padding:8px;border:1px solid var(--ach-border);border-radius:6px;background:var(--ach-canvas)}
+.document-metrics small{color:var(--ach-muted);font-size:9px;text-transform:uppercase}
+.document-metrics strong{overflow:hidden;color:var(--ach-heading);font-size:11px;text-overflow:ellipsis}
+.document-strategy{display:flex;gap:7px}
+.document-progress__status{display:flex;min-width:0;flex-direction:column;gap:2px}
+.document-progress__status strong,.document-ready>strong{color:var(--ach-heading);font-size:13px}
+.document-progress progress{width:100%;height:6px;overflow:hidden;border:0;border-radius:999px;background:var(--ach-surface-raised);accent-color:var(--ach-action)}
+.document-warnings{padding:7px 8px;border-left:2px solid var(--ach-danger);background:var(--ach-before);color:var(--ach-danger);font-size:10px}
+.document-ready{padding:10px;border:1px solid var(--ach-after-border);border-radius:6px;background:var(--ach-after);color:var(--ach-after-text)}
 .diff{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
 .insert-preview{display:grid;grid-template-columns:minmax(145px,.42fr) minmax(0,1fr);gap:8px}
 .diff section,.insert-preview section{
@@ -1995,7 +2834,7 @@ kbd{
 .word-diff ins{background:var(--ach-after);color:var(--ach-after-text);text-decoration:none}
 .error{margin:0;padding:9px 10px;border-left:2px solid var(--ach-danger);background:var(--ach-before);color:var(--ach-danger)}
 @keyframes inline-panel-border-orbit{to{transform:translate(-50%,-50%) rotate(360deg)}}
-@media(max-width:620px){.diff,.insert-preview{grid-template-columns:1fr}.diff section,.insert-preview section{max-height:240px}.context{display:none}.mode-row{align-items:flex-start;flex-direction:column}.mode-control{width:100%;grid-auto-columns:1fr}button{min-height:34px}}
-@media(prefers-reduced-motion:reduce){.panel[data-status="loading"]::before{animation:none;background:var(--ach-action);opacity:.4}}
-@media(forced-colors:active){.panel,.prompt,.mode-control,.reference-chip,.reference-list,.diff section,.insert-preview section,.source-preserved,.word-diff,button{border:1px solid CanvasText}.panel[data-status="loading"]::before{background:CanvasText;filter:none}.spark,.thinking-dots i{background:CanvasText;box-shadow:none}}
+@media(max-width:620px){.diff,.insert-preview{grid-template-columns:1fr}.diff section,.insert-preview section{max-height:240px}.document-metrics{grid-template-columns:1fr}.actions{flex-wrap:wrap}.context{display:none}.mode-row{align-items:flex-start;flex-direction:column}.mode-control{width:100%;grid-auto-columns:1fr}button{min-height:34px}}
+@media(prefers-reduced-motion:reduce){.panel[data-status="loading"]::before,.panel[data-status="document-task"]::before{animation:none;background:var(--ach-action);opacity:.4}}
+@media(forced-colors:active){.panel,.prompt,.mode-control,.reference-chip,.reference-list,.diff section,.insert-preview section,.source-preserved,.word-diff,.document-metrics>div,.document-ready,button{border:1px solid CanvasText}.panel[data-status="loading"]::before,.panel[data-status="document-task"]::before{background:CanvasText;filter:none}.spark,.thinking-dots i{background:CanvasText;box-shadow:none}}
 `

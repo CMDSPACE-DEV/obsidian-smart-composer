@@ -57,6 +57,110 @@ export function ChatSection() {
       </ObsidianSetting>
 
       <ObsidianSetting
+        name="Large inline edits"
+        desc="Choose when large selections are promoted to resumable document edit jobs."
+      >
+        <ObsidianDropdown
+          value={settings.documentEditing.largeEditRouting}
+          options={{
+            'auto-confirm': 'Auto detect and confirm (Recommended)',
+            'always-job': 'Always use a document job',
+            'single-response': 'Always generate one response',
+          }}
+          onChange={async (value) => {
+            await setSettings({
+              ...settings,
+              documentEditing: {
+                ...settings.documentEditing,
+                largeEditRouting: value as
+                  | 'auto-confirm'
+                  | 'always-job'
+                  | 'single-response',
+              },
+            })
+          }}
+        />
+      </ObsidianSetting>
+
+      <ObsidianSetting
+        name="Document draft folder"
+        desc="Vault-relative folder for completed large replacement drafts."
+      >
+        <ObsidianTextInput
+          value={settings.documentEditing.destinationFolder}
+          onChange={async (value) => {
+            await setSettings({
+              ...settings,
+              documentEditing: {
+                ...settings.documentEditing,
+                destinationFolder: value,
+              },
+            })
+          }}
+        />
+      </ObsidianSetting>
+
+      <ObsidianSetting
+        name="Preserve document frontmatter"
+        desc="Keep YAML frontmatter unchanged in document edit jobs."
+      >
+        <ObsidianToggle
+          value={settings.documentEditing.preserveFrontmatter}
+          onChange={async (value) => {
+            await setSettings({
+              ...settings,
+              documentEditing: {
+                ...settings.documentEditing,
+                preserveFrontmatter: value,
+              },
+            })
+          }}
+        />
+      </ObsidianSetting>
+
+      <ObsidianSetting
+        name="Document edit concurrency"
+        desc="Maximum document jobs allowed to process one checkpointed section at the same time. One is safest for Plan accounts."
+      >
+        <ObsidianDropdown
+          value={settings.documentEditing.concurrency.toString()}
+          options={{
+            '1': '1 (Recommended)',
+            '2': '2 parallel jobs (Higher rate-limit usage)',
+          }}
+          onChange={async (value) => {
+            await setSettings({
+              ...settings,
+              documentEditing: {
+                ...settings.documentEditing,
+                concurrency: value === '2' ? 2 : 1,
+              },
+            })
+          }}
+        />
+      </ObsidianSetting>
+
+      <ObsidianSetting
+        name="Document chunk retries"
+        desc="Automatic retries for a failed or output-limited document section."
+      >
+        <ObsidianTextInput
+          value={settings.documentEditing.retryLimit.toString()}
+          onChange={async (value) => {
+            const parsed = Number.parseInt(value, 10)
+            if (!Number.isFinite(parsed) || parsed < 0 || parsed > 5) return
+            await setSettings({
+              ...settings,
+              documentEditing: {
+                ...settings.documentEditing,
+                retryLimit: parsed,
+              },
+            })
+          }}
+        />
+      </ObsidianSetting>
+
+      <ObsidianSetting
         name="Image output folder"
         desc="Vault-relative folder used for every generated image before R2 upload or note insertion. The task card shows the exact saved path."
       >

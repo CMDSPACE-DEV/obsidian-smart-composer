@@ -94,7 +94,7 @@ function createSettings(
   overrides: Partial<SmartComposerSettings> = {},
 ): SmartComposerSettings {
   return {
-    version: 21,
+    version: 22,
     providers: [...DEFAULT_PROVIDERS],
     chatModels: [...DEFAULT_CHAT_MODELS],
     embeddingModels: [
@@ -113,6 +113,13 @@ function createSettings(
       outputFolder: 'Smart Composer/Generated Images',
       quality: 'high',
       concurrency: 1,
+    },
+    documentEditing: {
+      largeEditRouting: 'auto-confirm',
+      destinationFolder: 'Smart Composer/Document Drafts',
+      preserveFrontmatter: true,
+      concurrency: 1,
+      retryLimit: 2,
     },
     appearance: { skinMode: 'follow-obsidian' },
     embeddingModelId: 'openai/text-embedding-3-small',
