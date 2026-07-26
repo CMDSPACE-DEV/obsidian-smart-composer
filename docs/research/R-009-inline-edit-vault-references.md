@@ -738,3 +738,27 @@ The Dropbox vault installation was updated with matching `main.js`,
 `manifest.json`, and `styles.css`. Live Obsidian checks for Korean IME,
 same-range parallel sessions, large-folder Entire mode, and popout rendering
 remain the release smoke gate.
+
+## 20. Smart Composer 2.3.3 Visual Mention Echo Addendum
+
+Live use showed that the implemented reference identity was correct but its
+presentation differed from sidebar chat:
+
+- sidebar chat keeps an `@name` Lexical mention token inside the instruction;
+- inline edit removed the native-textarea trigger and showed only the resolved
+  chip above the instruction.
+
+Smart Composer 2.3.3 keeps the original resolved chips and additionally echoes
+every selected reference as a read-only `@note.md` or `@folder` token inside
+the bordered inline prompt surface. This gives the user two complementary
+signals:
+
+- the upper chip row confirms the exact resolved note or folder path;
+- the in-composer token confirms that the current instruction is using those
+  references.
+
+The echo is visual only. The native textarea, per-session reference identity,
+compiled vault context, cancellation, and model request contract are
+unchanged. This avoids reintroducing Lexical into the inline Shadow Root and
+cannot drift into a second retrieval source. The `@` picker remains the only
+inline mention trigger; slash commands are not required.

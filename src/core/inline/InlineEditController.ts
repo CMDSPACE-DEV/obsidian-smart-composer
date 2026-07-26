@@ -169,6 +169,16 @@ class InlineEditWidget extends WidgetType {
         this.session.status === 'clarification'
           ? this.session.referenceScope
           : draft.referenceScope
+      const promptSurface = doc.createElement('div')
+      promptSurface.className = 'prompt-surface'
+      const promptReferenceEcho = doc.createElement('div')
+      promptReferenceEcho.className = 'prompt-reference-echo'
+      promptReferenceEcho.setAttribute('aria-hidden', 'true')
+      const refreshPromptReferenceEcho = () => {
+        renderPromptReferenceEcho(doc, promptReferenceEcho, selectedReferences)
+      }
+      promptSurface.append(promptReferenceEcho, input)
+      refreshPromptReferenceEcho()
       const persistDraft = () => {
         if (this.session.status !== 'prompt') return
         this.session.updateDraft({
@@ -210,6 +220,7 @@ class InlineEditWidget extends WidgetType {
           initialReferences: selectedReferences,
           onChange: (references) => {
             selectedReferences = references
+            refreshPromptReferenceEcho()
             scopeControl.setVisible(
               references.some((reference) => reference.type === 'folder'),
             )
@@ -256,7 +267,7 @@ class InlineEditWidget extends WidgetType {
       actions.append(cancel, submit)
       panel.append(
         referenceRegion,
-        input,
+        promptSurface,
         modeControl,
         scopeControl.element,
         actions,
@@ -1359,6 +1370,22 @@ function makeReadOnlyReferenceChips(
   return row
 }
 
+function renderPromptReferenceEcho(
+  doc: Document,
+  region: HTMLElement,
+  references: readonly InlineVaultReference[],
+): void {
+  region.replaceChildren()
+  region.hidden = references.length === 0
+  for (const reference of references) {
+    const token = doc.createElement('span')
+    token.className = 'prompt-reference-token'
+    token.title = reference.path
+    token.textContent = `@${getReferenceName(reference.path)}`
+    region.append(token)
+  }
+}
+
 function makeReferenceStatus(
   doc: Document,
   session: InlineSession,
@@ -1780,6 +1807,34 @@ button.reference-option[data-active="true"]{
   color:var(--ach-danger);
   font-size:10px;
 }
+.prompt-surface{
+  width:100%;
+  overflow:hidden;
+  border:1px solid var(--ach-border);
+  border-radius:6px;
+  background:var(--ach-canvas);
+}
+.prompt-reference-echo{
+  display:flex;
+  min-width:0;
+  flex-wrap:wrap;
+  gap:5px;
+  padding:8px 10px 0;
+}
+.prompt-reference-token{
+  display:inline-block;
+  max-width:min(100%,280px);
+  padding:1px 6px;
+  overflow:hidden;
+  border-radius:4px;
+  background:color-mix(in srgb,var(--ach-action) 10%,var(--ach-surface));
+  color:var(--ach-action);
+  font-size:11px;
+  font-weight:650;
+  line-height:1.65;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
 .prompt{
   display:block;
   width:100%;
@@ -1789,19 +1844,20 @@ button.reference-option[data-active="true"]{
   resize:vertical;
   color:var(--ach-text);
   caret-color:var(--ach-action);
-  border:1px solid var(--ach-border);
-  border-radius:6px;
+  border:0;
+  border-radius:0;
   outline:none;
-  background:var(--ach-canvas);
+  background:transparent;
   font:inherit;
   line-height:1.5;
 }
+.prompt-reference-echo:not([hidden]) + .prompt{padding-top:6px}
 .prompt::placeholder{color:var(--ach-muted);opacity:.8}
-.prompt:focus{
+.prompt-surface:focus-within{
   border-color:var(--ach-action);
   box-shadow:0 0 0 2px color-mix(in srgb,var(--ach-action) 18%,transparent);
 }
-:host([data-skin="cmds-dark"]) .prompt:focus{
+:host([data-skin="cmds-dark"]) .prompt-surface:focus-within{
   box-shadow:0 0 0 1px rgba(182,255,0,.27),0 0 18px rgba(182,255,0,.1);
 }
 .mode-row{
