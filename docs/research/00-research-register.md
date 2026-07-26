@@ -36,6 +36,9 @@ premature synthesis.
 | R-011 | Smart Composer 2.3 MCP implementation and automated verification | **Verified + Implemented in 2.3.0** | **Mandatory** | [R-011 report](R-011-mcp-2.3-implementation-verification.md) |
 | R-012 | Remote MCP browser-CORS failure and desktop transport correction | **Verified + Implemented in 2.3.2** | **Mandatory** | [R-012 report](R-012-remote-mcp-cors-transport.md) |
 | R-013 | Provider-aware long output budgets, truncation recovery, HanMark imports, and document-scale editing jobs | **Verified; document-scale inline jobs implemented in 2.4.0** | **Mandatory** | [R-013 report](R-013-long-output-and-document-scale-editing.md) |
+| R-014 | High-value fact-checking/research MCP shortlist and NAVER Search/API HUB integration boundary | **Verified** | **Mandatory** | [R-014 report](R-014-high-value-fact-checking-research-mcps-and-naver-search.md) |
+| R-015 | Korean official MCPs, Korean academic sources, Web of Science/SSCI, Scopus, and scholarly verification connectors | **Verified** | **Mandatory** | [R-015 report](R-015-korean-official-mcps-and-scholarly-index-connectors.md) |
+| R-016 | Plan-first settings information architecture and seven-pack Research Connections implementation contract | **Verified plan + Implementation baseline** | **Mandatory** | [R-016 report](R-016-plan-first-settings-and-research-connections.md) |
 
 ## Mandatory Synthesis Rule
 

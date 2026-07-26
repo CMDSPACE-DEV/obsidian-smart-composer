@@ -14,7 +14,12 @@ import { RefObject, useCallback, useEffect } from 'react'
 
 import { useApp } from '../../../contexts/app-context'
 import { useSettings } from '../../../contexts/settings-context'
+import {
+  RESEARCH_PACKS,
+  getResearchSource,
+} from '../../../core/research/ResearchSourceRegistry'
 import { MentionableImage } from '../../../types/mentionable'
+import type { ResearchSourceId } from '../../../types/research.types'
 import {
   fuzzySearch,
   fuzzySearchWithConnections,
@@ -96,9 +101,34 @@ export default function LexicalContentEditable({
                 connectionId: connection.id,
                 name: connection.name,
               })),
+            [
+              ...(Object.keys(settings.research.sources) as ResearchSourceId[])
+                .filter(
+                  (sourceId) => settings.research.sources[sourceId]?.enabled,
+                )
+                .map((sourceId) => ({
+                  type: 'research-source' as const,
+                  sourceId,
+                  name: getResearchSource(sourceId).name,
+                })),
+              ...RESEARCH_PACKS.filter((pack) =>
+                pack.sourceIds.some(
+                  (sourceId) => settings.research.sources[sourceId]?.enabled,
+                ),
+              ).map((pack) => ({
+                type: 'research-pack' as const,
+                packId: pack.id,
+                name: pack.name,
+              })),
+            ],
           )
         : fuzzySearch(app, query),
-    [app, includeMcpConnections, settings.mcp.connections],
+    [
+      app,
+      includeMcpConnections,
+      settings.mcp.connections,
+      settings.research.sources,
+    ],
   )
 
   /*

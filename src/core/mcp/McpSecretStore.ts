@@ -120,8 +120,12 @@ function getConnectionSecretIds(connection: McpConnectionConfig): string[] {
     connection.transport.type === 'stdio'
       ? Object.values(connection.transport.secretEnv)
       : []
-  return [...authIds, ...environmentIds].filter((id): id is string =>
-    Boolean(id),
+  const queryIds =
+    connection.transport.type === 'streamable-http'
+      ? Object.values(connection.transport.secretQueryParams ?? {})
+      : []
+  return [...authIds, ...environmentIds, ...queryIds].filter(
+    (id): id is string => Boolean(id),
   )
 }
 

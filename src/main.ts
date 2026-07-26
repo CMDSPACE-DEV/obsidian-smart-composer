@@ -12,6 +12,11 @@ import {
   migrateLegacyMcpSecrets,
 } from './core/mcp/McpSecretStore'
 import type { RAGEngine } from './core/rag/ragEngine'
+import type { ResearchManager } from './core/research/ResearchManager'
+import {
+  ResearchSecretStore,
+  migrateLegacyResearchSecrets,
+} from './core/research/ResearchSecretStore'
 import { BackgroundTaskManager } from './core/tasks/BackgroundTaskManager'
 import { LazyBackgroundTaskAdapter } from './core/tasks/LazyBackgroundTaskAdapter'
 import type { DatabaseManager } from './database/DatabaseManager'
@@ -30,6 +35,7 @@ export default class SmartComposerPlugin extends Plugin {
   initialChatProps?: ChatProps
   settingsChangeListeners: ((newSettings: SmartComposerSettings) => void)[] = []
   mcpManager: McpManager | null = null
+  researchManager: ResearchManager | null = null
   dbManager: DatabaseManager | null = null
   ragEngine: RAGEngine | null = null
   backgroundTaskManager: BackgroundTaskManager | null = null
@@ -38,6 +44,7 @@ export default class SmartComposerPlugin extends Plugin {
   private dbManagerInitPromise: Promise<DatabaseManager> | null = null
   private ragEngineInitPromise: Promise<RAGEngine> | null = null
   private mcpManagerInitPromise: Promise<McpManager> | null = null
+  private researchManagerInitPromise: Promise<ResearchManager> | null = null
   private inlineEditControllerInitPromise: Promise<InlineEditController> | null =
     null
   private settingsSaveQueue: SettingsSaveQueue<SmartComposerSettings> | null =
@@ -262,6 +269,7 @@ export default class SmartComposerPlugin extends Plugin {
     this.dbManagerInitPromise = null
     this.ragEngineInitPromise = null
     this.mcpManagerInitPromise = null
+    this.researchManagerInitPromise = null
     this.inlineEditControllerInitPromise = null
 
     // DatabaseManager cleanup
@@ -271,6 +279,8 @@ export default class SmartComposerPlugin extends Plugin {
     // McpManager cleanup
     this.mcpManager?.cleanup()
     this.mcpManager = null
+    this.researchManager?.cleanup()
+    this.researchManager = null
   }
 
   async loadSettings() {
@@ -279,7 +289,11 @@ export default class SmartComposerPlugin extends Plugin {
       parsedSettings,
       new McpSecretStore(this.app),
     )
-    this.settings = secretMigration.settings
+    const researchSecretMigration = migrateLegacyResearchSecrets(
+      secretMigration.settings,
+      new ResearchSecretStore(this.app),
+    )
+    this.settings = researchSecretMigration.settings
     await this.saveData(this.settings) // Save updated settings
     this.settingsSaveQueue = new SettingsSaveQueue(this.settings)
   }
@@ -469,6 +483,39 @@ ${validationResult.error.issues.map((v) => v.message).join('\n')}`)
     }
 
     return this.mcpManagerInitPromise
+  }
+
+  async getResearchManager(): Promise<ResearchManager> {
+    if (this.researchManager) return this.researchManager
+    if (!this.researchManagerInitPromise) {
+      this.researchManagerInitPromise = import(
+        './core/research/ResearchManager'
+      )
+        .then(({ ResearchManager }) => {
+          const manager = new ResearchManager({
+            app: this.app,
+            settings: this.settings,
+            setSettings: (settings) => this.setSettings(settings),
+            registerSettingsListener: (
+              listener: (settings: SmartComposerSettings) => void,
+            ) => this.addSettingsChangeListener(listener),
+          })
+          if (this.unloading) {
+            manager.cleanup()
+            throw new Error(
+              'Smart Composer unloaded during research initialization.',
+            )
+          }
+          this.researchManager = manager
+          return manager
+        })
+        .catch((error) => {
+          this.researchManagerInitPromise = null
+          this.researchManager = null
+          throw error
+        })
+    }
+    return this.researchManagerInitPromise
   }
 
   private registerTimeout(callback: () => void, timeout: number): void {

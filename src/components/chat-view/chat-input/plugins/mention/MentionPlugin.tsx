@@ -128,6 +128,16 @@ class MentionTypeaheadOption extends MenuOption {
         this.name = result.name
         this.mentionable = result
         break
+      case 'research-source':
+        super(`research-source:${result.sourceId}`)
+        this.name = result.name
+        this.mentionable = result
+        break
+      case 'research-pack':
+        super(`research-pack:${result.packId}`)
+        this.name = result.name
+        this.mentionable = result
+        break
     }
   }
 }
@@ -266,6 +276,17 @@ export default function NewMentionsPlugin({
                           (candidate) =>
                             candidate.mentionable.type !== 'connection',
                         )
+                    const isResearch =
+                      option.mentionable.type === 'research-source' ||
+                      option.mentionable.type === 'research-pack'
+                    const showResearchHeading =
+                      isResearch &&
+                      options.slice(0, i).every((candidate) => {
+                        const type = candidate.mentionable.type
+                        return (
+                          type !== 'research-source' && type !== 'research-pack'
+                        )
+                      })
                     return (
                       <Fragment key={option.key}>
                         {showConnectionHeading && (
@@ -274,6 +295,14 @@ export default function NewMentionsPlugin({
                             role="presentation"
                           >
                             Apps and tools
+                          </li>
+                        )}
+                        {showResearchHeading && (
+                          <li
+                            className="smtcmp-mention-popover-section"
+                            role="presentation"
+                          >
+                            Research sources
                           </li>
                         )}
                         <MentionsTypeaheadMenuItem

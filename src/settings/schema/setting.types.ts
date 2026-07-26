@@ -13,6 +13,10 @@ import {
   mcpConnectionConfigSchema,
 } from '../../types/mcp.types'
 import { llmProviderSchema } from '../../types/provider.types'
+import {
+  DEFAULT_RESEARCH_SOURCES,
+  researchSettingsSchema,
+} from '../../types/research.types'
 
 import { SETTINGS_SCHEMA_VERSION } from './migrations'
 
@@ -132,6 +136,12 @@ export const smartComposerSettingsSchema = z.object({
       routingMode: 'auto',
       connections: [],
     }),
+
+  research: researchSettingsSchema.catch({
+    routingMode: 'auto',
+    maxAutoSources: 2,
+    sources: DEFAULT_RESEARCH_SOURCES,
+  }),
 
   // Chat options
   chatOptions: z

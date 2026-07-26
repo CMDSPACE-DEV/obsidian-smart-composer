@@ -121,7 +121,7 @@ function McpServerFormComponent({
       const secretStore = new McpSecretStore(app)
       const transport =
         transportType === 'streamable-http'
-          ? buildRemoteTransport(url, legacySse)
+          ? buildRemoteTransport(url, legacySse, existing)
           : buildStdioTransport({
               id,
               command,
@@ -447,7 +447,11 @@ function buildAuth({
   }
 }
 
-function buildRemoteTransport(urlValue: string, legacySse: boolean) {
+function buildRemoteTransport(
+  urlValue: string,
+  legacySse: boolean,
+  existing?: McpConnectionConfig,
+) {
   const url = new URL(urlValue.trim())
   const isLocal =
     url.hostname === 'localhost' ||
@@ -462,6 +466,26 @@ function buildRemoteTransport(urlValue: string, legacySse: boolean) {
     type: 'streamable-http' as const,
     url: url.toString(),
     legacySse,
+    secretQueryParams:
+      existing?.transport.type === 'streamable-http' &&
+      sameRemoteEndpoint(existing.transport.url, url.toString())
+        ? (existing.transport.secretQueryParams ?? {})
+        : {},
+  }
+}
+
+function sameRemoteEndpoint(left: string, right: string): boolean {
+  try {
+    const normalize = (value: string) => {
+      const url = new URL(value)
+      url.search = ''
+      url.hash = ''
+      url.pathname = url.pathname.replace(/\/+$/, '') || '/'
+      return url.toString()
+    }
+    return normalize(left) === normalize(right)
+  } catch {
+    return false
   }
 }
 

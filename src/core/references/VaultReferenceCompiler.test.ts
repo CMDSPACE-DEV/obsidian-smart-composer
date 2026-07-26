@@ -2,6 +2,7 @@ import { App, TFile, TFolder } from 'obsidian'
 
 import { DEFAULT_CHAT_MODELS, DEFAULT_PROVIDERS } from '../../constants'
 import { SmartComposerSettings } from '../../settings/schema/setting.types'
+import { DEFAULT_RESEARCH_SOURCES } from '../../types/research.types'
 import { processQueryWithExhaustiveFolderRead } from '../rag/exhaustiveFolderRead'
 import { processQueryWithPlanRerank } from '../rag/planRerank'
 
@@ -57,7 +58,7 @@ function createSettings(
   overrides: Partial<SmartComposerSettings> = {},
 ): SmartComposerSettings {
   return {
-    version: 22,
+    version: 23,
     providers: [...DEFAULT_PROVIDERS],
     chatModels: [...DEFAULT_CHAT_MODELS],
     embeddingModels: [],
@@ -92,6 +93,11 @@ function createSettings(
       includePatterns: [],
     },
     mcp: { routingMode: 'auto', connections: [] },
+    research: {
+      routingMode: 'auto',
+      maxAutoSources: 2,
+      sources: DEFAULT_RESEARCH_SOURCES,
+    },
     chatOptions: {
       includeCurrentFileContent: true,
       enableTools: true,

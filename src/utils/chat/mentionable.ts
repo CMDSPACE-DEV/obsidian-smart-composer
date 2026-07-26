@@ -51,6 +51,18 @@ export const serializeMentionable = (
         connectionId: mentionable.connectionId,
         name: mentionable.name,
       }
+    case 'research-source':
+      return {
+        type: 'research-source',
+        sourceId: mentionable.sourceId,
+        name: mentionable.name,
+      }
+    case 'research-pack':
+      return {
+        type: 'research-pack',
+        packId: mentionable.packId,
+        name: mentionable.name,
+      }
   }
 }
 
@@ -130,6 +142,18 @@ export const deserializeMentionable = (
           connectionId: mentionable.connectionId,
           name: mentionable.name,
         }
+      case 'research-source':
+        return {
+          type: 'research-source',
+          sourceId: mentionable.sourceId,
+          name: mentionable.name,
+        }
+      case 'research-pack':
+        return {
+          type: 'research-pack',
+          packId: mentionable.packId,
+          name: mentionable.name,
+        }
     }
   } catch (e) {
     console.error('Error deserializing mentionable', e)
@@ -155,6 +179,10 @@ export function getMentionableKey(mentionable: SerializedMentionable): string {
       return `image:${mentionable.name}:${mentionable.data.length}:${mentionable.data.slice(-32)}`
     case 'connection':
       return `connection:${mentionable.connectionId}`
+    case 'research-source':
+      return `research-source:${mentionable.sourceId}`
+    case 'research-pack':
+      return `research-pack:${mentionable.packId}`
   }
 }
 
@@ -175,6 +203,10 @@ export function getMentionableName(mentionable: Mentionable): string {
     case 'image':
       return mentionable.name
     case 'connection':
+      return mentionable.name
+    case 'research-source':
+      return mentionable.name
+    case 'research-pack':
       return mentionable.name
   }
 }

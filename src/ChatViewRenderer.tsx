@@ -95,7 +95,10 @@ export function createChatViewRenderer({
                     getDatabaseManager={() => plugin.getDbManager()}
                   >
                     <RAGProvider getRAGEngine={() => plugin.getRAGEngine()}>
-                      <McpProvider getMcpManager={() => plugin.getMcpManager()}>
+                      <McpProvider
+                        getMcpManager={() => plugin.getMcpManager()}
+                        getResearchManager={() => plugin.getResearchManager()}
+                      >
                         <QueryClientProvider client={queryClient}>
                           <React.StrictMode>
                             <BackgroundTasksProvider

@@ -1,5 +1,7 @@
 import { TFile, TFolder } from 'obsidian'
 
+import type { ResearchPackId, ResearchSourceId } from './research.types'
+
 export type MentionableFile = {
   type: 'file'
   file: TFile
@@ -39,6 +41,16 @@ export type MentionableConnection = {
   connectionId: string
   name: string
 }
+export type MentionableResearchSource = {
+  type: 'research-source'
+  sourceId: ResearchSourceId
+  name: string
+}
+export type MentionableResearchPack = {
+  type: 'research-pack'
+  packId: ResearchPackId
+  name: string
+}
 export type Mentionable =
   | MentionableFile
   | MentionableFolder
@@ -48,6 +60,8 @@ export type Mentionable =
   | MentionableUrl
   | MentionableImage
   | MentionableConnection
+  | MentionableResearchSource
+  | MentionableResearchPack
 export type SerializedMentionableFile = {
   type: 'file'
   file: string
@@ -71,6 +85,8 @@ export type SerializedMentionableBlock = {
 export type SerializedMentionableUrl = MentionableUrl
 export type SerializedMentionableImage = MentionableImage
 export type SerializedMentionableConnection = MentionableConnection
+export type SerializedMentionableResearchSource = MentionableResearchSource
+export type SerializedMentionableResearchPack = MentionableResearchPack
 export type SerializedMentionable =
   | SerializedMentionableFile
   | SerializedMentionableFolder
@@ -80,3 +96,5 @@ export type SerializedMentionable =
   | SerializedMentionableUrl
   | SerializedMentionableImage
   | SerializedMentionableConnection
+  | SerializedMentionableResearchSource
+  | SerializedMentionableResearchPack

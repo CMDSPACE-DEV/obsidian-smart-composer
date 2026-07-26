@@ -797,6 +797,17 @@ export class McpManager {
           }
         }
         const url = new URL(config.transport.url)
+        for (const [name, secretId] of Object.entries(
+          config.transport.secretQueryParams ?? {},
+        )) {
+          const value = this.secretStore.get(secretId)
+          if (!value) {
+            throw new Error(
+              `MCP connection "${config.name}" is missing the stored ${name} credential.`,
+            )
+          }
+          url.searchParams.set(name, value)
+        }
         const requestInit = this.getRemoteRequestInit(config)
         const remoteFetch = createDesktopMcpFetch()
         const usesOAuth =

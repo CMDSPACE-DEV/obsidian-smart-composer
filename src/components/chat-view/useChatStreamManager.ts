@@ -12,6 +12,7 @@ import {
   LLMModelNotFoundException,
 } from '../../core/llm/exception'
 import { ChatMessage, ChatUserMessage } from '../../types/chat'
+import type { ResearchSourceId } from '../../types/research.types'
 import { PromptGenerator } from '../../utils/chat/promptGenerator'
 import { ResponseGenerator } from '../../utils/chat/responseGenerator'
 import { hasVisibleResponseOutput } from '../../utils/chat/responseState'
@@ -40,7 +41,7 @@ export function useChatStreamManager({
 }: UseChatStreamManagerParams): UseChatStreamManager {
   const app = useApp()
   const { settings, setSettings } = useSettings()
-  const { getMcpManager } = useMcp()
+  const { getMcpManager, getResearchManager } = useMcp()
 
   const activeStreamAbortControllersRef = useRef<AbortController[]>([])
   const [responsePhase, setResponsePhase] = useState<
@@ -119,6 +120,36 @@ export function useChatStreamManager({
         const latestUserMessage = [...chatMessages]
           .reverse()
           .find((message) => message.role === 'user')
+        const loadedResearchManager =
+          settings.chatOptions.enableTools &&
+          settings.research.routingMode !== 'off' &&
+          Object.values(settings.research.sources).some(
+            (source) => source.enabled,
+          )
+            ? await getResearchManager()
+            : null
+        const explicitResearchSources =
+          latestUserMessage?.role === 'user'
+            ? latestUserMessage.mentionables.flatMap((mentionable) =>
+                mentionable.type === 'research-source'
+                  ? [mentionable.sourceId]
+                  : [],
+              )
+            : []
+        const explicitResearchPacks =
+          latestUserMessage?.role === 'user'
+            ? latestUserMessage.mentionables.flatMap((mentionable) =>
+                mentionable.type === 'research-pack'
+                  ? [mentionable.packId]
+                  : [],
+              )
+            : []
+        const explicitResearchSourceIds = loadedResearchManager
+          ? uniqueResearchSources([
+              ...explicitResearchSources,
+              ...loadedResearchManager.resolvePackIds(explicitResearchPacks),
+            ])
+          : []
         const mcpConnectionIds =
           latestUserMessage?.role === 'user'
             ? latestUserMessage.mentionables.flatMap((mentionable) =>
@@ -131,6 +162,15 @@ export function useChatStreamManager({
           latestUserMessage?.role === 'user'
             ? getUserPromptText(latestUserMessage.promptContent)
             : ''
+        const selectedResearchSourceIds = loadedResearchManager
+          ? loadedResearchManager.selectSourceIds(
+              mcpQuery,
+              explicitResearchSourceIds,
+            )
+          : []
+        const researchMcpConnectionIds = loadedResearchManager
+          ? loadedResearchManager.getMcpConnectionIds(selectedResearchSourceIds)
+          : []
         const responseGenerator = new ResponseGenerator({
           providerClient: chatModelClient.providerClient,
           model: chatModelClient.model,
@@ -142,8 +182,12 @@ export function useChatStreamManager({
           mcpManager,
           mcpRoutingMode: settings.mcp.routingMode,
           mcpQuery,
-          mcpConnectionIds,
+          mcpConnectionIds: [...mcpConnectionIds, ...researchMcpConnectionIds],
           abortSignal: abortController.signal,
+          localTools: loadedResearchManager?.getLocalTools({
+            query: mcpQuery,
+            explicitSourceIds: explicitResearchSourceIds,
+          }),
         })
 
         unsubscribeResponseGenerator = responseGenerator.subscribe(
@@ -212,6 +256,12 @@ export function useChatStreamManager({
     responsePhase,
     submitChatMutation,
   }
+}
+
+function uniqueResearchSources(
+  sourceIds: readonly ResearchSourceId[],
+): ResearchSourceId[] {
+  return Array.from(new Set(sourceIds))
 }
 
 function getUserPromptText(content: ChatUserMessage['promptContent']): string {

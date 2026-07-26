@@ -15,6 +15,10 @@ import type { QueryProgressState } from '../../components/chat-view/QueryProgres
 import type SmartComposerPlugin from '../../main'
 import type { BackgroundTaskRecord } from '../../types/background-task'
 import { RetrievalMetadata } from '../../types/chat'
+import type {
+  ResearchEvidence,
+  ResearchSourceId,
+} from '../../types/research.types'
 import { getNestedFiles } from '../../utils/obsidian'
 import { analyzeDocumentEdit } from '../document-edit/analysis'
 import { createDocumentEditJob } from '../document-edit/createDocumentEditJob'
@@ -30,6 +34,10 @@ import {
   compileVaultReferences,
   isExhaustiveReadIntent,
 } from '../references/VaultReferenceCompiler'
+import {
+  RESEARCH_PACKS,
+  getResearchSource,
+} from '../research/ResearchSourceRegistry'
 
 import {
   InlineVaultReference,
@@ -80,6 +88,7 @@ type InlineSession = {
   replacement?: string
   error?: string
   references: InlineVaultReference[]
+  researchOptions: InlineVaultReference[]
   referenceScope: VaultReferenceScope
   referencePhase?: InlineReferencePhase
   retrievalMetadata?: RetrievalMetadata
@@ -128,6 +137,7 @@ type InlineRequestInput = {
   prompt: string
   mode: InlineEditMode
   references: InlineVaultReference[]
+  researchOptions: InlineVaultReference[]
   referenceScope: VaultReferenceScope
   referenceWarnings: string[]
   referenceSources: CompiledVaultReferences['sourceFiles']
@@ -295,6 +305,7 @@ class InlineEditWidget extends WidgetType {
           input,
           region: referenceRegion,
           initialReferences: selectedReferences,
+          researchOptions: this.session.researchOptions,
           onChange: (references) => {
             selectedReferences = references
             refreshPromptReferenceEcho()
@@ -837,6 +848,7 @@ export class InlineEditController {
       return
     }
     const id = uuidv4()
+    const researchOptions = getInlineResearchOptions(this.plugin.settings)
     this.drafts.set(id, {
       prompt: '',
       mode: 'auto',
@@ -968,6 +980,7 @@ export class InlineEditController {
         prompt,
         mode,
         references,
+        researchOptions,
         referenceScope,
         referenceWarnings: [],
         referenceSources: [],
@@ -1004,6 +1017,7 @@ export class InlineEditController {
       status: 'prompt',
       mode: 'auto',
       references: [],
+      researchOptions,
       referenceScope: 'auto',
       referenceWarnings: [],
       referenceSources: [],
@@ -1107,11 +1121,8 @@ export class InlineEditController {
         input.referenceScope === 'auto' && isExhaustiveReadIntent(input.prompt)
           ? 'entire'
           : input.referenceScope
-      const compiledReferences = await compileVaultReferences({
-        app: this.plugin.app,
-        settings,
-        setSettings: (next) => this.plugin.setSettings(next),
-        getRagEngine: () => this.plugin.getRAGEngine(),
+      const compiledReferences = await compileInlineReferences({
+        plugin: this.plugin,
         query: input.prompt,
         references: input.references,
         targetFilePath: input.filePath,
@@ -1520,11 +1531,8 @@ export class InlineEditController {
           : input.referenceScope
       const compiledReferences =
         input.compiledReferences ??
-        (await compileVaultReferences({
-          app: this.plugin.app,
-          settings,
-          setSettings: (next) => this.plugin.setSettings(next),
-          getRagEngine: () => this.plugin.getRAGEngine(),
+        (await compileInlineReferences({
+          plugin: this.plugin,
           query: input.prompt,
           references: input.references,
           targetFilePath: input.filePath,
@@ -1676,6 +1684,146 @@ export class InlineEditController {
   private hasSession(editorView: EditorView, id: string): boolean {
     return editorView.state.field(inlineEditField, false)?.has(id) ?? false
   }
+}
+
+async function compileInlineReferences({
+  plugin,
+  query,
+  references,
+  targetFilePath,
+  modelId,
+  scope,
+  signal,
+  onProgress,
+}: {
+  plugin: SmartComposerPlugin
+  query: string
+  references: readonly InlineVaultReference[]
+  targetFilePath: string
+  modelId: string
+  scope: VaultReferenceScope
+  signal?: AbortSignal
+  onProgress?: (state: QueryProgressState) => void
+}): Promise<CompiledVaultReferences> {
+  const vaultReferences = references.filter(
+    (
+      reference,
+    ): reference is Extract<
+      InlineVaultReference,
+      { type: 'file' | 'folder' }
+    > => reference.type === 'file' || reference.type === 'folder',
+  )
+  const compiled = await compileVaultReferences({
+    app: plugin.app,
+    settings: plugin.settings,
+    setSettings: (next) => plugin.setSettings(next),
+    getRagEngine: () => plugin.getRAGEngine(),
+    query,
+    references: vaultReferences,
+    targetFilePath,
+    modelId,
+    scope,
+    signal,
+    onProgress,
+  })
+
+  const explicitSourceIds = references.flatMap((reference) =>
+    reference.type === 'research-source' ? [reference.sourceId] : [],
+  )
+  const explicitPackIds = references.flatMap((reference) =>
+    reference.type === 'research-pack' ? [reference.packId] : [],
+  )
+  const researchEnabled =
+    plugin.settings.research.routingMode !== 'off' &&
+    Object.values(plugin.settings.research.sources).some(
+      (source) => source.enabled,
+    )
+  if (!researchEnabled && explicitSourceIds.length === 0) return compiled
+
+  onProgress?.({ type: 'reading-mentionables' })
+  const manager = await plugin.getResearchManager()
+  const resolvedExplicitIds = Array.from(
+    new Set([...explicitSourceIds, ...manager.resolvePackIds(explicitPackIds)]),
+  )
+  const selectedIds = manager.selectSourceIds(query, resolvedExplicitIds)
+  if (selectedIds.length === 0) return compiled
+
+  const mcpSources = selectedIds.filter(
+    (sourceId) => getResearchSource(sourceId).protocol === 'mcp',
+  )
+  const warnings = [...compiled.warnings]
+  if (mcpSources.length > 0) {
+    warnings.push(
+      `Inline edit cannot auto-execute MCP tools yet: ${mcpSources
+        .map((sourceId) => getResearchSource(sourceId).name)
+        .join(', ')}. Use the side chat for those MCP sources.`,
+    )
+  }
+
+  let evidence: ResearchEvidence[] = []
+  try {
+    const research = await manager.searchSources({
+      query,
+      explicitSourceIds: selectedIds,
+      limit: 8,
+      signal,
+    })
+    evidence = research.records
+    warnings.push(...research.warnings)
+  } catch (error) {
+    warnings.push(
+      `Research context was unavailable: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    )
+  }
+  const researchText = formatInlineResearchEvidence(evidence)
+  return {
+    ...compiled,
+    promptText: [compiled.promptText, researchText]
+      .filter(Boolean)
+      .join('\n\n'),
+    warnings: Array.from(new Set(warnings)),
+  }
+}
+
+function formatInlineResearchEvidence(
+  records: readonly ResearchEvidence[],
+): string {
+  if (records.length === 0) return ''
+  const groups = new Map<string, ResearchEvidence[]>()
+  for (const record of records) {
+    const key = `${record.sourceName} (${record.operator})`
+    groups.set(key, [...(groups.get(key) ?? []), record])
+  }
+  const sections = [...groups.entries()].map(([source, entries]) => {
+    const items = entries.map((entry, index) => {
+      const details = [
+        entry.authors?.slice(0, 5).join(', '),
+        entry.publicationName,
+        entry.publishedAt,
+        entry.identifiers.doi ? `DOI ${entry.identifiers.doi}` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ')
+      const caveats = entry.caveats?.length
+        ? `\n  Caveat: ${entry.caveats.join(' ')}`
+        : ''
+      const snippet = entry.snippet
+        ? `\n  Evidence: ${entry.snippet.slice(0, 800)}`
+        : ''
+      return `${index + 1}. ${entry.title}\n  URL: ${entry.url}${
+        details ? `\n  Metadata: ${details}` : ''
+      }${snippet}${caveats}`
+    })
+    return `### ${source}\n${items.join('\n')}`
+  })
+  return [
+    '<external_research_evidence>',
+    'Use this retrieved metadata as a dated evidence snapshot. Cite its URLs, preserve caveats, and never imply that a discovery snippet is verified full text.',
+    ...sections,
+    '</external_research_evidence>',
+  ].join('\n')
 }
 
 export function isShortProseEdit(before: string, after: string): boolean {
@@ -2124,8 +2272,8 @@ function makeReadOnlyReferenceChips(
   for (const reference of references) {
     const chip = doc.createElement('span')
     chip.className = 'reference-chip'
-    chip.title = reference.path
-    chip.textContent = `${reference.type === 'file' ? 'Note' : 'Folder'} · ${getReferenceName(reference.path)}`
+    chip.title = getInlineReferenceDescription(reference)
+    chip.textContent = `${getInlineReferenceKind(reference)} · ${getInlineReferenceName(reference)}`
     row.append(chip)
   }
   return row
@@ -2141,8 +2289,8 @@ function renderPromptReferenceEcho(
   for (const reference of references) {
     const token = doc.createElement('span')
     token.className = 'prompt-reference-token'
-    token.title = reference.path
-    token.textContent = `@${getReferenceName(reference.path)}`
+    token.title = getInlineReferenceDescription(reference)
+    token.textContent = `@${getInlineReferenceName(reference)}`
     region.append(token)
   }
 }
@@ -2270,6 +2418,7 @@ function countReferencedMarkdownFiles(
       if (file?.extension === 'md') paths.add(file.path)
       continue
     }
+    if (reference.type !== 'folder') continue
     const folder = app.vault.getFolderByPath(reference.path)
     if (!folder) continue
     for (const file of getNestedFiles(folder, app.vault)) {
@@ -2277,6 +2426,68 @@ function countReferencedMarkdownFiles(
     }
   }
   return paths.size
+}
+
+function getInlineResearchOptions(
+  settings: SmartComposerPlugin['settings'],
+): InlineVaultReference[] {
+  const sourceOptions = (
+    Object.keys(settings.research.sources) as ResearchSourceId[]
+  )
+    .filter((sourceId) => settings.research.sources[sourceId]?.enabled)
+    .map((sourceId) => ({
+      type: 'research-source' as const,
+      sourceId,
+      name: getResearchSource(sourceId).name,
+    }))
+  const packOptions = RESEARCH_PACKS.filter((pack) =>
+    pack.sourceIds.some(
+      (sourceId) => settings.research.sources[sourceId]?.enabled,
+    ),
+  ).map((pack) => ({
+    type: 'research-pack' as const,
+    packId: pack.id,
+    name: pack.name,
+  }))
+  return [...sourceOptions, ...packOptions]
+}
+
+function getInlineReferenceName(reference: InlineVaultReference): string {
+  switch (reference.type) {
+    case 'file':
+    case 'folder':
+      return getReferenceName(reference.path)
+    case 'research-source':
+    case 'research-pack':
+      return reference.name
+  }
+}
+
+function getInlineReferenceDescription(
+  reference: InlineVaultReference,
+): string {
+  switch (reference.type) {
+    case 'file':
+    case 'folder':
+      return reference.path
+    case 'research-source':
+      return `${reference.name} research source`
+    case 'research-pack':
+      return `${reference.name} research pack`
+  }
+}
+
+function getInlineReferenceKind(reference: InlineVaultReference): string {
+  switch (reference.type) {
+    case 'file':
+      return 'Note'
+    case 'folder':
+      return 'Folder'
+    case 'research-source':
+      return 'Source'
+    case 'research-pack':
+      return 'Pack'
+  }
 }
 
 function makeMetric(doc: Document, label: string, value: string): HTMLElement {

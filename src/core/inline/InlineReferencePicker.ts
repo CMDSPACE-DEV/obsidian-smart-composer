@@ -1,5 +1,9 @@
 import { App, setIcon } from 'obsidian'
 
+import type {
+  ResearchPackId,
+  ResearchSourceId,
+} from '../../types/research.types'
 import {
   findMentionTrigger,
   removeMentionTrigger,
@@ -15,6 +19,16 @@ export type InlineVaultReference =
       type: 'folder'
       path: string
     }
+  | {
+      type: 'research-source'
+      sourceId: ResearchSourceId
+      name: string
+    }
+  | {
+      type: 'research-pack'
+      packId: ResearchPackId
+      name: string
+    }
 
 export type InlineReferencePicker = {
   handleKeyDown: (event: KeyboardEvent) => boolean
@@ -27,6 +41,7 @@ export function mountInlineReferencePicker({
   input,
   region,
   initialReferences,
+  researchOptions = [],
   onChange,
 }: {
   app: App
@@ -34,6 +49,7 @@ export function mountInlineReferencePicker({
   input: HTMLTextAreaElement
   region: HTMLElement
   initialReferences: readonly InlineVaultReference[]
+  researchOptions?: readonly InlineVaultReference[]
   onChange: (references: InlineVaultReference[]) => void
 }): InlineReferencePicker {
   let references = [...initialReferences]
@@ -52,8 +68,7 @@ export function mountInlineReferencePicker({
   list.hidden = true
   region.append(chips, list)
 
-  const keyFor = (reference: InlineVaultReference) =>
-    `${reference.type}:${reference.path}`
+  const keyFor = getReferenceKey
 
   const renderChips = () => {
     chips.replaceChildren()
@@ -61,17 +76,20 @@ export function mountInlineReferencePicker({
     for (const reference of references) {
       const chip = doc.createElement('span')
       chip.className = 'reference-chip'
-      chip.title = reference.path
+      chip.title = getReferenceDescription(reference)
       const icon = doc.createElement('span')
       icon.className = 'reference-icon'
-      setIcon(icon, reference.type === 'file' ? 'file-text' : 'folder')
+      setIcon(icon, getReferenceIcon(reference))
       const label = doc.createElement('span')
       label.className = 'reference-chip-label'
-      label.textContent = getPathName(reference.path)
+      label.textContent = getReferenceLabel(reference)
       const remove = doc.createElement('button')
       remove.type = 'button'
       remove.className = 'reference-remove'
-      remove.setAttribute('aria-label', `Remove ${reference.path}`)
+      remove.setAttribute(
+        'aria-label',
+        `Remove ${getReferenceLabel(reference)}`,
+      )
       setIcon(remove, 'x')
       remove.addEventListener('click', (event) => {
         event.preventDefault()
@@ -135,13 +153,13 @@ export function mountInlineReferencePicker({
       )
       const icon = doc.createElement('span')
       icon.className = 'reference-icon'
-      setIcon(icon, reference.type === 'file' ? 'file-text' : 'folder')
+      setIcon(icon, getReferenceIcon(reference))
       const copy = doc.createElement('span')
       copy.className = 'reference-option-copy'
       const name = doc.createElement('strong')
-      name.textContent = getPathName(reference.path)
+      name.textContent = getReferenceLabel(reference)
       const path = doc.createElement('small')
-      path.textContent = reference.path
+      path.textContent = getReferenceDescription(reference)
       copy.append(name, path)
       option.append(icon, copy)
       option.addEventListener('mousedown', (event) => event.preventDefault())
@@ -162,7 +180,7 @@ export function mountInlineReferencePicker({
       close()
       return
     }
-    results = fuzzySearch(app, trigger.query)
+    const vaultResults = fuzzySearch(app, trigger.query)
       .filter(
         (
           mentionable,
@@ -182,10 +200,20 @@ export function mountInlineReferencePicker({
               path: mentionable.folder.path,
             },
       )
+    const normalizedQuery = trigger.query.trim().toLocaleLowerCase()
+    const externalResults = researchOptions.filter(
+      (reference) =>
+        !normalizedQuery ||
+        getReferenceLabel(reference)
+          .toLocaleLowerCase()
+          .includes(normalizedQuery),
+    )
+    results = [...vaultResults, ...externalResults]
       .filter(
         (reference) =>
           !references.some((item) => keyFor(item) === keyFor(reference)),
       )
+      .slice(0, 20)
     selectedIndex = Math.min(selectedIndex, Math.max(results.length - 1, 0))
     menuOpen = results.length > 0
     renderList()
@@ -246,4 +274,52 @@ export function mountInlineReferencePicker({
 function getPathName(path: string): string {
   const parts = path.split('/').filter(Boolean)
   return parts.at(-1) ?? path
+}
+
+function getReferenceKey(reference: InlineVaultReference): string {
+  switch (reference.type) {
+    case 'file':
+    case 'folder':
+      return `${reference.type}:${reference.path}`
+    case 'research-source':
+      return `research-source:${reference.sourceId}`
+    case 'research-pack':
+      return `research-pack:${reference.packId}`
+  }
+}
+
+function getReferenceLabel(reference: InlineVaultReference): string {
+  switch (reference.type) {
+    case 'file':
+    case 'folder':
+      return getPathName(reference.path)
+    case 'research-source':
+    case 'research-pack':
+      return reference.name
+  }
+}
+
+function getReferenceDescription(reference: InlineVaultReference): string {
+  switch (reference.type) {
+    case 'file':
+    case 'folder':
+      return reference.path
+    case 'research-source':
+      return `${reference.name} · Research source`
+    case 'research-pack':
+      return `${reference.name} · Research pack`
+  }
+}
+
+function getReferenceIcon(reference: InlineVaultReference): string {
+  switch (reference.type) {
+    case 'file':
+      return 'file-text'
+    case 'folder':
+      return 'folder'
+    case 'research-source':
+      return 'search-check'
+    case 'research-pack':
+      return 'library-big'
+  }
 }

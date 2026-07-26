@@ -1,20 +1,26 @@
 import { PropsWithChildren, createContext, useContext, useMemo } from 'react'
 
 import type { McpManager } from '../core/mcp/mcpManager'
+import type { ResearchManager } from '../core/research/ResearchManager'
 
 export type McpContextType = {
   getMcpManager: () => Promise<McpManager>
+  getResearchManager: () => Promise<ResearchManager>
 }
 
 const McpContext = createContext<McpContextType | null>(null)
 
 export function McpProvider({
   getMcpManager,
+  getResearchManager,
   children,
-}: PropsWithChildren<{ getMcpManager: () => Promise<McpManager> }>) {
+}: PropsWithChildren<{
+  getMcpManager: () => Promise<McpManager>
+  getResearchManager: () => Promise<ResearchManager>
+}>) {
   const value = useMemo(() => {
-    return { getMcpManager }
-  }, [getMcpManager])
+    return { getMcpManager, getResearchManager }
+  }, [getMcpManager, getResearchManager])
 
   return <McpContext.Provider value={value}>{children}</McpContext.Provider>
 }

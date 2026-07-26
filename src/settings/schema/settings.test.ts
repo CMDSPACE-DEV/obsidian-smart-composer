@@ -4,6 +4,7 @@ import {
   DEFAULT_EMBEDDING_MODELS,
   DEFAULT_PROVIDERS,
 } from '../../constants'
+import { DEFAULT_RESEARCH_SOURCES } from '../../types/research.types'
 
 import { SETTINGS_SCHEMA_VERSION } from './migrations'
 import { parseSmartComposerSettings } from './settings'
@@ -60,6 +61,11 @@ describe('parseSmartComposerSettings', () => {
       mcp: {
         routingMode: 'auto',
         connections: [],
+      },
+      research: {
+        routingMode: 'auto',
+        maxAutoSources: 2,
+        sources: DEFAULT_RESEARCH_SOURCES,
       },
 
       chatOptions: {
@@ -130,7 +136,7 @@ describe('parseSmartComposerSettings', () => {
     const result = parseSmartComposerSettings(input)
 
     expect(input).toEqual(before)
-    expect(result.version).toBe(22)
+    expect(result.version).toBe(SETTINGS_SCHEMA_VERSION)
     expect(result.chatModelId).toBe('gpt-5.6-sol (plan)')
     expect(result.inlineEdit.modelId).toBe('claude-sonnet-5 (plan)')
     expect(result.providers).toEqual(input.providers)

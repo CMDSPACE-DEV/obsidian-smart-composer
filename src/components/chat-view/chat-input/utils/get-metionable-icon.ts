@@ -3,8 +3,10 @@ import {
   FolderClosedIcon,
   FoldersIcon,
   ImageIcon,
+  LibraryBig,
   LinkIcon,
   PlugZap,
+  SearchCheck,
 } from 'lucide-react'
 
 import { Mentionable } from '../../../../types/mentionable'
@@ -27,6 +29,10 @@ export const getMentionableIcon = (mentionable: Mentionable) => {
       return ImageIcon
     case 'connection':
       return PlugZap
+    case 'research-source':
+      return SearchCheck
+    case 'research-pack':
+      return LibraryBig
     default:
       return null
   }

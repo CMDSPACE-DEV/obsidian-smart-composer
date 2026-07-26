@@ -1,5 +1,6 @@
 import { App, TFile } from 'obsidian'
 
+import { DEFAULT_RESEARCH_SOURCES } from '../../types/research.types'
 import { getChatModelClient } from '../llm/manager'
 
 import { processQueryWithPlanRerank } from './planRerank'
@@ -85,7 +86,7 @@ describe('processQueryWithPlanRerank', () => {
     const { results, retrievalMetadata } = await processQueryWithPlanRerank({
       app,
       settings: {
-        version: 22,
+        version: 23,
         providers: [],
         chatModels: [],
         embeddingModels: [],
@@ -120,6 +121,11 @@ describe('processQueryWithPlanRerank', () => {
           includePatterns: [],
         },
         mcp: { routingMode: 'auto', connections: [] },
+        research: {
+          routingMode: 'auto',
+          maxAutoSources: 2,
+          sources: DEFAULT_RESEARCH_SOURCES,
+        },
         chatOptions: {
           includeCurrentFileContent: true,
           enableTools: true,
@@ -189,7 +195,7 @@ describe('processQueryWithPlanRerank', () => {
     const result = await processQueryWithPlanRerank({
       app,
       settings: {
-        version: 22,
+        version: 23,
         providers: [],
         chatModels: [],
         embeddingModels: [],
@@ -224,6 +230,11 @@ describe('processQueryWithPlanRerank', () => {
           includePatterns: [],
         },
         mcp: { routingMode: 'auto', connections: [] },
+        research: {
+          routingMode: 'auto',
+          maxAutoSources: 2,
+          sources: DEFAULT_RESEARCH_SOURCES,
+        },
         chatOptions: {
           includeCurrentFileContent: true,
           enableTools: true,

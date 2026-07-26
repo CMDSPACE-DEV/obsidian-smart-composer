@@ -5,6 +5,8 @@ import {
   MentionableConnection,
   MentionableFile,
   MentionableFolder,
+  MentionableResearchPack,
+  MentionableResearchSource,
   MentionableVault,
 } from '../types/mentionable'
 
@@ -15,6 +17,8 @@ export type SearchableMentionable =
   | MentionableFolder
   | MentionableVault
   | MentionableConnection
+  | MentionableResearchSource
+  | MentionableResearchPack
 
 type VaultSearchItem = {
   type: 'vault'
@@ -193,6 +197,7 @@ export function fuzzySearchWithConnections(
   app: App,
   query: string,
   connections: MentionableConnection[],
+  research: (MentionableResearchSource | MentionableResearchPack)[] = [],
 ): SearchableMentionable[] {
   const vaultResults = fuzzySearch(app, query)
   const normalizedQuery = query.trim().toLocaleLowerCase()
@@ -205,9 +210,21 @@ export function fuzzySearchWithConnections(
     .sort((a, b) => a.name.localeCompare(b.name))
 
   const visibleConnections = connectionResults.slice(0, 6)
+  const researchResults = research
+    .filter(
+      (mentionable) =>
+        !normalizedQuery ||
+        mentionable.name.toLocaleLowerCase().includes(normalizedQuery),
+    )
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, 8)
   return [
-    ...vaultResults.slice(0, 20 - visibleConnections.length),
+    ...vaultResults.slice(
+      0,
+      Math.max(4, 20 - visibleConnections.length - researchResults.length),
+    ),
     ...visibleConnections,
+    ...researchResults,
   ]
 }
 

@@ -11,6 +11,8 @@ import {
   MentionableFile,
   MentionableFolder,
   MentionableImage,
+  MentionableResearchPack,
+  MentionableResearchSource,
   MentionableUrl,
   MentionableVault,
 } from '../../../types/mentionable'
@@ -312,6 +314,38 @@ function ConnectionBadge({
   )
 }
 
+function ResearchBadge({
+  mentionable,
+  onDelete,
+  onClick,
+  isFocused,
+}: {
+  mentionable: MentionableResearchSource | MentionableResearchPack
+  onDelete: () => void
+  onClick: () => void
+  isFocused: boolean
+}) {
+  const Icon = getMentionableIcon(mentionable)
+  return (
+    <BadgeBase onDelete={onDelete} onClick={onClick} isFocused={isFocused}>
+      <div className="smtcmp-chat-user-input-file-badge-name">
+        {Icon && (
+          <Icon
+            size={12}
+            className="smtcmp-chat-user-input-file-badge-name-icon"
+          />
+        )}
+        <span>{mentionable.name}</span>
+      </div>
+      <div className="smtcmp-chat-user-input-file-badge-name-suffix">
+        {mentionable.type === 'research-pack'
+          ? ' (Research pack)'
+          : ' (Research)'}
+      </div>
+    </BadgeBase>
+  )
+}
+
 export default function MentionableBadge({
   mentionable,
   onDelete,
@@ -390,6 +424,16 @@ export default function MentionableBadge({
     case 'connection':
       return (
         <ConnectionBadge
+          mentionable={mentionable}
+          onDelete={onDelete}
+          onClick={onClick}
+          isFocused={isFocused}
+        />
+      )
+    case 'research-source':
+    case 'research-pack':
+      return (
+        <ResearchBadge
           mentionable={mentionable}
           onDelete={onDelete}
           onClick={onClick}

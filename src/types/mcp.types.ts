@@ -54,6 +54,7 @@ export const mcpRemoteTransportSchema = z.object({
   type: z.literal('streamable-http'),
   url: z.string(),
   legacySse: z.boolean().catch(false),
+  secretQueryParams: z.record(z.string(), z.string()).optional().catch({}),
 })
 export type McpRemoteTransport = z.infer<typeof mcpRemoteTransportSchema>
 
