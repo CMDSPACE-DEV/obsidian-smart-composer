@@ -35,6 +35,7 @@ premature synthesis.
 | R-010 | Beginner-safe MCP connection, authentication, tool discovery, and chat invocation UX | **Verified** | **Mandatory** | [R-010 report](R-010-mcp-connection-authentication-and-invocation-ux.md) |
 | R-011 | Smart Composer 2.3 MCP implementation and automated verification | **Verified + Implemented in 2.3.0** | **Mandatory** | [R-011 report](R-011-mcp-2.3-implementation-verification.md) |
 | R-012 | Remote MCP browser-CORS failure and desktop transport correction | **Verified + Implemented in 2.3.2** | **Mandatory** | [R-012 report](R-012-remote-mcp-cors-transport.md) |
+| R-013 | Provider-aware long output budgets, truncation recovery, HanMark imports, and document-scale editing jobs | **Verified investigation; implementation proposed** | **Mandatory** | [R-013 report](R-013-long-output-and-document-scale-editing.md) |
 
 ## Mandatory Synthesis Rule
 
