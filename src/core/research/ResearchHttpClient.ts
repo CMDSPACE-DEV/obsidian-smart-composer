@@ -9,6 +9,15 @@ export type ResearchHttpRequest = {
   body?: string
 }
 
+export type ResearchHttpResponseEvent = {
+  sourceId: ResearchSourceId
+  hostname: string
+  status: number
+  receivedAt: number
+}
+
+type ResearchHttpResponseListener = (event: ResearchHttpResponseEvent) => void
+
 const MIN_INTERVAL_MS: Partial<Record<ResearchSourceId, number>> = {
   wos: 1000,
   crossref: 200,
@@ -19,6 +28,8 @@ const MIN_INTERVAL_MS: Partial<Record<ResearchSourceId, number>> = {
 
 export class ResearchHttpClient {
   private readonly lastRequestAt = new Map<ResearchSourceId, number>()
+
+  constructor(private readonly onResponse?: ResearchHttpResponseListener) {}
 
   async request(
     sourceId: ResearchSourceId,
@@ -47,7 +58,14 @@ export class ResearchHttpClient {
         `${sourceId}: Network request failed before a response was received.`,
       )
     }
-    this.lastRequestAt.set(sourceId, Date.now())
+    const receivedAt = Date.now()
+    this.lastRequestAt.set(sourceId, receivedAt)
+    this.notifyResponse({
+      sourceId,
+      hostname: safeHostname(request.url),
+      status: response.status,
+      receivedAt,
+    })
     throwIfAborted(signal)
 
     if (response.status < 200 || response.status >= 300) {
@@ -88,6 +106,14 @@ export class ResearchHttpClient {
     const waitMs = interval - (Date.now() - lastRequest)
     if (waitMs <= 0) return
     await abortableDelay(waitMs, signal)
+  }
+
+  private notifyResponse(event: ResearchHttpResponseEvent): void {
+    try {
+      this.onResponse?.(event)
+    } catch (error) {
+      console.warn('Research usage listener failed:', error)
+    }
   }
 }
 
@@ -139,6 +165,14 @@ function sanitizeHttpError(
 
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+}
+
+function safeHostname(url: string): string {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return ''
+  }
 }
 
 function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {

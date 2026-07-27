@@ -184,6 +184,7 @@ export function useChatStreamManager({
           mcpQuery,
           mcpConnectionIds: [...mcpConnectionIds, ...researchMcpConnectionIds],
           abortSignal: abortController.signal,
+          finalizeAfterAutoLimit: settings.mcp.executionMode === 'full-auto',
           localTools: loadedResearchManager?.getLocalTools({
             query: mcpQuery,
             explicitSourceIds: explicitResearchSourceIds,

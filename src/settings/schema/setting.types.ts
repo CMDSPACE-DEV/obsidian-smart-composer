@@ -9,6 +9,7 @@ import {
 import { chatModelSchema } from '../../types/chat-model.types'
 import { embeddingModelSchema } from '../../types/embedding-model.types'
 import {
+  MCP_EXECUTION_MODES,
   MCP_ROUTING_MODES,
   mcpConnectionConfigSchema,
 } from '../../types/mcp.types'
@@ -130,10 +131,12 @@ export const smartComposerSettingsSchema = z.object({
   mcp: z
     .object({
       routingMode: z.enum(MCP_ROUTING_MODES).catch('auto'),
+      executionMode: z.enum(MCP_EXECUTION_MODES).catch('full-auto'),
       connections: z.array(mcpConnectionConfigSchema).catch([]),
     })
     .catch({
       routingMode: 'auto',
+      executionMode: 'full-auto',
       connections: [],
     }),
 
@@ -153,7 +156,7 @@ export const smartComposerSettingsSchema = z.object({
     .catch({
       includeCurrentFileContent: true,
       enableTools: true,
-      maxAutoIterations: 1,
+      maxAutoIterations: 12,
     }),
 })
 export type SmartComposerSettings = z.infer<typeof smartComposerSettingsSchema>

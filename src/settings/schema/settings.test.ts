@@ -60,6 +60,7 @@ describe('parseSmartComposerSettings', () => {
 
       mcp: {
         routingMode: 'auto',
+        executionMode: 'full-auto',
         connections: [],
       },
       research: {
@@ -71,7 +72,7 @@ describe('parseSmartComposerSettings', () => {
       chatOptions: {
         includeCurrentFileContent: true,
         enableTools: true,
-        maxAutoIterations: 1,
+        maxAutoIterations: 12,
       },
     })
   })

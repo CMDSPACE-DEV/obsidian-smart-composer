@@ -41,6 +41,10 @@ premature synthesis.
 | R-016 | Plan-first settings information architecture and seven-pack Research Connections implementation contract | **Verified plan + Implementation baseline** | **Mandatory** | [R-016 report](R-016-plan-first-settings-and-research-connections.md) |
 | R-017 | Power 7 and Korean Law credential issuance, connection, invocation, troubleshooting, and source-boundary user guide | **Verified guide for 2.5.1** | **Mandatory** | [R-017 guide](R-017-power-7-research-connections-setup-and-usage-guide.md) |
 | R-018 | NAVER API HUB provider errorCode 200, legacy Developers credential compatibility, and automatic contract detection | **Verified + Implemented in 2.5.1** | **Mandatory** | [R-018 report](R-018-naver-api-hub-legacy-credential-compatibility.md) |
+| R-019 | NAVER API HUB local call metering, official-console boundary, and IAM credential security decision | **Verified + Implemented in 2.5.2** | **Mandatory** | [R-019 report](R-019-naver-api-hub-usage-meter.md) |
+| R-020 | RISS Linked Data SPARQL 1.0 search, XML parsing, uppercase bindings, and bibliographic mapping compatibility | **Verified + Implemented in 2.5.3** | **Mandatory** | [R-020 report](R-020-riss-linked-data-search-compatibility.md) |
+| R-021 | Full-auto MCP schema trust, all-risk tool execution, bounded automatic continuation, and fallback approval modes | **Verified + Implemented in 2.5.4** | **Mandatory** | [R-021 report](R-021-full-auto-mcp-tool-execution.md) |
+| R-022 | RISS chat-tool exposure, `@` mention recovery, typed source-name routing, and legacy Auto-policy migration | **Verified + Implemented in 2.5.5** | **Mandatory** | [R-022 report](R-022-riss-chat-tool-routing-and-mention-recovery.md) |
 
 ## Mandatory Synthesis Rule
 

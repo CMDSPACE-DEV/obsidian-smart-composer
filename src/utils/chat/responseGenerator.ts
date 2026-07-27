@@ -35,6 +35,7 @@ export type ResponseGeneratorParams = {
   mcpConnectionIds?: string[]
   abortSignal?: AbortSignal
   localTools?: LocalResponseTool[]
+  finalizeAfterAutoLimit?: boolean
 }
 
 export type LocalResponseTool = {
@@ -69,6 +70,7 @@ export class ResponseGenerator {
   private readonly receivedMessages: ChatMessage[]
   private readonly maxAutoIterations: number
   private readonly localTools: Map<string, LocalResponseTool>
+  private readonly finalizeAfterAutoLimit: boolean
 
   private responseMessages: ChatMessage[] = [] // Response messages that are generated after the initial messages
   private subscribers: ((messages: ChatMessage[]) => void)[] = []
@@ -89,6 +91,7 @@ export class ResponseGenerator {
     this.promptGenerator = params.promptGenerator
     this.mcpManager = params.mcpManager
     this.abortSignal = params.abortSignal
+    this.finalizeAfterAutoLimit = params.finalizeAfterAutoLimit ?? false
     this.localTools = new Map(
       (params.localTools ?? []).map((tool) => [
         tool.definition.function.name,
@@ -184,9 +187,12 @@ export class ResponseGenerator {
         return
       }
     }
+    if (this.finalizeAfterAutoLimit) {
+      await this.streamSingleResponse(false)
+    }
   }
 
-  private async streamSingleResponse(): Promise<{
+  private async streamSingleResponse(exposeTools = true): Promise<{
     toolCallRequests: ToolCallRequest[]
   }> {
     const requestMessages = await this.promptGenerator.generateRequestMessages({
@@ -194,7 +200,7 @@ export class ResponseGenerator {
     })
 
     const availableMcpTools =
-      this.enableTools && this.mcpManager
+      exposeTools && this.enableTools && this.mcpManager
         ? await this.mcpManager.listAvailableTools({
             mode: this.mcpRoutingMode,
             query: this.mcpQuery,
@@ -204,9 +210,9 @@ export class ResponseGenerator {
 
     // Set tools to undefined when no tools are available since some providers
     // reject empty tools arrays.
-    const availableTools: RequestTool[] = [...this.localTools.values()].map(
-      (tool) => tool.definition,
-    )
+    const availableTools: RequestTool[] = exposeTools
+      ? [...this.localTools.values()].map((tool) => tool.definition)
+      : []
     availableTools.push(
       ...availableMcpTools.map((tool) => ({
         type: 'function' as const,

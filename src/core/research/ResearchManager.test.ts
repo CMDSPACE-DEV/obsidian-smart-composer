@@ -33,6 +33,7 @@ function createSettings(
 
 function createManager(
   enabledSourceIds: readonly ResearchSourceId[],
+  configure?: (settings: SmartComposerSettings) => void,
 ): ResearchManager {
   const secrets = new Map<string, string>([
     ['smart-composer-research-openalex-api-key', 'openalex-key'],
@@ -45,9 +46,11 @@ function createManager(
       getSecret: (id: string) => secrets.get(id) ?? null,
     },
   } as unknown as App
+  const settings = createSettings(enabledSourceIds)
+  configure?.(settings)
   return new ResearchManager({
     app,
-    settings: createSettings(enabledSourceIds),
+    settings,
     setSettings: async () => undefined,
     registerSettingsListener: () => () => undefined,
   })
@@ -84,6 +87,32 @@ describe('ResearchManager source routing', () => {
     expect(
       manager.selectSourceIds('문장을 다듬어줘', ['wos', 'crossref']),
     ).toEqual(['wos', 'crossref'])
+
+    manager.cleanup()
+  })
+
+  it('treats typed RISS names as explicit routing even with an old explicit-only policy', () => {
+    const manager = createManager(['riss'], (settings) => {
+      const riss = settings.research.sources.riss
+      if (!riss) throw new Error('RISS test settings are missing')
+      riss.autoPolicy = 'explicit-only'
+    })
+
+    expect(
+      manager.selectSourceIds(
+        'riss 를 호출해서 AI와 AX에 관련된 논문을 찾아봐',
+      ),
+    ).toEqual(['riss'])
+    expect(
+      manager.selectSourceIds('@RISS Linked Data에서 관련 국내 논문을 찾아줘'),
+    ).toEqual(['riss'])
+    expect(
+      manager
+        .getLocalTools({
+          query: 'RISS를 호출해서 관련 논문을 찾아줘',
+        })
+        .map((tool) => tool.definition.function.name),
+    ).toEqual(['research_riss_search'])
 
     manager.cleanup()
   })

@@ -355,6 +355,9 @@ export class McpManager {
     }
     const info = this.getToolInfo(requestToolName)
     if (!info) return false
+    const executionMode = this.settings.mcp.executionMode ?? 'per-tool'
+    if (executionMode === 'full-auto') return true
+    if (executionMode === 'safe-auto') return info.risk === 'read'
     return (
       info.risk !== 'delete' &&
       (info.connection.toolOptions[info.tool.name]?.allowAutoExecution ?? false)
@@ -936,16 +939,34 @@ export class McpManager {
     const snapshots = await Promise.all(tools.map(toToolSnapshot))
     const hash = await secureStableHash(snapshots)
     const previous = connection.toolSnapshot
+    const fullAuto = this.settings.mcp.executionMode === 'full-auto'
     const reviewRequired =
-      previous?.hash !== hash ||
-      snapshots.some(
-        (tool) =>
-          connection.toolOptions[tool.name]?.reviewedSchemaHash !==
-          tool.schemaHash,
-      )
+      !fullAuto &&
+      (previous?.hash !== hash ||
+        snapshots.some(
+          (tool) =>
+            connection.toolOptions[tool.name]?.reviewedSchemaHash !==
+            tool.schemaHash,
+        ))
+    const toolOptions = fullAuto
+      ? snapshots.reduce(
+          (options, tool) => ({
+            ...options,
+            [tool.name]: {
+              ...options[tool.name],
+              risk:
+                options[tool.name]?.risk ??
+                inferToolRisk(tool.annotations, tool.name),
+              reviewedSchemaHash: tool.schemaHash,
+            },
+          }),
+          { ...connection.toolOptions },
+        )
+      : connection.toolOptions
     const updated = {
       ...connection,
       securityIssue: undefined,
+      toolOptions,
       toolSnapshot: {
         scannedAt: Date.now(),
         hash,

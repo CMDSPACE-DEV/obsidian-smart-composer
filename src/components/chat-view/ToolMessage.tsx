@@ -101,6 +101,7 @@ function ToolCallItem({
   originMessageId: string
   onResponseUpdate: (response: ToolCallResponse) => void
 }) {
+  const { settings } = useSettings()
   const {
     handleToolCall,
     handleAllowForConversation,
@@ -197,7 +198,8 @@ function ToolCallItem({
                   setIsOpen(false)
                 }}
                 menuOptions={[
-                  ...(toolInfo?.risk !== 'delete'
+                  ...(settings.mcp.executionMode === 'per-tool' &&
+                  toolInfo?.risk !== 'delete'
                     ? [
                         {
                           label: 'Always allow this tool',

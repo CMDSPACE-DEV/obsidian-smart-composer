@@ -3,6 +3,7 @@ import type { App } from 'obsidian'
 import type { SmartComposerSettings } from '../../settings/schema/setting.types'
 import type {
   McpConnectionConfig,
+  McpExecutionMode,
   McpServerState,
   McpTool,
 } from '../../types/mcp.types'
@@ -75,9 +76,12 @@ function getRuntimeTools(connection: McpConnectionConfig): McpTool[] {
   })) as unknown as McpTool[]
 }
 
-function createManager(connections: McpConnectionConfig[]) {
+function createManager(
+  connections: McpConnectionConfig[],
+  executionMode: McpExecutionMode = 'per-tool',
+) {
   let settings = {
-    mcp: { routingMode: 'auto', connections },
+    mcp: { routingMode: 'auto', executionMode, connections },
   } as SmartComposerSettings
   const secrets = new Map<string, string>()
   const app = {
@@ -286,6 +290,86 @@ describe('McpManager routing and tool contracts', () => {
         status: ToolCallResponseStatus.Error,
         error: 'This MCP tool schema has not been reviewed.',
       }),
+    )
+  })
+
+  it('allows every reviewed enabled tool in full-auto mode', async () => {
+    const deleteTool = createTool('delete_everything')
+    const connection = createConnection({ tools: [deleteTool] })
+    connection.toolOptions[deleteTool.name] = {
+      reviewedSchemaHash: `hash-${deleteTool.name}`,
+      risk: 'delete',
+    }
+    const { manager } = createManager([connection], 'full-auto')
+    await manager.initialize()
+    connectWithClient(manager, connection, [deleteTool])
+    const [listed] = await manager.listAvailableTools({ mode: 'always' })
+
+    expect(
+      manager.isToolExecutionAllowed({ requestToolName: listed.name }),
+    ).toBe(true)
+  })
+
+  it('limits safe-auto mode to read-only tools', async () => {
+    const readTool = createTool('search_notes')
+    const writeTool = createTool('create_note')
+    const connection = createConnection({ tools: [readTool, writeTool] })
+    connection.toolOptions[readTool.name] = {
+      reviewedSchemaHash: `hash-${readTool.name}`,
+      risk: 'read',
+    }
+    connection.toolOptions[writeTool.name] = {
+      reviewedSchemaHash: `hash-${writeTool.name}`,
+      risk: 'write',
+    }
+    const { manager } = createManager([connection], 'safe-auto')
+    await manager.initialize()
+    connectWithClient(manager, connection, [readTool, writeTool])
+    const listed = await manager.listAvailableTools({ mode: 'always' })
+    const readRequest = listed.find((tool) =>
+      tool.name.endsWith('search_notes'),
+    )
+    const writeRequest = listed.find((tool) =>
+      tool.name.endsWith('create_note'),
+    )
+
+    expect(
+      manager.isToolExecutionAllowed({
+        requestToolName: readRequest?.name ?? '',
+      }),
+    ).toBe(true)
+    expect(
+      manager.isToolExecutionAllowed({
+        requestToolName: writeRequest?.name ?? '',
+      }),
+    ).toBe(false)
+  })
+
+  it('automatically reviews the current scan snapshot in full-auto mode', async () => {
+    const tool = createTool('delete_note')
+    const connection = createConnection({ tools: [tool], reviewed: false })
+    const { manager, getSettings } = createManager([connection], 'full-auto')
+    const persistToolSnapshot = (
+      manager as unknown as {
+        persistToolSnapshot: (
+          connection: McpConnectionConfig,
+          tools: McpTool[],
+        ) => Promise<McpConnectionConfig>
+      }
+    ).persistToolSnapshot.bind(manager)
+
+    const updated = await persistToolSnapshot(connection, [tool])
+    const snapshot = updated.toolSnapshot?.tools[0]
+
+    expect(updated.toolSnapshot?.reviewRequired).toBe(false)
+    expect(updated.toolOptions[tool.name]).toEqual(
+      expect.objectContaining({
+        reviewedSchemaHash: snapshot?.schemaHash,
+        risk: 'delete',
+      }),
+    )
+    expect(getSettings().mcp.connections[0].toolSnapshot?.reviewRequired).toBe(
+      false,
     )
   })
 

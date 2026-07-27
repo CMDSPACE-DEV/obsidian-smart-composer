@@ -24,6 +24,7 @@ import {
 } from '../../../core/mcp/McpSecretStore'
 import SmartComposerPlugin from '../../../main'
 import type {
+  McpExecutionMode,
   McpRoutingMode,
   McpServerState,
   McpTool,
@@ -66,10 +67,60 @@ export function McpSection({ app, plugin }: McpSectionProps) {
     <div className="smtcmp-settings-section">
       <div className="smtcmp-settings-header">MCP connections</div>
       <div className="smtcmp-settings-desc smtcmp-settings-callout">
-        Connect external apps and tools by URL. Tool schemas must be reviewed
-        before they are exposed to the model. Results are sent to the current
-        chat model, so large outputs can increase usage.
+        Connect external apps and tools by URL. Full auto trusts schemas during
+        a manual connection scan; the other modes keep explicit schema review.
+        Results are sent to the current chat model, so large outputs can
+        increase usage.
       </div>
+
+      <ObsidianSetting
+        name="Tool execution"
+        desc="Controls schema approval, tool permissions, and whether the answer continues without interruption."
+      >
+        <ObsidianDropdown
+          value={settings.mcp.executionMode}
+          options={{
+            'full-auto': 'Full auto (default)',
+            'safe-auto': 'Safe auto: read only',
+            'per-tool': 'Per-tool approvals',
+          }}
+          onChange={(value) => {
+            const executionMode = value as McpExecutionMode
+            void setSettings({
+              ...settings,
+              mcp: {
+                ...settings.mcp,
+                executionMode,
+              },
+              chatOptions: {
+                ...settings.chatOptions,
+                maxAutoIterations:
+                  executionMode === 'full-auto'
+                    ? Math.max(12, settings.chatOptions.maxAutoIterations)
+                    : settings.chatOptions.maxAutoIterations,
+              },
+            })
+          }}
+        />
+      </ObsidianSetting>
+
+      {settings.mcp.executionMode === 'full-auto' && (
+        <div className="smtcmp-settings-callout smtcmp-settings-callout--warning">
+          <TriangleAlert size={16} />
+          <div>
+            <strong>Full auto is active.</strong> Connecting or rescanning
+            automatically trusts the current tool schemas. Every enabled tool,
+            including write and delete tools, can run without an Allow prompt.
+            Use only connections you trust.
+          </div>
+        </div>
+      )}
+      {settings.mcp.executionMode === 'safe-auto' && (
+        <div className="smtcmp-settings-callout">
+          Read-only tools run automatically. Write, delete, and unknown tools
+          still require approval.
+        </div>
+      )}
 
       <ObsidianSetting
         name="Tool routing"
@@ -344,6 +395,7 @@ function ExpandedConnection({
   busy: boolean
   run: (operation: () => Promise<unknown>) => Promise<void>
 }) {
+  const { settings } = useSettings()
   if (server.status === McpServerStatus.Error) {
     return (
       <div className="smtcmp-server-expanded-info">
@@ -371,14 +423,25 @@ function ExpandedConnection({
       </div>
       {server.status === McpServerStatus.ReviewRequired && (
         <div className="smtcmp-settings-callout">
-          Tool schemas are new or changed. Review the list, then approve the
-          current snapshot.
+          {settings.mcp.executionMode === 'full-auto'
+            ? 'This snapshot predates Full auto. Rescan once to trust and enable its current schemas automatically.'
+            : 'Tool schemas are new or changed. Review the list, then approve the current snapshot.'}
           <ObsidianButton
-            text={busy ? 'Approving...' : 'Approve current schemas'}
+            text={
+              busy
+                ? 'Working...'
+                : settings.mcp.executionMode === 'full-auto'
+                  ? 'Rescan and trust'
+                  : 'Approve current schemas'
+            }
             cta
             disabled={busy}
             onClick={() =>
-              void run(() => manager.approveToolSnapshot(server.config.id))
+              void run(() =>
+                settings.mcp.executionMode === 'full-auto'
+                  ? manager.scanConnection(server.config.id)
+                  : manager.approveToolSnapshot(server.config.id),
+              )
             }
           />
         </div>
@@ -480,6 +543,14 @@ function McpToolRow({
     })
   }
   const risk = option.risk ?? 'unknown'
+  const executionMode = settings.mcp.executionMode
+  const inheritedAuto = executionMode !== 'per-tool'
+  const autoExecution =
+    executionMode === 'full-auto' ||
+    (executionMode === 'safe-auto' && risk === 'read') ||
+    (executionMode === 'per-tool' &&
+      risk !== 'delete' &&
+      (option.allowAutoExecution ?? false))
   return (
     <div className="smtcmp-mcp-tool">
       <div className="smtcmp-mcp-tool-info">
@@ -508,13 +579,16 @@ function McpToolRow({
       </div>
       <div className="smtcmp-mcp-tool-toggle">
         <span className="smtcmp-mcp-tool-toggle-label">
-          {risk === 'delete' && <TriangleAlert size={13} />} Auto
+          {risk === 'delete' && <TriangleAlert size={13} />}{' '}
+          {executionMode === 'full-auto'
+            ? 'Full auto'
+            : executionMode === 'safe-auto'
+              ? 'Safe auto'
+              : 'Auto'}
         </span>
         <ObsidianToggle
-          value={
-            risk === 'delete' ? false : (option.allowAutoExecution ?? false)
-          }
-          disabled={risk === 'delete'}
+          value={autoExecution}
+          disabled={inheritedAuto || risk === 'delete'}
           onChange={(allowAutoExecution) =>
             updateOption({ allowAutoExecution })
           }

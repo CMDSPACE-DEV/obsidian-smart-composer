@@ -9,6 +9,13 @@ export type McpClient = Client
 export const MCP_ROUTING_MODES = ['auto', 'always', 'on-demand', 'off'] as const
 export type McpRoutingMode = (typeof MCP_ROUTING_MODES)[number]
 
+export const MCP_EXECUTION_MODES = [
+  'full-auto',
+  'safe-auto',
+  'per-tool',
+] as const
+export type McpExecutionMode = (typeof MCP_EXECUTION_MODES)[number]
+
 export const MCP_TOOL_RISKS = ['read', 'write', 'delete', 'unknown'] as const
 export type McpToolRisk = (typeof MCP_TOOL_RISKS)[number]
 

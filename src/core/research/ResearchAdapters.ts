@@ -342,54 +342,152 @@ async function searchRiss(
   context: ResearchAdapterContext,
   signal?: AbortSignal,
 ): Promise<ResearchSearchResult> {
-  const source = getResearchSource('riss')
   const endpoint = requireEndpoint('riss')
-  const queryLiteral = escapeSparqlString(request.query)
+  const searchTerms = rissSearchTerms(request.query)
+  if (searchTerms.length === 0) {
+    throw new Error('RISS search requires at least one letter or number.')
+  }
+  const filter = searchTerms
+    .map((term) => `regex(?title, "${rissRegex(term)}")`)
+    .join(' || ')
+  const requestedLimit = clampLimit(request.limit, 10, 20)
+
+  // RISS runs an older SPARQL implementation. SPARQL 1.1 CONTAINS/LCASE and
+  // regex flags silently return an empty result, so keep this query 1.0-safe.
   const sparql = `
-SELECT ?work ?title ?creator ?date WHERE {
+SELECT ?work ?title ?creator ?published ?locator WHERE {
   ?work <http://purl.org/dc/elements/1.1/title> ?title .
-  FILTER(CONTAINS(LCASE(STR(?title)), LCASE("${queryLiteral}")))
-  OPTIONAL { ?work <http://purl.org/dc/elements/1.1/creator> ?creator . }
-  OPTIONAL { ?work <http://purl.org/dc/elements/1.1/date> ?date . }
+  ?work <http://schema.org/author> ?creator .
+  ?work <http://purl.org/dc/terms/date> ?published .
+  ?work <http://purl.org/ontology/bibo/locator> ?locator .
+  FILTER (${filter}) .
 }
-LIMIT ${clampLimit(request.limit, 10, 20)}`.trim()
+LIMIT ${Math.min(40, requestedLimit * 2)}`.trim()
   const response = await context.http.request(
     'riss',
     {
       url: appendQuery(endpoint, {
         query: sparql,
-        type: 'Json',
+        type: 'Xml',
         flag: 'none',
       }),
     },
     signal,
   )
-  if (!looksLikeJson(response.text)) {
-    return {
-      records: [],
-      warnings: [
-        `RISS returned a non-JSON response: ${plainText(response.text).slice(0, 160)}`,
-      ],
+  return parseRissSparqlResult(response.text, requestedLimit)
+}
+
+function parseRissSparqlResult(
+  xml: string,
+  limit: number,
+): ResearchSearchResult {
+  if (/조회\s*결과가\s*없습니다/u.test(xml)) {
+    return { records: [], warnings: [] }
+  }
+  const document = new DOMParser().parseFromString(xml, 'application/xml')
+  if (document.getElementsByTagName('parsererror').length > 0) {
+    throw new Error('RISS returned invalid SPARQL XML.')
+  }
+
+  const merged = new Map<
+    string,
+    {
+      work: string
+      title: string
+      locator: string
+      publishedAt: string
+      authors: Set<string>
+    }
+  >()
+  for (const node of Array.from(document.getElementsByTagName('result'))) {
+    const work = readRissBinding(node, 'work')
+    const title = readRissBinding(node, 'title')
+    if (!title) continue
+    const key = work || `${title}\u0000${readRissBinding(node, 'published')}`
+    const existing = merged.get(key) ?? {
+      work,
+      title,
+      locator: readRissBinding(node, 'locator'),
+      publishedAt: readRissBinding(node, 'published'),
+      authors: new Set<string>(),
+    }
+    splitNames(readRissBinding(node, 'creator')).forEach((author) =>
+      existing.authors.add(author),
+    )
+    merged.set(key, existing)
+  }
+
+  return {
+    records: Array.from(merged.values())
+      .slice(0, limit)
+      .map((entry) =>
+        evidence('riss', {
+          title: entry.title,
+          url: normalizeRissUrl(entry.locator || entry.work),
+          authors: Array.from(entry.authors),
+          publishedAt: entry.publishedAt,
+          sourceId: entry.work,
+          caveats: [
+            'RISS Linked Data results are discovery metadata; verify access and bibliographic details on the RISS record page.',
+          ],
+        }),
+      ),
+    warnings: [],
+  }
+}
+
+function readRissBinding(node: Element, key: string): string {
+  const normalizedKey = key.toUpperCase()
+  const binding = Array.from(node.getElementsByTagName('binding')).find(
+    (candidate) =>
+      candidate.getAttribute('name')?.toUpperCase() === normalizedKey,
+  )
+  return binding?.textContent?.trim() ?? ''
+}
+
+function rissSearchTerms(query: string): string[] {
+  const tokens: string[] = Array.from(
+    query.normalize('NFKC').match(/[\p{L}\p{N}]+/gu) ?? [],
+  )
+  const stopWords = new Set([
+    '관련',
+    '논문',
+    '연구',
+    '자료',
+    '검색',
+    '찾아줘',
+    '대한',
+    '관한',
+    '국내',
+    '학술',
+  ])
+  const eligible = tokens.filter((token) => token.length >= 2)
+  const meaningful = eligible.filter(
+    (token) =>
+      !stopWords.has(token) &&
+      !/^(?:and|or|the|paper|papers|research)$/i.test(token),
+  )
+  return Array.from(
+    new Set(meaningful.length > 0 ? meaningful : eligible),
+  ).slice(0, 6)
+}
+
+function rissRegex(term: string): string {
+  let pattern = ''
+  for (const character of term) {
+    if (/[a-z]/i.test(character)) {
+      pattern += `[${character.toLowerCase()}${character.toUpperCase()}]`
+    } else if (/[\\^$.*+?()[\]{}|]/.test(character)) {
+      pattern += `\\${character}`
+    } else {
+      pattern += character
     }
   }
-  const data = JSON.parse(response.text) as Record<string, unknown>
-  const bindings = readRecordArray(asRecord(data.results) ?? {}, 'bindings')
-  return result(
-    bindings.map((binding) => {
-      const work = readBindingValue(binding, 'work')
-      return evidence('riss', {
-        title: readBindingValue(binding, 'title'),
-        url: work || source.docsUrl,
-        authors: splitNames(readBindingValue(binding, 'creator')),
-        publishedAt: readBindingValue(binding, 'date'),
-        sourceId: work,
-        caveats: [
-          'RISS Linked Data results are discovery metadata; verify access and bibliographic details on the record page.',
-        ],
-      })
-    }),
-    data,
-  )
+  return escapeSparqlString(pattern)
+}
+
+function normalizeRissUrl(value: string): string {
+  return value.replace(/^http:\/\/www\.riss\.kr\//i, 'https://www.riss.kr/')
 }
 
 async function searchOpenDart(
@@ -999,13 +1097,6 @@ function xmlTexts(node: ParentNode, selectors: string[]): string[] {
     if (values.length > 0) return values
   }
   return []
-}
-
-function readBindingValue(
-  binding: Record<string, unknown>,
-  key: string,
-): string {
-  return readText(asRecord(binding[key]) ?? {}, ['value'])
 }
 
 function plainText(value: string): string {

@@ -14,7 +14,10 @@ import { ToolCallResponseStatus } from '../../types/tool-call.types'
 import type { LocalResponseTool } from '../../utils/chat/responseGenerator'
 
 import { getResearchAdapter } from './ResearchAdapters'
-import { ResearchHttpClient } from './ResearchHttpClient'
+import {
+  ResearchHttpClient,
+  type ResearchHttpResponseEvent,
+} from './ResearchHttpClient'
 import { ResearchSecretStore, getResearchSecretId } from './ResearchSecretStore'
 import {
   RESEARCH_PACKS,
@@ -22,6 +25,7 @@ import {
   getResearchPack,
   getResearchSource,
 } from './ResearchSourceRegistry'
+import { isNaverApiHubHost, recordResearchUsage } from './ResearchUsage'
 
 type SettingsUpdater = (settings: SmartComposerSettings) => Promise<void>
 
@@ -32,8 +36,9 @@ export class ResearchManager {
   private settings: SmartComposerSettings
   private readonly setSettings: SettingsUpdater
   private readonly secrets: ResearchSecretStore
-  private readonly http = new ResearchHttpClient()
+  private readonly http: ResearchHttpClient
   private readonly unsubscribe: () => void
+  private usageWriteTail: Promise<void> = Promise.resolve()
   private readonly cache = new Map<
     string,
     { expiresAt: number; result: ResearchSearchResult }
@@ -55,6 +60,7 @@ export class ResearchManager {
     this.settings = settings
     this.setSettings = setSettings
     this.secrets = new ResearchSecretStore(app)
+    this.http = new ResearchHttpClient((event) => this.recordApiHubUsage(event))
     this.unsubscribe = registerSettingsListener((next) => {
       this.settings = next
       this.pruneCache()
@@ -95,9 +101,10 @@ export class ResearchManager {
     explicitSourceIds: readonly ResearchSourceId[] = [],
   ): ResearchSourceId[] {
     const enabled = new Set(this.getEnabledSourceIds())
-    const explicit = unique(explicitSourceIds).filter((sourceId) =>
-      enabled.has(sourceId),
-    )
+    const explicit = unique([
+      ...explicitSourceIds,
+      ...findNamedResearchSources(query),
+    ]).filter((sourceId) => enabled.has(sourceId))
     if (explicit.length > 0) return explicit
     if (this.settings.research.routingMode !== 'auto') return []
 
@@ -465,6 +472,34 @@ export class ResearchManager {
     })
   }
 
+  private recordApiHubUsage(event: ResearchHttpResponseEvent): void {
+    if (event.sourceId !== 'naver' || !isNaverApiHubHost(event.hostname)) {
+      return
+    }
+    this.usageWriteTail = this.usageWriteTail
+      .then(async () => {
+        const source = this.settings.research.sources.naver
+        if (!source) return
+        const usage = recordResearchUsage(source.usage, {
+          at: event.receivedAt,
+          succeeded: event.status >= 200 && event.status < 300,
+        })
+        await this.setSettings({
+          ...this.settings,
+          research: {
+            ...this.settings.research,
+            sources: {
+              ...this.settings.research.sources,
+              naver: { ...source, usage },
+            },
+          },
+        })
+      })
+      .catch((error) => {
+        console.warn('Failed to persist NAVER API HUB usage:', error)
+      })
+  }
+
   private pruneCache(): void {
     const now = Date.now()
     for (const [key, entry] of this.cache) {
@@ -520,6 +555,49 @@ function scoreSource(sourceId: ResearchSourceId, query: string): number {
     (score, term) => score + (normalized.includes(term) ? 2 : 0),
     0,
   )
+}
+
+function findNamedResearchSources(query: string): ResearchSourceId[] {
+  const normalizedQuery = normalizeResearchAlias(query)
+  if (!normalizedQuery) return []
+
+  return (Object.keys(RESEARCH_SOURCES) as ResearchSourceId[]).filter(
+    (sourceId) => {
+      const source = getResearchSource(sourceId)
+      return unique([source.id, source.shortName, source.name]).some((alias) =>
+        containsResearchAlias(normalizedQuery, alias),
+      )
+    },
+  )
+}
+
+function containsResearchAlias(
+  normalizedQuery: string,
+  alias: string,
+): boolean {
+  const normalizedAlias = normalizeResearchAlias(alias)
+  if (!normalizedAlias) return false
+
+  const escapedAlias = normalizedAlias
+    .split(' ')
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('\\s+')
+
+  // Provider names are mostly ASCII acronyms. Korean particles can directly
+  // follow them (for example, "RISS를"), so only ASCII letters and digits are
+  // treated as alias boundaries.
+  return new RegExp(`(?:^|[^a-z0-9])${escapedAlias}(?=$|[^a-z0-9])`, 'i').test(
+    normalizedQuery,
+  )
+}
+
+function normalizeResearchAlias(value: string): string {
+  return value
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/[_/\\-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function hasResearchIntent(query: string): boolean {

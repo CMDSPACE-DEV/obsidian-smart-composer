@@ -42,11 +42,25 @@ export const RESEARCH_SOURCE_ROLES = [
 ] as const
 export type ResearchSourceRole = (typeof RESEARCH_SOURCE_ROLES)[number]
 
+export const researchUsageBucketSchema = z.object({
+  requests: z.number().int().nonnegative().catch(0),
+  succeeded: z.number().int().nonnegative().catch(0),
+  failed: z.number().int().nonnegative().catch(0),
+})
+export type ResearchUsageBucket = z.infer<typeof researchUsageBucketSchema>
+
+export const researchUsageSchema = z.object({
+  days: z.record(z.string(), researchUsageBucketSchema).catch({}),
+  lastRequestAt: z.number().optional(),
+})
+export type ResearchUsage = z.infer<typeof researchUsageSchema>
+
 export const researchSourceSettingsSchema = z.object({
   enabled: z.boolean().catch(false),
   autoPolicy: z.enum(RESEARCH_AUTO_POLICIES).catch('explicit-only'),
   options: z.record(z.string(), z.unknown()).catch({}),
   lastTestedAt: z.number().optional(),
+  usage: researchUsageSchema.optional(),
 })
 export type ResearchSourceSettings = z.infer<
   typeof researchSourceSettingsSchema
@@ -70,6 +84,7 @@ export const DEFAULT_RESEARCH_SOURCES = Object.fromEntries(
         ? ('allow' as const)
         : ('explicit-only' as const),
       options: {},
+      usage: { days: {} },
     },
   ]),
 ) as Record<ResearchSourceId, ResearchSourceSettings>

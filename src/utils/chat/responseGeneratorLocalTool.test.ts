@@ -158,4 +158,76 @@ describe('ResponseGenerator local tools', () => {
       connectionIds: ['law-connection'],
     })
   })
+
+  it('forces a final answer without tools after the full-auto round limit', async () => {
+    const toolStream = (async function* () {
+      yield {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'image-call',
+                  function: {
+                    name: 'enqueue_image_generation',
+                    arguments: '{"prompt":"Draw a map"}',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }
+    })()
+    const finalStream = (async function* () {
+      yield {
+        choices: [{ delta: { content: 'The task has been completed.' } }],
+      }
+    })()
+    const providerClient = {
+      streamResponse: jest
+        .fn()
+        .mockResolvedValueOnce(toolStream)
+        .mockResolvedValueOnce(finalStream),
+    }
+    const promptGenerator = {
+      generateRequestMessages: jest.fn().mockResolvedValue([]),
+    }
+    const generator = new ResponseGenerator({
+      providerClient: providerClient as never,
+      model: {
+        id: 'gpt-5.6-sol (plan)',
+        model: 'gpt-5.6-sol',
+        providerId: 'openai-plan',
+        providerType: 'openai-plan',
+      },
+      messages: [],
+      conversationId: 'conversation',
+      enableTools: true,
+      maxAutoIterations: 1,
+      promptGenerator: promptGenerator as never,
+      mcpManager: null,
+      localTools: [localTool],
+      finalizeAfterAutoLimit: true,
+    })
+    let latestMessages: unknown[] = []
+    generator.subscribe((messages) => {
+      latestMessages = messages
+    })
+
+    await generator.run()
+
+    expect(providerClient.streamResponse).toHaveBeenCalledTimes(2)
+    expect(providerClient.streamResponse.mock.calls[0][1].tools).toHaveLength(1)
+    expect(providerClient.streamResponse.mock.calls[1][1].tools).toBeUndefined()
+    expect(latestMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'assistant',
+          content: 'The task has been completed.',
+        }),
+      ]),
+    )
+  })
 })

@@ -86,7 +86,7 @@ describe('processQueryWithPlanRerank', () => {
     const { results, retrievalMetadata } = await processQueryWithPlanRerank({
       app,
       settings: {
-        version: 23,
+        version: 26,
         providers: [],
         chatModels: [],
         embeddingModels: [],
@@ -120,7 +120,11 @@ describe('processQueryWithPlanRerank', () => {
           excludePatterns: [],
           includePatterns: [],
         },
-        mcp: { routingMode: 'auto', connections: [] },
+        mcp: {
+          routingMode: 'auto',
+          executionMode: 'full-auto',
+          connections: [],
+        },
         research: {
           routingMode: 'auto',
           maxAutoSources: 2,
@@ -195,7 +199,7 @@ describe('processQueryWithPlanRerank', () => {
     const result = await processQueryWithPlanRerank({
       app,
       settings: {
-        version: 23,
+        version: 26,
         providers: [],
         chatModels: [],
         embeddingModels: [],
@@ -229,7 +233,11 @@ describe('processQueryWithPlanRerank', () => {
           excludePatterns: [],
           includePatterns: [],
         },
-        mcp: { routingMode: 'auto', connections: [] },
+        mcp: {
+          routingMode: 'auto',
+          executionMode: 'full-auto',
+          connections: [],
+        },
         research: {
           routingMode: 'auto',
           maxAutoSources: 2,

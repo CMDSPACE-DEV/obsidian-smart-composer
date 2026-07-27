@@ -58,7 +58,7 @@ function createSettings(
   overrides: Partial<SmartComposerSettings> = {},
 ): SmartComposerSettings {
   return {
-    version: 23,
+    version: 26,
     providers: [...DEFAULT_PROVIDERS],
     chatModels: [...DEFAULT_CHAT_MODELS],
     embeddingModels: [],
@@ -92,7 +92,11 @@ function createSettings(
       excludePatterns: [],
       includePatterns: [],
     },
-    mcp: { routingMode: 'auto', connections: [] },
+    mcp: {
+      routingMode: 'auto',
+      executionMode: 'full-auto',
+      connections: [],
+    },
     research: {
       routingMode: 'auto',
       maxAutoSources: 2,

@@ -300,14 +300,14 @@ export function ChatSection({
           </ObsidianSetting>
 
           <ObsidianSetting
-            name="Max auto tool requests"
-            desc="Maximum number of consecutive tool calls that can be made automatically without user confirmation. Higher values can significantly increase costs as each tool call consumes additional tokens."
+            name="Maximum automatic tool rounds"
+            desc="Maximum consecutive tool rounds before Full auto forces a final answer. Higher values can increase Plan usage and external API calls."
           >
             <ObsidianTextInput
               value={settings.chatOptions.maxAutoIterations.toString()}
               onChange={async (value) => {
                 const parsedValue = parseInt(value)
-                if (isNaN(parsedValue) || parsedValue < 1) {
+                if (isNaN(parsedValue) || parsedValue < 1 || parsedValue > 50) {
                   return
                 }
                 await setSettings({

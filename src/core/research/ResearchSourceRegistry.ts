@@ -315,7 +315,8 @@ export const RESEARCH_SOURCES: Record<
     docsUrl: 'https://api.ncloud-docs.com/docs/naver-api-hub-overview',
     endpoint: 'https://naverapihub.apigw.ntruss.com/search/v1',
     lastVerifiedAt: '2026-07-27',
-    freeBoundary: 'Current temporary free trial with a high monthly quota',
+    freeBoundary:
+      'Temporary free period; NAVER Search quota is shared across search APIs',
     defaultAutoPolicy: 'allow',
     secretFields: [
       { id: 'key-id', label: 'Client ID', required: true },
@@ -349,6 +350,22 @@ export const RESEARCH_SOURCES: Record<
           { value: 'webkr', label: 'Korean web' },
           { value: 'blog', label: 'Blog' },
         ],
+      },
+      {
+        id: 'daily-usage-limit',
+        label: 'Console daily limit',
+        required: true,
+        defaultValue: '25000',
+        description:
+          'Used only for the local progress meter. Match the value shown in your NAVER Cloud console.',
+      },
+      {
+        id: 'monthly-usage-limit',
+        label: 'Console monthly limit',
+        required: true,
+        defaultValue: '775000',
+        description:
+          'Used only for the local progress meter. NAVER Search usage is shared by API key.',
       },
     ],
   },

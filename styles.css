@@ -1492,6 +1492,110 @@ button.smtcmp-research-source-main:focus-visible {
   gap: 4px;
 }
 
+.smtcmp-research-usage {
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+}
+
+.smtcmp-research-usage > header,
+.smtcmp-research-usage > header > span,
+.smtcmp-research-usage-row > div,
+.smtcmp-research-usage-detail {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.smtcmp-research-usage > header {
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.smtcmp-research-usage > header > span {
+  gap: 6px;
+  color: var(--text-normal);
+}
+
+.smtcmp-research-usage > header small {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+
+.smtcmp-research-usage-row {
+  display: grid;
+  gap: 4px;
+}
+
+.smtcmp-research-usage-row > div {
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.smtcmp-research-usage-row > div strong {
+  color: var(--text-normal);
+  font-variant-numeric: tabular-nums;
+}
+
+.smtcmp-research-usage-row progress {
+  width: 100%;
+  height: 5px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 3px;
+  appearance: none;
+  background: var(--background-modifier-border);
+}
+
+.smtcmp-research-usage-row progress::-webkit-progress-bar {
+  border-radius: 3px;
+  background: var(--background-modifier-border);
+}
+
+.smtcmp-research-usage-row progress::-webkit-progress-value {
+  border-radius: 3px;
+  background: var(--interactive-accent);
+}
+
+.smtcmp-research-usage-row[data-level='warning']
+  progress::-webkit-progress-value {
+  background: var(--color-orange);
+}
+
+.smtcmp-research-usage-row[data-level='critical']
+  progress::-webkit-progress-value {
+  background: var(--color-red);
+}
+
+.smtcmp-research-usage-detail {
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.smtcmp-research-usage > p {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.4;
+}
+
+.smtcmp-research-usage > button {
+  display: inline-flex;
+  width: max-content;
+  max-width: 100%;
+  min-height: 30px;
+  align-items: center;
+  gap: 6px;
+  justify-self: end;
+}
+
 .smtcmp-research-field {
   display: grid;
   min-width: 0;
@@ -1719,6 +1823,19 @@ button.smtcmp-research-source-main:focus-visible {
   padding-inline-start: var(--size-4-2);
   border-inline-start: var(--blockquote-border-thickness) solid
     var(--blockquote-border-color);
+}
+
+.smtcmp-settings-callout--warning {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--size-4-2);
+  color: var(--text-warning);
+  border-inline-start-color: var(--text-warning);
+
+  svg {
+    flex: 0 0 auto;
+    margin-top: 2px;
+  }
 }
 
 .smtcmp-settings-required::after {

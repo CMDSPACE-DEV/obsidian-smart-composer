@@ -1,4 +1,5 @@
 import {
+  Activity,
   CheckCircle2,
   ExternalLink,
   KeyRound,
@@ -15,12 +16,19 @@ import {
   RESEARCH_PACKS,
   getResearchSource,
 } from '../../../core/research/ResearchSourceRegistry'
+import {
+  NAVER_DEFAULT_DAILY_LIMIT,
+  NAVER_DEFAULT_MONTHLY_LIMIT,
+  parseResearchUsageLimit,
+  summarizeResearchUsage,
+} from '../../../core/research/ResearchUsage'
 import SmartComposerPlugin from '../../../main'
 import type {
   ResearchAutoPolicy,
   ResearchConnectionTest,
   ResearchRoutingMode,
   ResearchSourceId,
+  ResearchSourceSettings,
 } from '../../../types/research.types'
 import { DEFAULT_RESEARCH_SOURCES } from '../../../types/research.types'
 import { ObsidianDropdown } from '../../common/ObsidianDropdown'
@@ -300,6 +308,10 @@ function ResearchSourceCard({
             </a>
           </div>
 
+          {sourceId === 'naver' && (
+            <NaverUsageMeter sourceSettings={sourceSettings} />
+          )}
+
           <label className="smtcmp-research-field">
             <span>Auto routing</span>
             <select
@@ -437,6 +449,110 @@ function ResearchSourceCard({
       )}
     </article>
   )
+}
+
+function NaverUsageMeter({
+  sourceSettings,
+}: {
+  sourceSettings: ResearchSourceSettings
+}) {
+  const summary = summarizeResearchUsage(sourceSettings.usage)
+  const dailyLimit = parseResearchUsageLimit(
+    sourceSettings.options['daily-usage-limit'],
+    NAVER_DEFAULT_DAILY_LIMIT,
+  )
+  const monthlyLimit = parseResearchUsageLimit(
+    sourceSettings.options['monthly-usage-limit'],
+    NAVER_DEFAULT_MONTHLY_LIMIT,
+  )
+
+  return (
+    <section
+      className="smtcmp-research-usage"
+      aria-label="NAVER API HUB local usage estimate"
+    >
+      <header>
+        <span>
+          <Activity size={15} aria-hidden="true" />
+          <strong>API HUB usage</strong>
+        </span>
+        <small>Smart Composer tracker</small>
+      </header>
+      <UsageRow
+        label="Today"
+        requests={summary.today.requests}
+        limit={dailyLimit}
+      />
+      <UsageRow
+        label="This month"
+        requests={summary.month.requests}
+        limit={monthlyLimit}
+      />
+      <div className="smtcmp-research-usage-detail">
+        <span>{formatNumber(summary.month.succeeded)} successful</span>
+        <span>{formatNumber(summary.month.failed)} failed</span>
+        <span>
+          {summary.lastRequestAt
+            ? `Last ${formatUsageTime(summary.lastRequestAt)}`
+            : 'No calls tracked yet'}
+        </span>
+      </div>
+      <p>
+        Counts API HUB HTTP responses made by this vault from version 2.5.2.
+        Cached searches, earlier calls, and calls from other apps are not
+        included. NAVER Cloud is the authoritative total.
+      </p>
+      <button
+        type="button"
+        onClick={() => window.open('https://console.ncloud.com/', '_blank')}
+      >
+        Open exact usage in NAVER Cloud
+        <ExternalLink size={13} aria-hidden="true" />
+      </button>
+    </section>
+  )
+}
+
+function UsageRow({
+  label,
+  requests,
+  limit,
+}: {
+  label: string
+  requests: number
+  limit: number
+}) {
+  const ratio = Math.min(1, requests / limit)
+  const level = ratio >= 0.95 ? 'critical' : ratio >= 0.8 ? 'warning' : 'normal'
+  return (
+    <div className="smtcmp-research-usage-row" data-level={level}>
+      <div>
+        <span>{label}</span>
+        <strong>
+          {formatNumber(requests)} / {formatNumber(limit)}
+        </strong>
+      </div>
+      <progress
+        value={requests}
+        max={limit}
+        aria-label={`${label}: ${formatNumber(requests)} of ${formatNumber(limit)} calls`}
+      />
+    </div>
+  )
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat('en-US').format(value)
+}
+
+function formatUsageTime(value: number): string {
+  return new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value))
 }
 
 function readSettingOption(value: unknown, fallback: string): string {

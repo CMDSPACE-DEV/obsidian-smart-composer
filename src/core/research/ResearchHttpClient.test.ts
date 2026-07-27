@@ -62,4 +62,28 @@ describe('ResearchHttpClient', () => {
       }),
     ).rejects.toThrow('not HTTP 200 success')
   })
+
+  it('reports each received HTTP response without exposing its query', async () => {
+    requestUrlMock.mockResolvedValue({
+      status: 200,
+      headers: {},
+      text: '{"items":[]}',
+      json: { items: [] },
+      arrayBuffer: new ArrayBuffer(0),
+    })
+    const onResponse = jest.fn()
+
+    await new ResearchHttpClient(onResponse).request('naver', {
+      url: 'https://naverapihub.apigw.ntruss.com/search/v1/news?query=private',
+    })
+
+    expect(onResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceId: 'naver',
+        hostname: 'naverapihub.apigw.ntruss.com',
+        status: 200,
+      }),
+    )
+    expect(JSON.stringify(onResponse.mock.calls)).not.toContain('private')
+  })
 })
