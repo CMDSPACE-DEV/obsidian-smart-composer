@@ -40,4 +40,26 @@ describe('ResearchHttpClient', () => {
       }),
     ).rejects.not.toThrow('private-value')
   })
+
+  it('explains that NAVER provider errorCode 200 is an authentication failure', async () => {
+    requestUrlMock.mockResolvedValue({
+      status: 401,
+      headers: {},
+      text: JSON.stringify({
+        error: {
+          errorCode: '200',
+          message: 'Authentication Failed',
+          details: 'Authentication information are missing.',
+        },
+      }),
+      json: {},
+      arrayBuffer: new ArrayBuffer(0),
+    })
+
+    await expect(
+      new ResearchHttpClient().request('naver', {
+        url: 'https://naverapihub.apigw.ntruss.com/search/v1/news',
+      }),
+    ).rejects.toThrow('not HTTP 200 success')
+  })
 })

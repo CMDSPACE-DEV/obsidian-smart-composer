@@ -109,6 +109,16 @@ function sanitizeHttpError(
   status: number,
   text: string,
 ): string {
+  if (
+    sourceId === 'naver' &&
+    /"errorCode"\s*:\s*"200"/i.test(text) &&
+    /Authentication Failed/i.test(text)
+  ) {
+    return (
+      'naver: NAVER API HUB authentication failed. Provider errorCode 200 ' +
+      'is an authentication error, not HTTP 200 success.'
+    )
+  }
   const generic =
     status === 401 || status === 403
       ? 'Authentication or entitlement was rejected.'

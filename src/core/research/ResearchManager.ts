@@ -274,9 +274,11 @@ export class ResearchManager {
         signal,
       )
       await this.markTested(sourceId, checkedAt)
+      const warnings =
+        result.warnings.length > 0 ? ` ${result.warnings.join(' ')}` : ''
       return {
         ok: true,
-        message: `Connected. ${result.records.length} test result(s) returned. This test used one provider request.`,
+        message: `Connected. ${result.records.length} test result(s) returned. This test used at least one provider request.${warnings}`,
         checkedAt,
       }
     } catch (error) {

@@ -461,9 +461,13 @@ async function searchNaver(
   signal?: AbortSignal,
 ): Promise<ResearchSearchResult> {
   const source = getResearchSource('naver')
-  const endpoint = requireEndpoint('naver')
   const keyId = requireSecret(context, 'naver', 'key-id', 'NAVER API key ID')
   const apiKey = requireSecret(context, 'naver', 'api-key', 'NAVER API key')
+  const credentialService = readOption(
+    context.settings,
+    'credential-service',
+    'auto',
+  )
   const requestedVertical =
     typeof request.filters?.vertical === 'string'
       ? request.filters.vertical
@@ -471,23 +475,55 @@ async function searchNaver(
   const vertical = ['news', 'webkr', 'blog'].includes(requestedVertical)
     ? requestedVertical
     : 'news'
-  const data = await context.http.requestJson<Record<string, unknown>>(
-    'naver',
-    {
-      url: appendQuery(`${endpoint}/${vertical}`, {
-        query: request.query,
-        display: clampLimit(request.limit, 10, 100),
-        start: cursorToOffset(request.cursor),
-        sort: vertical === 'news' ? 'date' : 'sim',
-      }),
-      headers: {
-        'X-NCP-APIGW-API-KEY-ID': keyId,
-        'X-NCP-APIGW-API-KEY': apiKey,
-      },
-    },
-    signal,
-  )
-  return result(
+  const services: NaverCredentialService[] =
+    credentialService === 'legacy-developers'
+      ? ['legacy-developers']
+      : credentialService === 'api-hub'
+        ? ['api-hub']
+        : ['api-hub', 'legacy-developers']
+  let selectedService: NaverCredentialService | null = null
+  let data: Record<string, unknown> | null = null
+  let apiHubAuthenticationError: unknown
+
+  for (const service of services) {
+    try {
+      data = await requestNaver(
+        service,
+        request,
+        vertical,
+        keyId,
+        apiKey,
+        context,
+        signal,
+      )
+      selectedService = service
+      break
+    } catch (error) {
+      if (
+        service === 'api-hub' &&
+        credentialService === 'auto' &&
+        isNaverAuthenticationError(error)
+      ) {
+        apiHubAuthenticationError = error
+        continue
+      }
+      if (
+        service === 'legacy-developers' &&
+        credentialService === 'auto' &&
+        apiHubAuthenticationError &&
+        isNaverAuthenticationError(error)
+      ) {
+        throw decorateNaverAutoDetectionError()
+      }
+      throw decorateNaverConnectionError(service, error)
+    }
+  }
+
+  if (!data || !selectedService) {
+    throw decorateNaverAutoDetectionError()
+  }
+
+  const searchResult = result(
     readRecordArray(data, 'items').map((item) =>
       evidence('naver', {
         title: plainText(readText(item, ['title'])),
@@ -502,6 +538,83 @@ async function searchNaver(
     ),
     data,
   )
+  if (selectedService === 'legacy-developers') {
+    searchResult.warnings.push(
+      'Connected through the legacy NAVER Developers Search API. Existing applications are supported only until 2027-06-30; migrate these credentials to NAVER API HUB.',
+    )
+  }
+  return searchResult
+}
+
+type NaverCredentialService = 'api-hub' | 'legacy-developers'
+
+async function requestNaver(
+  service: NaverCredentialService,
+  request: ResearchSearchRequest,
+  vertical: string,
+  keyId: string,
+  apiKey: string,
+  context: ResearchAdapterContext,
+  signal?: AbortSignal,
+): Promise<Record<string, unknown>> {
+  const apiHub = service === 'api-hub'
+  const endpoint = apiHub
+    ? requireEndpoint('naver')
+    : 'https://openapi.naver.com/v1/search'
+  return context.http.requestJson<Record<string, unknown>>(
+    'naver',
+    {
+      url: appendQuery(`${endpoint}/${vertical}${apiHub ? '' : '.json'}`, {
+        query: request.query,
+        display: clampLimit(request.limit, 10, 100),
+        start: cursorToOffset(request.cursor),
+        sort: vertical === 'news' ? 'date' : 'sim',
+        ...(apiHub ? { format: 'json' } : {}),
+      }),
+      headers: apiHub
+        ? {
+            'X-NCP-APIGW-API-KEY-ID': keyId,
+            'X-NCP-APIGW-API-KEY': apiKey,
+          }
+        : {
+            'X-Naver-Client-Id': keyId,
+            'X-Naver-Client-Secret': apiKey,
+          },
+    },
+    signal,
+  )
+}
+
+function isNaverAuthenticationError(error: unknown): boolean {
+  const message = toErrorText(error)
+  return (
+    /authentication (?:failed|or entitlement was rejected)/i.test(message) ||
+    /"errorCode"\s*:\s*"(?:200|024|025)"/i.test(message)
+  )
+}
+
+function decorateNaverConnectionError(
+  service: NaverCredentialService,
+  error: unknown,
+): Error {
+  if (!isNaverAuthenticationError(error)) {
+    return error instanceof Error ? error : new Error(toErrorText(error))
+  }
+  return new Error(
+    service === 'api-hub'
+      ? 'NAVER API HUB authentication failed. Provider errorCode 200 means authentication failure, not HTTP success. Use the Client ID and Client Secret issued in NAVER Cloud Platform > NAVER API HUB; legacy Developers Center keys are not interchangeable.'
+      : 'NAVER Developers authentication failed. Confirm the Client ID and Client Secret belong to an existing Search API application in developers.naver.com.',
+  )
+}
+
+function decorateNaverAutoDetectionError(): Error {
+  return new Error(
+    'NAVER credentials were rejected by both API HUB and the legacy Developers API. Confirm that Client ID and Client Secret were copied as one matching pair.',
+  )
+}
+
+function toErrorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 async function searchPubMed(

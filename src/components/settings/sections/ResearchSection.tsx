@@ -347,17 +347,36 @@ function ResearchSourceCard({
                 {field.label}
                 {field.required ? ' *' : ''}
               </span>
-              <input
-                type="text"
-                value={optionDrafts[field.id] ?? ''}
-                placeholder={field.placeholder}
-                onChange={(event) =>
-                  setOptionDrafts((current) => ({
-                    ...current,
-                    [field.id]: event.target.value,
-                  }))
-                }
-              />
+              {field.choices ? (
+                <select
+                  value={optionDrafts[field.id] ?? field.defaultValue ?? ''}
+                  onChange={(event) =>
+                    setOptionDrafts((current) => ({
+                      ...current,
+                      [field.id]: event.target.value,
+                    }))
+                  }
+                >
+                  {field.choices.map((choice) => (
+                    <option value={choice.value} key={choice.value}>
+                      {choice.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={optionDrafts[field.id] ?? ''}
+                  placeholder={field.placeholder}
+                  onChange={(event) =>
+                    setOptionDrafts((current) => ({
+                      ...current,
+                      [field.id]: event.target.value,
+                    }))
+                  }
+                />
+              )}
+              {field.description && <small>{field.description}</small>}
             </label>
           ))}
 

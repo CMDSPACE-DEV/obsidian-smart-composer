@@ -39,6 +39,8 @@ premature synthesis.
 | R-014 | High-value fact-checking/research MCP shortlist and NAVER Search/API HUB integration boundary | **Verified** | **Mandatory** | [R-014 report](R-014-high-value-fact-checking-research-mcps-and-naver-search.md) |
 | R-015 | Korean official MCPs, Korean academic sources, Web of Science/SSCI, Scopus, and scholarly verification connectors | **Verified** | **Mandatory** | [R-015 report](R-015-korean-official-mcps-and-scholarly-index-connectors.md) |
 | R-016 | Plan-first settings information architecture and seven-pack Research Connections implementation contract | **Verified plan + Implementation baseline** | **Mandatory** | [R-016 report](R-016-plan-first-settings-and-research-connections.md) |
+| R-017 | Power 7 and Korean Law credential issuance, connection, invocation, troubleshooting, and source-boundary user guide | **Verified guide for 2.5.1** | **Mandatory** | [R-017 guide](R-017-power-7-research-connections-setup-and-usage-guide.md) |
+| R-018 | NAVER API HUB provider errorCode 200, legacy Developers credential compatibility, and automatic contract detection | **Verified + Implemented in 2.5.1** | **Mandatory** | [R-018 report](R-018-naver-api-hub-legacy-credential-compatibility.md) |
 
 ## Mandatory Synthesis Rule
 

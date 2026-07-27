@@ -18,6 +18,11 @@ export type ResearchOptionField = {
   required: boolean
   placeholder?: string
   defaultValue?: string
+  description?: string
+  choices?: {
+    value: string
+    label: string
+  }[]
 }
 export type ResearchSourceDefinition = {
   id: ResearchSourceId
@@ -313,16 +318,37 @@ export const RESEARCH_SOURCES: Record<
     freeBoundary: 'Current temporary free trial with a high monthly quota',
     defaultAutoPolicy: 'allow',
     secretFields: [
-      { id: 'key-id', label: 'API key ID', required: true },
-      { id: 'api-key', label: 'API key', required: true },
+      { id: 'key-id', label: 'Client ID', required: true },
+      { id: 'api-key', label: 'Client Secret', required: true },
     ],
     optionFields: [
+      {
+        id: 'credential-service',
+        label: 'Credential service',
+        required: true,
+        defaultValue: 'auto',
+        description:
+          'Auto tries API HUB first, then the legacy Developers API only after an authentication rejection.',
+        choices: [
+          { value: 'auto', label: 'Auto detect (recommended)' },
+          { value: 'api-hub', label: 'NAVER API HUB' },
+          {
+            value: 'legacy-developers',
+            label: 'NAVER Developers (legacy)',
+          },
+        ],
+      },
       {
         id: 'vertical',
         label: 'Default search vertical',
         required: true,
         defaultValue: 'news',
         placeholder: 'news, webkr, blog',
+        choices: [
+          { value: 'news', label: 'News' },
+          { value: 'webkr', label: 'Korean web' },
+          { value: 'blog', label: 'Blog' },
+        ],
       },
     ],
   },
