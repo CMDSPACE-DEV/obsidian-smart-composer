@@ -18,14 +18,6 @@ export const llmProviderSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('anthropic-plan'),
     ...baseLlmProviderSchema.shape,
-    oauth: z
-      .object({
-        accessToken: z.string(),
-        refreshToken: z.string(),
-        expiresAt: z.number(),
-        accountId: z.string().optional(),
-      })
-      .optional(),
   }),
   z.object({
     type: z.literal('openai-plan'),
@@ -42,16 +34,6 @@ export const llmProviderSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('gemini-plan'),
     ...baseLlmProviderSchema.shape,
-    oauth: z
-      .object({
-        accessToken: z.string(),
-        refreshToken: z.string(),
-        expiresAt: z.number(),
-        projectId: z.string().optional(),
-        managedProjectId: z.string().optional(),
-        email: z.string().optional(),
-      })
-      .optional(),
   }),
   z.object({
     type: z.literal('anthropic'),

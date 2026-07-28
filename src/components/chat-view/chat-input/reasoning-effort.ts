@@ -56,13 +56,14 @@ function isGpt56PlanModel(
   )
 }
 
-function isClaudeSonnet5PlanModel(
+function isClaudeAdaptivePlanModel(
   model: ChatModel,
 ): model is Extract<ChatModel, { providerType: 'anthropic-plan' }> {
   return (
     model.providerType === 'anthropic-plan' &&
-    (model.model === 'claude-sonnet-5' ||
-      model.model.startsWith('claude-sonnet-5-'))
+    (model.thinking?.mode === 'adaptive' ||
+      ['default', 'opus', 'sonnet'].includes(model.model) ||
+      /^claude-(opus|sonnet)-/i.test(model.model))
   )
 }
 
@@ -93,7 +94,7 @@ export function getQuickReasoningControl(
     }
   }
 
-  if (isClaudeSonnet5PlanModel(model)) {
+  if (isClaudeAdaptivePlanModel(model)) {
     const adaptiveThinking =
       model.thinking?.mode === 'adaptive' ? model.thinking : undefined
     return {
@@ -133,7 +134,7 @@ export function updateQuickReasoningEffort(
     }
   }
 
-  if (isClaudeSonnet5PlanModel(model)) {
+  if (isClaudeAdaptivePlanModel(model)) {
     if (value !== 'off' && !isClaudeEffort(value)) {
       throw new Error(`Unsupported Claude reasoning effort: ${value}`)
     }

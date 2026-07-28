@@ -77,5 +77,34 @@ describe('ChatManager', () => {
         expect(metadata.schemaVersion).toBe(chat.schemaVersion)
       }
     })
+
+    it.each([1, 2, 3, 4])(
+      'reads legacy and current schema v%s filenames',
+      (schemaVersion) => {
+        const metadata = (
+          chatManager as unknown as {
+            parseFileName: (fileName: string) => {
+              schemaVersion: number
+            } | null
+          }
+        ).parseFileName(
+          `v${schemaVersion}_Title_1620000000000_123e4567-e89b-12d3-a456-426614174000.json`,
+        )
+
+        expect(metadata?.schemaVersion).toBe(schemaVersion)
+      },
+    )
+
+    it('rejects a future chat schema filename', () => {
+      const metadata = (
+        chatManager as unknown as {
+          parseFileName: (fileName: string) => unknown
+        }
+      ).parseFileName(
+        'v5_Title_1620000000000_123e4567-e89b-12d3-a456-426614174000.json',
+      )
+
+      expect(metadata).toBeNull()
+    })
   })
 })

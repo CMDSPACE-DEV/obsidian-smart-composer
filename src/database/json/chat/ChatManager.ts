@@ -27,7 +27,7 @@ export class ChatManager extends AbstractJsonRepository<
 
   protected parseFileName(fileName: string): ChatConversationMetadata | null {
     // Parse: v{schemaVersion}_{title}_{updatedAt}_{id}.json
-    const regex = /^v(1|2|3)_(.+)_(\d+)_([0-9a-f-]+)\.json$/
+    const regex = /^v(1|2|3|4)_(.+)_(\d+)_([0-9a-f-]+)\.json$/
     const match = fileName.match(regex)
     if (!match) return null
 

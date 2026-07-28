@@ -14,41 +14,6 @@ export const CODEX_AUTH_CLAIMS_URL = 'https://api.openai.com/auth'
 export const CODEX_RESPONSES_ENDPOINT =
   'https://chatgpt.com/backend-api/codex/responses'
 
-export const CLAUDE_CODE_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e'
-export const CLAUDE_CODE_AUTHORIZE_BASE_URL = 'https://claude.ai'
-export const CLAUDE_CODE_CONSOLE_BASE_URL = 'https://console.anthropic.com'
-export const CLAUDE_CODE_OAUTH_TOKEN_ENDPOINT =
-  'https://console.anthropic.com/v1/oauth/token'
-export const CLAUDE_CODE_REDIRECT_URI =
-  'https://console.anthropic.com/oauth/code/callback'
-export const CLAUDE_CODE_MESSAGES_ENDPOINT =
-  'https://api.anthropic.com/v1/messages'
-export const CLAUDE_CODE_DEFAULT_BETAS = [
-  'oauth-2025-04-20',
-  'interleaved-thinking-2025-05-14',
-  'claude-code-20250219',
-]
-export const CLAUDE_CODE_SYSTEM_MESSAGE =
-  "You are Claude Code, Anthropic's official CLI for Claude."
-export const CLAUDE_CODE_USER_AGENT = 'claude-cli/2.1.2 (external, cli)'
-
-// Keep in sync with opencode-gemini-auth constants.
-export const GEMINI_OAUTH_CLIENT_ID = ''
-export const GEMINI_OAUTH_CLIENT_SECRET = ''
-export const GEMINI_OAUTH_REDIRECT_URI = 'http://localhost:8085/oauth2callback'
-export const GEMINI_OAUTH_SCOPES = [
-  'https://www.googleapis.com/auth/cloud-platform',
-  'https://www.googleapis.com/auth/userinfo.email',
-  'https://www.googleapis.com/auth/userinfo.profile',
-] as const
-export const GEMINI_CODE_ASSIST_ENDPOINT = 'https://cloudcode-pa.googleapis.com'
-export const GEMINI_CODE_ASSIST_HEADERS = {
-  'User-Agent': 'google-api-nodejs-client/9.15.1',
-  'X-Goog-Api-Client': 'gl-node/22.17.0',
-  'Client-Metadata':
-    'ideType=IDE_UNSPECIFIED,platform=PLATFORM_UNSPECIFIED,pluginType=GEMINI',
-} as const
-
 // Default model ids
 export const DEFAULT_CHAT_MODEL_ID = 'claude-sonnet-4.6'
 // gpt-4.1-mini is preferred over gpt-5-mini because gpt-5 models do not support
@@ -300,20 +265,32 @@ export const DEFAULT_CHAT_MODELS: readonly ChatModel[] = [
   {
     providerType: 'anthropic-plan',
     providerId: PROVIDER_TYPES_INFO['anthropic-plan'].defaultProviderId,
-    id: 'claude-opus-4.8 (plan)',
-    model: 'claude-opus-4-8',
-  },
-  {
-    providerType: 'anthropic-plan',
-    providerId: PROVIDER_TYPES_INFO['anthropic-plan'].defaultProviderId,
-    id: 'claude-sonnet-5 (plan)',
-    model: 'claude-sonnet-5',
+    id: 'claude-opus-latest (plan)',
+    model: 'opus',
     thinking: {
       enabled: true,
       mode: 'adaptive',
       effort: 'high',
       display: 'summarized',
     },
+  },
+  {
+    providerType: 'anthropic-plan',
+    providerId: PROVIDER_TYPES_INFO['anthropic-plan'].defaultProviderId,
+    id: 'claude-default (plan)',
+    model: 'default',
+    thinking: {
+      enabled: true,
+      mode: 'adaptive',
+      effort: 'high',
+      display: 'summarized',
+    },
+  },
+  {
+    providerType: 'anthropic-plan',
+    providerId: PROVIDER_TYPES_INFO['anthropic-plan'].defaultProviderId,
+    id: 'claude-haiku-latest (plan)',
+    model: 'haiku',
   },
   {
     providerType: 'openai-plan',
@@ -347,6 +324,20 @@ export const DEFAULT_CHAT_MODELS: readonly ChatModel[] = [
     providerId: PROVIDER_TYPES_INFO['gemini-plan'].defaultProviderId,
     id: 'gemini-3-pro-preview (plan)',
     model: 'gemini-3-pro-preview',
+    enable: false,
+  },
+  {
+    providerType: 'anthropic-plan',
+    providerId: PROVIDER_TYPES_INFO['anthropic-plan'].defaultProviderId,
+    id: 'claude-opus-4.8 (plan)',
+    model: 'claude-opus-4-8',
+    enable: false,
+  },
+  {
+    providerType: 'anthropic-plan',
+    providerId: PROVIDER_TYPES_INFO['anthropic-plan'].defaultProviderId,
+    id: 'claude-sonnet-5 (plan)',
+    model: 'claude-sonnet-5',
     enable: false,
   },
   {

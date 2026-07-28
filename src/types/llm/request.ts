@@ -4,6 +4,7 @@
 import { ChatCompletionCreateParams, ReasoningEffort } from 'openai/resources'
 import { Reasoning } from 'openai/resources/shared'
 
+import type { NativeToolExecutor } from '../../core/llm/native/nativeRuntime.types'
 import { ToolCallRequest } from '../tool-call.types'
 
 import { LLMProviderMetadata } from './provider-metadata'
@@ -94,6 +95,7 @@ export type RequestMessage =
 
 export type LLMOptions = {
   signal?: AbortSignal
+  nativeToolExecutor?: NativeToolExecutor
 }
 
 export type RequestTool = {

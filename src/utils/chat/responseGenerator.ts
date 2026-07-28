@@ -239,6 +239,7 @@ export class ResponseGenerator {
       },
       {
         signal: this.abortSignal,
+        nativeToolExecutor: (request) => this.executeNativeRuntimeTool(request),
       },
     )
 
@@ -402,6 +403,63 @@ export class ResponseGenerator {
         error: error instanceof Error ? error.message : String(error),
       } as const
     }
+  }
+
+  private async executeNativeRuntimeTool(
+    request: ToolCallRequest,
+  ): Promise<ToolCallResponse> {
+    const isLocalTool = this.localTools.has(request.name)
+    const isAllowed =
+      isLocalTool ||
+      (this.mcpManager?.isToolExecutionAllowed({
+        requestToolName: request.name,
+        conversationId: this.conversationId,
+      }) ??
+        false)
+
+    const toolMessageId = uuidv4()
+    const initialResponse: ToolCallResponse = isAllowed
+      ? { status: ToolCallResponseStatus.Running }
+      : {
+          status: ToolCallResponseStatus.Error,
+          error:
+            'This native Plan runtime cannot pause for a Smart Composer approval card. Approve the connection schema first or use Full auto tool execution.',
+        }
+    const toolMessage: ChatToolMessage = {
+      role: 'tool',
+      id: toolMessageId,
+      toolCalls: [
+        {
+          request,
+          response: initialResponse,
+        },
+      ],
+    }
+    this.updateResponseMessages((messages) => [...messages, toolMessage])
+
+    if (!isAllowed) {
+      return initialResponse
+    }
+
+    const response = await this.callTool(request)
+    this.updateResponseMessages((messages) =>
+      messages.map((message) =>
+        message.id === toolMessageId && message.role === 'tool'
+          ? {
+              ...message,
+              toolCalls: message.toolCalls?.map((toolCall) =>
+                toolCall.request.id === request.id
+                  ? {
+                      ...toolCall,
+                      response,
+                    }
+                  : toolCall,
+              ),
+            }
+          : message,
+      ),
+    )
+    return response
   }
 
   private createMcpToolSearchTool(): LocalResponseTool {

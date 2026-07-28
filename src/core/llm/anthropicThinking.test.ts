@@ -24,13 +24,19 @@ describe('Anthropic thinking block handling', () => {
         },
         { type: 'text', text: 'answer', citations: null },
       ],
+      container: null,
       stop_reason: 'end_turn',
+      stop_details: null,
       stop_sequence: null,
       usage: {
         input_tokens: 10,
         output_tokens: 4,
+        cache_creation: null,
         cache_creation_input_tokens: 0,
         cache_read_input_tokens: 0,
+        inference_geo: null,
+        server_tool_use: null,
+        service_tier: null,
       },
     } satisfies Message)
 
@@ -214,13 +220,19 @@ function messageStartEvent(): MessageStreamEvent {
       role: 'assistant',
       model: 'claude-sonnet-5',
       content: [],
+      container: null,
       stop_reason: null,
+      stop_details: null,
       stop_sequence: null,
       usage: {
         input_tokens: 11,
         output_tokens: 0,
+        cache_creation: null,
         cache_creation_input_tokens: 0,
         cache_read_input_tokens: 0,
+        inference_geo: null,
+        server_tool_use: null,
+        service_tier: null,
       },
     },
   }
@@ -229,8 +241,19 @@ function messageStartEvent(): MessageStreamEvent {
 function messageDeltaEvent(outputTokens: number): MessageStreamEvent {
   return {
     type: 'message_delta',
-    delta: { stop_reason: null, stop_sequence: null },
-    usage: { output_tokens: outputTokens },
+    delta: {
+      container: null,
+      stop_details: null,
+      stop_reason: null,
+      stop_sequence: null,
+    },
+    usage: {
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+      input_tokens: null,
+      output_tokens: outputTokens,
+      server_tool_use: null,
+    },
   }
 }
 

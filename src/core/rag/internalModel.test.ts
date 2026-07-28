@@ -24,29 +24,32 @@ describe('getInternalRagModel', () => {
     },
   )
 
-  it('explicitly disables Sonnet 5 adaptive thinking', () => {
-    expect(
-      getInternalRagModel({
-        providerType: 'anthropic-plan',
-        providerId: 'anthropic-plan',
-        id: 'claude-sonnet-5 (plan)',
-        model: 'claude-sonnet-5',
+  it.each(['default', 'opus', 'claude-sonnet-5'])(
+    'explicitly disables Claude Plan adaptive thinking for %s',
+    (model) => {
+      expect(
+        getInternalRagModel({
+          providerType: 'anthropic-plan',
+          providerId: 'anthropic-plan',
+          id: `${model} (plan)`,
+          model,
+          thinking: {
+            enabled: true,
+            mode: 'adaptive',
+            effort: 'xhigh',
+            display: 'omitted',
+          },
+        }),
+      ).toMatchObject({
         thinking: {
-          enabled: true,
+          enabled: false,
           mode: 'adaptive',
           effort: 'xhigh',
           display: 'omitted',
         },
-      }),
-    ).toMatchObject({
-      thinking: {
-        enabled: false,
-        mode: 'adaptive',
-        effort: 'xhigh',
-        display: 'omitted',
-      },
-    })
-  })
+      })
+    },
+  )
 
   it('keeps legacy behavior for manual thinking models', () => {
     expect(

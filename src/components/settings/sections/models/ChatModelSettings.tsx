@@ -268,11 +268,13 @@ const MODEL_SETTINGS_REGISTRY: ModelSettingsRegistry[] = [
     },
   },
 
-  /** Claude Sonnet 5 adaptive thinking settings. */
+  /** Claude Plan adaptive thinking settings. */
   {
     check: (model) =>
       model.providerType === 'anthropic-plan' &&
-      model.model === 'claude-sonnet-5',
+      (model.thinking?.mode === 'adaptive' ||
+        ['default', 'opus', 'sonnet'].includes(model.model) ||
+        /^claude-(opus|sonnet)-/i.test(model.model)),
     SettingsComponent: (props: SettingsComponentProps) => {
       const { model, plugin, onClose } = props
       const typedModel = model as Extract<

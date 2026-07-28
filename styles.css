@@ -1757,6 +1757,10 @@ button.smtcmp-research-source-main:focus-visible {
 }
 
 .smtcmp-plan-connection-card-title {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  flex-wrap: wrap;
   color: var(--text-normal);
   font-size: var(--font-ui-medium);
   font-weight: var(--font-medium);
@@ -1775,6 +1779,120 @@ button.smtcmp-research-source-main:focus-visible {
   justify-content: flex-end;
   gap: var(--size-4-2);
   flex-wrap: wrap;
+}
+
+.smtcmp-plan-connection-card-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-4-1);
+}
+
+.smtcmp-plan-runtime-experimental {
+  border: var(--border-width) solid var(--background-modifier-border);
+  border-radius: 9999px;
+  padding: 2px var(--size-4-2);
+  color: var(--text-warning);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-normal);
+}
+
+.smtcmp-plan-runtime-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-1) var(--size-4-2);
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+
+.smtcmp-plan-runtime-meta span:not(:last-child)::after {
+  content: '·';
+  margin-left: var(--size-4-2);
+}
+
+.smtcmp-plan-runtime-error {
+  max-height: 5.5em;
+  overflow: auto;
+  border-left: 2px solid var(--text-error);
+  padding: var(--size-4-1) var(--size-4-2);
+  color: var(--text-error);
+  background: color-mix(in srgb, var(--text-error) 7%, transparent);
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  line-height: var(--line-height-tight);
+  user-select: text;
+}
+
+.smtcmp-plan-runtime-models {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.smtcmp-plan-runtime-models summary {
+  cursor: pointer;
+  font-weight: var(--font-medium);
+}
+
+.smtcmp-plan-runtime-model-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  margin-top: var(--size-4-2);
+}
+
+.smtcmp-plan-runtime-model-list > div {
+  display: grid;
+  grid-template-columns: minmax(80px, auto) minmax(0, 1fr);
+  gap: 2px var(--size-4-2);
+}
+
+.smtcmp-plan-runtime-model-list small {
+  grid-column: 1 / -1;
+  color: var(--text-faint);
+  line-height: var(--line-height-tight);
+}
+
+.smtcmp-plan-runtime-advanced {
+  border-top: var(--border-width) solid var(--background-modifier-border);
+  padding-top: var(--size-4-2);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.smtcmp-plan-runtime-advanced summary {
+  cursor: pointer;
+  font-weight: var(--font-medium);
+}
+
+.smtcmp-plan-runtime-path-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--size-4-2);
+  margin-top: var(--size-4-2);
+}
+
+.smtcmp-plan-runtime-path-row input {
+  width: 100%;
+  min-width: 0;
+}
+
+.smtcmp-plan-runtime-detected-path,
+.smtcmp-plan-runtime-path-help {
+  margin-top: var(--size-4-1);
+  overflow-wrap: anywhere;
+}
+
+.smtcmp-plan-runtime-detected-path code {
+  user-select: text;
+}
+
+.smtcmp-icon-spin {
+  animation: smtcmp-runtime-spin 900ms linear infinite;
+}
+
+@keyframes smtcmp-runtime-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .smtcmp-plan-connect-steps {
@@ -2385,6 +2503,11 @@ button.smtcmp-research-source-main:focus-visible {
 .smtcmp-mcp-server-status-badge--error {
   background-color: color-mix(in srgb, var(--text-error) 10%, transparent);
   color: var(--text-error);
+}
+
+.smtcmp-mcp-server-status-badge--warning {
+  background-color: color-mix(in srgb, var(--text-warning) 10%, transparent);
+  color: var(--text-warning);
 }
 
 .smtcmp-mcp-server-status-badge--disconnected {

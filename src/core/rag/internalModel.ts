@@ -20,10 +20,7 @@ export function getInternalRagModel(model: ChatModel): ChatModel {
     }
   }
 
-  if (
-    model.providerType === 'anthropic-plan' &&
-    model.model === 'claude-sonnet-5'
-  ) {
+  if (model.providerType === 'anthropic-plan') {
     const adaptive =
       model.thinking?.mode === 'adaptive' ? model.thinking : undefined
     return {

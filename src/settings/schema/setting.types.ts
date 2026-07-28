@@ -21,6 +21,28 @@ import {
 
 import { SETTINGS_SCHEMA_VERSION } from './migrations'
 
+const nativeRuntimeModelSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  description: z.string().optional(),
+})
+
+const nativeRuntimeStateSchema = z.object({
+  status: z
+    .enum([
+      'not-installed',
+      'login-required',
+      'ready',
+      'update-available',
+      'error',
+    ])
+    .catch('not-installed'),
+  version: z.string().optional(),
+  models: z.array(nativeRuntimeModelSchema).catch([]),
+  error: z.string().optional(),
+  lastCheckedAt: z.number().optional(),
+})
+
 const ragOptionsSchema = z.object({
   retrievalMode: z.enum(['auto', 'embedding', 'plan-rerank']).catch('auto'),
   folderReadMode: z.enum(['auto', 'focused', 'exhaustive']).catch('auto'),
@@ -43,6 +65,16 @@ export const smartComposerSettingsSchema = z.object({
   version: z.literal(SETTINGS_SCHEMA_VERSION).catch(SETTINGS_SCHEMA_VERSION),
 
   providers: z.array(llmProviderSchema).catch([...DEFAULT_PROVIDERS]),
+
+  nativeRuntimes: z
+    .object({
+      claude: nativeRuntimeStateSchema,
+      gemini: nativeRuntimeStateSchema,
+    })
+    .catch({
+      claude: { status: 'not-installed', models: [] },
+      gemini: { status: 'not-installed', models: [] },
+    }),
 
   chatModels: z.array(chatModelSchema).catch([...DEFAULT_CHAT_MODELS]),
 

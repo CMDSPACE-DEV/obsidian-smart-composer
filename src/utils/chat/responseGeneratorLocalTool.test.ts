@@ -92,6 +92,80 @@ describe('ResponseGenerator local tools', () => {
     })
   })
 
+  it('executes an allowed local tool through the native runtime bridge', async () => {
+    const { generator } = createGenerator()
+    const executeNativeRuntimeTool = (
+      generator as unknown as {
+        executeNativeRuntimeTool: (request: ToolCallRequest) => Promise<unknown>
+      }
+    ).executeNativeRuntimeTool.bind(generator)
+    let latestMessages: unknown[] = []
+    generator.subscribe((messages) => {
+      latestMessages = messages
+    })
+
+    await expect(
+      executeNativeRuntimeTool({
+        id: 'native-local-call',
+        name: 'enqueue_image_generation',
+        arguments: '{"prompt":"Draw a safe diagram"}',
+      }),
+    ).resolves.toMatchObject({
+      status: ToolCallResponseStatus.Success,
+    })
+    expect(latestMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'tool',
+          toolCalls: [
+            expect.objectContaining({
+              response: expect.objectContaining({
+                status: ToolCallResponseStatus.Success,
+              }),
+            }),
+          ],
+        }),
+      ]),
+    )
+  })
+
+  it('fails closed for an MCP tool without prior approval', async () => {
+    const generator = new ResponseGenerator({
+      providerClient: {} as never,
+      model: {
+        id: 'claude-default (plan)',
+        model: 'default',
+        providerId: 'anthropic-plan',
+        providerType: 'anthropic-plan',
+      },
+      messages: [],
+      conversationId: 'conversation',
+      enableTools: true,
+      maxAutoIterations: 2,
+      promptGenerator: {} as never,
+      mcpManager: {
+        isToolExecutionAllowed: jest.fn().mockReturnValue(false),
+        callTool: jest.fn(),
+      } as never,
+    })
+    const executeNativeRuntimeTool = (
+      generator as unknown as {
+        executeNativeRuntimeTool: (request: ToolCallRequest) => Promise<unknown>
+      }
+    ).executeNativeRuntimeTool.bind(generator)
+
+    await expect(
+      executeNativeRuntimeTool({
+        id: 'native-mcp-call',
+        name: 'search_statutes',
+        arguments: '{}',
+      }),
+    ).resolves.toMatchObject({
+      status: ToolCallResponseStatus.Error,
+      error: expect.stringContaining('cannot pause'),
+    })
+  })
+
   it('discovers on-demand MCP connections locally before exposing tools', async () => {
     const listAvailableTools = jest.fn().mockResolvedValue([])
     const searchToolCatalog = jest.fn().mockReturnValue([

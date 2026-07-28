@@ -1,6 +1,6 @@
 {
   "name": "obsidian-smart-composer",
-  "version": "2.5.5",
+  "version": "2.6.0",
   "description": "This is a sample plugin for Obsidian (https://obsidian.md)",
   "main": "main.js",
   "scripts": {
@@ -47,9 +47,13 @@
     "typescript": "^5.6.2"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
+    "@anthropic-ai/claude-agent-sdk": "0.3.220",
+    "@anthropic-ai/sdk": "0.93.0",
+    "@codemirror/state": "6.5.0",
+    "@codemirror/view": "6.38.6",
     "@electric-sql/pglite": "0.2.12",
     "@google/genai": "^1.35.0",
+    "@langchain/core": "0.3.80",
     "@lexical/clipboard": "^0.17.1",
     "@lexical/react": "^0.17.1",
     "@modelcontextprotocol/sdk": "1.29.0",

@@ -1,0 +1,40 @@
+# Third-Party Notices
+
+## Claudian
+
+Portions of native Claude CLI discovery and Electron process handling are
+adapted from Claudian 2.0.41.
+
+MIT License
+
+Copyright (c) 2025
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## Claude Agent SDK
+
+The plugin includes `@anthropic-ai/claude-agent-sdk`. The package copyright is
+held by Anthropic PBC and use is subject to Anthropic's legal agreements:
+
+https://code.claude.com/docs/en/legal-and-compliance
+
+Anthropic's current authentication policy directs third-party products to API
+key authentication and does not permit routing consumer Claude Plan credentials
+on behalf of users. The optional local Claude runtime in this custom build is
+therefore labeled experimental and personal-use only.

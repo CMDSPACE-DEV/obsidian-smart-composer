@@ -43,12 +43,12 @@ describe('getProviderCapabilities', () => {
     })
   })
 
-  it('marks legacy Gemini Plan as non-tooling metadata', () => {
+  it('enables reviewed Smart Composer tools for the Antigravity runtime', () => {
     expect(
       getProviderCapabilities(model('gemini-plan', 'gemini-3-pro-preview')),
     ).toMatchObject({
       plan: true,
-      tools: false,
+      tools: true,
       imageGeneration: false,
     })
   })

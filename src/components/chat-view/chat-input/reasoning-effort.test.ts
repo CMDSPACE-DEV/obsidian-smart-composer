@@ -27,7 +27,7 @@ function gptModel(
 }
 
 function claudeModel(
-  model = 'claude-sonnet-5',
+  model = 'default',
 ): Extract<ChatModel, { providerType: 'anthropic-plan' }> {
   return {
     id: `${model} (plan)`,
@@ -77,9 +77,9 @@ describe('quick reasoning effort', () => {
     },
   )
 
-  it('shows off for disabled Claude thinking and supports versioned Sonnet 5 slugs', () => {
+  it('shows off for disabled Claude thinking and supports the runtime Opus alias', () => {
     const configuredModel: ReturnType<typeof claudeModel> = {
-      ...claudeModel('claude-sonnet-5-20260715'),
+      ...claudeModel('opus'),
       thinking: {
         enabled: false,
         mode: 'adaptive',
@@ -89,6 +89,12 @@ describe('quick reasoning effort', () => {
     }
 
     expect(getQuickReasoningControl(configuredModel)?.value).toBe('off')
+  })
+
+  it('supports legacy versioned Sonnet metadata', () => {
+    expect(
+      getQuickReasoningControl(claudeModel('claude-sonnet-5-20260715')),
+    ).not.toBeNull()
   })
 
   it('hides the control for unsupported models and missing selections', () => {

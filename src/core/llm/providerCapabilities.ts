@@ -16,7 +16,7 @@ export function getProviderCapabilities(
 
   return {
     plan,
-    tools: model.providerType !== 'gemini-plan',
+    tools: true,
     reasoningEffort:
       model.providerType === 'openai-plan' ||
       model.providerType === 'openai' ||

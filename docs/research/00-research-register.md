@@ -45,6 +45,7 @@ premature synthesis.
 | R-020 | RISS Linked Data SPARQL 1.0 search, XML parsing, uppercase bindings, and bibliographic mapping compatibility | **Verified + Implemented in 2.5.3** | **Mandatory** | [R-020 report](R-020-riss-linked-data-search-compatibility.md) |
 | R-021 | Full-auto MCP schema trust, all-risk tool execution, bounded automatic continuation, and fallback approval modes | **Verified + Implemented in 2.5.4** | **Mandatory** | [R-021 report](R-021-full-auto-mcp-tool-execution.md) |
 | R-022 | RISS chat-tool exposure, `@` mention recovery, typed source-name routing, and legacy Auto-policy migration | **Verified + Implemented in 2.5.5** | **Mandatory** | [R-022 report](R-022-riss-chat-tool-routing-and-mention-recovery.md) |
+| R-023 | Official Claude Agent SDK and Antigravity CLI Plan runtime architecture, model discovery, tool isolation, and credential migration | **Verified; implementation target for 2.6.0** | **Mandatory** | [R-023 report](R-023-official-plan-runtime-architecture.md) |
 
 ## Mandatory Synthesis Rule
 

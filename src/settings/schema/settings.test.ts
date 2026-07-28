@@ -17,6 +17,11 @@ describe('parseSmartComposerSettings', () => {
 
       providers: [...DEFAULT_PROVIDERS],
 
+      nativeRuntimes: {
+        claude: { status: 'not-installed', models: [] },
+        gemini: { status: 'not-installed', models: [] },
+      },
+
       chatModels: [...DEFAULT_CHAT_MODELS],
       embeddingModels: [...DEFAULT_EMBEDDING_MODELS],
 
@@ -77,7 +82,7 @@ describe('parseSmartComposerSettings', () => {
     })
   })
 
-  it('parses a complete v18 upgrade without losing OAuth or custom models', () => {
+  it('upgrades v18 while preserving OpenAI OAuth and custom models', () => {
     const input = {
       version: 18,
       providers: [
@@ -139,8 +144,18 @@ describe('parseSmartComposerSettings', () => {
     expect(input).toEqual(before)
     expect(result.version).toBe(SETTINGS_SCHEMA_VERSION)
     expect(result.chatModelId).toBe('gpt-5.6-sol (plan)')
-    expect(result.inlineEdit.modelId).toBe('claude-sonnet-5 (plan)')
-    expect(result.providers).toEqual(input.providers)
+    expect(result.inlineEdit.modelId).toBe('claude-default (plan)')
+    expect(result.providers).toEqual([
+      expect.objectContaining({
+        type: 'openai-plan',
+        oauth: expect.objectContaining({ accessToken: 'openai-access' }),
+      }),
+      { type: 'anthropic-plan', id: 'anthropic-plan' },
+      expect.objectContaining({
+        type: 'openai-compatible',
+        id: 'custom-provider',
+      }),
+    ])
     expect(result.chatModels).toContainEqual(
       expect.objectContaining({
         providerType: 'openai-compatible',
