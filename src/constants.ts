@@ -289,6 +289,18 @@ export const DEFAULT_CHAT_MODELS: readonly ChatModel[] = [
   {
     providerType: 'anthropic-plan',
     providerId: PROVIDER_TYPES_INFO['anthropic-plan'].defaultProviderId,
+    id: 'claude-sonnet-latest (plan)',
+    model: 'sonnet',
+    thinking: {
+      enabled: true,
+      mode: 'adaptive',
+      effort: 'high',
+      display: 'summarized',
+    },
+  },
+  {
+    providerType: 'anthropic-plan',
+    providerId: PROVIDER_TYPES_INFO['anthropic-plan'].defaultProviderId,
     id: 'claude-haiku-latest (plan)',
     model: 'haiku',
   },

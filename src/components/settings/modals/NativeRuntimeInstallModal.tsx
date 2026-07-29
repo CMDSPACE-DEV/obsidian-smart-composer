@@ -20,6 +20,8 @@ import {
 } from '../../../core/llm/native/NativeRuntimeService'
 import { ReactModal } from '../../common/ReactModal'
 
+import { NativeRuntimeLoginSteps } from './NativeRuntimeLoginSteps'
+
 type NativeRuntimeInstallModalProps = {
   provider: NativeRuntimeProvider
   title: string
@@ -224,6 +226,7 @@ function NativeRuntimeInstallModalComponent({
       >
         <StepHeading number="4" title="계정 로그인" />
         <p>{loginDescription(provider)}</p>
+        <NativeRuntimeLoginSteps provider={provider} />
         <CommandBox command={guide.loginCommand} compact />
         <div className="smtcmp-runtime-installer-actions">
           <button
@@ -316,12 +319,12 @@ function CommandBox({
 
 function loginDescription(provider: NativeRuntimeProvider): string {
   return provider === 'claude'
-    ? '로그인 창 열기를 누르면 Claude Code가 실행됩니다. 브라우저가 열리면 사용 중인 Claude 계정으로 로그인하고 허용하세요.'
-    : '로그인 창 열기를 누르면 Antigravity가 실행됩니다. 화면에서 Google OAuth를 선택하고, 브라우저 로그인 후 안내되는 인증을 완료하세요.'
+    ? '로그인 창 열기를 누르면 Claude Code가 실행됩니다. 아래 순서대로 Claude 구독 계정 연결을 마치세요.'
+    : '로그인 창 열기를 누르면 Antigravity가 실행됩니다. 1번 Google OAuth를 선택한 뒤 브라우저의 일회용 코드를 터미널에 돌려보내야 로그인이 완료됩니다.'
 }
 
 function loginInstructions(provider: NativeRuntimeProvider): string {
   return provider === 'claude'
     ? 'Claude 로그인 창을 열었습니다. 브라우저에서 로그인과 허용을 마친 뒤 설치 확인을 다시 누르세요.'
-    : 'Antigravity 로그인 창을 열었습니다. Google OAuth를 선택하고 브라우저 로그인을 마친 뒤 설치 확인을 다시 누르세요.'
+    : 'Antigravity 로그인 창을 열었습니다. 1번 Google OAuth를 선택하고, 브라우저에 표시된 일회용 코드를 복사해 터미널에 Ctrl+V한 뒤 Enter를 누르세요.'
 }

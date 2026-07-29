@@ -95,7 +95,7 @@ function createSettings(
   overrides: Partial<SmartComposerSettings> = {},
 ): SmartComposerSettings {
   return {
-    version: 27,
+    version: 28,
     nativeRuntimes: {
       claude: { status: 'not-installed', models: [] },
       gemini: { status: 'not-installed', models: [] },

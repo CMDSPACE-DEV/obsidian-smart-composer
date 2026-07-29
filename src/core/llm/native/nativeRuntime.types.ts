@@ -25,6 +25,7 @@ export type NativeRuntimeDiagnostics = {
   version?: string
   models: NativeRuntimeModel[]
   error?: string
+  warning?: string
 }
 
 export type NativeToolExecutor = (

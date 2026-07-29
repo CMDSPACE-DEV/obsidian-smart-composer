@@ -40,6 +40,7 @@ const nativeRuntimeStateSchema = z.object({
   version: z.string().optional(),
   models: z.array(nativeRuntimeModelSchema).catch([]),
   error: z.string().optional(),
+  warning: z.string().optional(),
   lastCheckedAt: z.number().optional(),
 })
 

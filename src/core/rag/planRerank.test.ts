@@ -86,7 +86,7 @@ describe('processQueryWithPlanRerank', () => {
     const { results, retrievalMetadata } = await processQueryWithPlanRerank({
       app,
       settings: {
-        version: 27,
+        version: 28,
         nativeRuntimes: {
           claude: { status: 'not-installed', models: [] },
           gemini: { status: 'not-installed', models: [] },
@@ -203,7 +203,7 @@ describe('processQueryWithPlanRerank', () => {
     const result = await processQueryWithPlanRerank({
       app,
       settings: {
-        version: 27,
+        version: 28,
         nativeRuntimes: {
           claude: { status: 'not-installed', models: [] },
           gemini: { status: 'not-installed', models: [] },

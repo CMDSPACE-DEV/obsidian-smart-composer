@@ -26,6 +26,7 @@ import { LLMProvider } from '../../../types/provider.types'
 import { ConfirmModal } from '../../modals/ConfirmModal'
 import { ConnectOpenAIPlanModal } from '../modals/ConnectOpenAIPlanModal'
 import { NativeRuntimeInstallModal } from '../modals/NativeRuntimeInstallModal'
+import { NativeRuntimeLoginModal } from '../modals/NativeRuntimeLoginModal'
 
 type PlanConnectionsSectionProps = {
   app: App
@@ -238,14 +239,12 @@ function NativeRuntimeCard({
   }
 
   const openLogin = () => {
-    try {
-      service.openLoginTerminal(provider)
-      new Notice(
-        `Complete ${title} sign-in in the terminal, then click Diagnose.`,
-      )
-    } catch (error) {
-      new Notice(error instanceof Error ? error.message : String(error))
-    }
+    new NativeRuntimeLoginModal(app, {
+      provider,
+      title,
+      service,
+      onDiagnostics,
+    }).open()
   }
 
   const saveCustomPath = async () => {
@@ -288,6 +287,16 @@ function NativeRuntimeCard({
           title={state.error}
         >
           {state.error}
+        </div>
+      )}
+
+      {state.warning && (
+        <div
+          className="smtcmp-plan-runtime-warning"
+          role="status"
+          title={state.warning}
+        >
+          {state.warning}
         </div>
       )}
 
@@ -437,6 +446,7 @@ function mergeRuntimeDiagnostics(
     version: diagnostics.version,
     models: diagnostics.models,
     error: diagnostics.error,
+    warning: diagnostics.warning,
     lastCheckedAt: Date.now(),
   }
 

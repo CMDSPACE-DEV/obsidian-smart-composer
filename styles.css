@@ -1822,6 +1822,18 @@ button.smtcmp-research-source-main:focus-visible {
   user-select: text;
 }
 
+.smtcmp-plan-runtime-warning {
+  max-height: 5.5em;
+  overflow: auto;
+  border-left: 2px solid var(--text-warning);
+  padding: var(--size-4-1) var(--size-4-2);
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-warning) 7%, transparent);
+  font-size: var(--font-ui-smaller);
+  line-height: var(--line-height-tight);
+  user-select: text;
+}
+
 .smtcmp-plan-runtime-models {
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
@@ -1967,6 +1979,32 @@ button.smtcmp-research-source-main:focus-visible {
 .smtcmp-runtime-installer-hint {
   margin-top: var(--size-4-2);
   color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+
+.smtcmp-runtime-login-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  margin: var(--size-4-2) 0 var(--size-4-3);
+  padding-left: var(--size-4-6);
+  color: var(--text-muted);
+}
+
+.smtcmp-runtime-login-steps li {
+  padding-left: var(--size-4-1);
+}
+
+.smtcmp-runtime-login-steps strong {
+  color: var(--text-normal);
+}
+
+.smtcmp-runtime-login-secret {
+  margin: 0 0 var(--size-4-3);
+  border-left: 3px solid var(--text-warning);
+  padding: var(--size-4-2) var(--size-4-3);
+  background: color-mix(in srgb, var(--text-warning) 8%, transparent);
+  color: var(--text-muted);
   font-size: var(--font-ui-smaller);
 }
 

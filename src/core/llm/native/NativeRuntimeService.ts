@@ -1,14 +1,15 @@
-import type {
-  ModelInfo,
-  Options,
-  SDKUserMessage,
+import {
+  type ModelInfo,
+  type Options,
+  type SDKUserMessage,
+  query as createClaudeQuery,
 } from '@anthropic-ai/claude-agent-sdk'
 import { Platform } from 'obsidian'
 
 import { createClaudeSpawnAdapter } from './ClaudeSpawnAdapter'
 import { NativeCliResolver } from './NativeCliResolver'
 import { launchVisibleTerminal, runNativeProcess } from './NativeProcess'
-import {
+import type {
   NativeRuntimeDiagnostics,
   NativeRuntimeModel,
   NativeRuntimeProvider,
@@ -160,7 +161,7 @@ async function diagnoseClaude(
     executablePath,
     version: firstMeaningfulLine(versionResult.stdout),
     models,
-    error: modelDiscoveryWarning,
+    warning: modelDiscoveryWarning,
   }
 }
 
@@ -171,7 +172,6 @@ async function discoverClaudeCatalog(executablePath: string): Promise<
     description?: string
   }[]
 > {
-  const sdk = await import('@anthropic-ai/claude-agent-sdk')
   const abortController = new AbortController()
   const cwd = createEphemeralRuntimeDirectory('claude-diagnostics')
   const options: Options = {
@@ -195,7 +195,7 @@ async function discoverClaudeCatalog(executablePath: string): Promise<
       CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
     },
   }
-  const query = sdk.query({
+  const query = createClaudeQuery({
     prompt: waitForAbort(abortController.signal),
     options,
   })
@@ -352,6 +352,7 @@ function defaultModels(provider: NativeRuntimeProvider): NativeRuntimeModel[] {
     ? [
         { id: 'default', label: 'Claude default (runtime selected)' },
         { id: 'opus', label: 'Claude Opus (latest)' },
+        { id: 'sonnet', label: 'Claude Sonnet (latest)' },
         { id: 'haiku', label: 'Claude Haiku (latest)' },
       ]
     : []
