@@ -25,6 +25,7 @@ import { ChatModel } from '../../../types/chat-model.types'
 import { LLMProvider } from '../../../types/provider.types'
 import { ConfirmModal } from '../../modals/ConfirmModal'
 import { ConnectOpenAIPlanModal } from '../modals/ConnectOpenAIPlanModal'
+import { NativeRuntimeInstallModal } from '../modals/NativeRuntimeInstallModal'
 
 type PlanConnectionsSectionProps = {
   app: App
@@ -217,18 +218,12 @@ function NativeRuntimeCard({
     }
   }
 
-  const confirmInstall = () => {
-    new ConfirmModal(app, {
-      title: `Install ${title} runtime`,
-      message:
-        provider === 'claude' && process.platform === 'win32'
-          ? 'A visible terminal will open the official Anthropic Claude Code package in WinGet. Smart Composer will not download or execute a remote PowerShell script.\n\nReview the package details, finish installation, then return here and click Diagnose.'
-          : `The official ${provider === 'claude' ? 'Anthropic' : 'Google'} installation guide will open in your browser. For safety, Smart Composer does not download and execute remote installation scripts.\n\nFinish installation, then return here and click Diagnose.`,
-      ctaText:
-        provider === 'claude' && process.platform === 'win32'
-          ? 'Open WinGet'
-          : 'Open install guide',
-      onConfirm: () => service.openInstall(provider),
+  const openInstallWizard = () => {
+    new NativeRuntimeInstallModal(app, {
+      provider,
+      title,
+      service,
+      onDiagnostics,
     }).open()
   }
 
@@ -325,9 +320,9 @@ function NativeRuntimeCard({
         </button>
 
         {state.status === 'not-installed' && (
-          <button disabled={!Platform.isDesktop} onClick={confirmInstall}>
+          <button disabled={!Platform.isDesktop} onClick={openInstallWizard}>
             <Download size={15} />
-            Install
+            설치 안내
           </button>
         )}
 

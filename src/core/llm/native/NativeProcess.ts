@@ -1,3 +1,4 @@
+import type { NativeRuntimeSetupShell } from './NativeRuntimeService'
 import { requireNode } from './nodeRuntime'
 
 type ChildProcessModule = typeof import('child_process')
@@ -86,12 +87,20 @@ export function runNativeProcess(
   })
 }
 
-export function launchVisibleTerminal(command: string): void {
+export function launchVisibleTerminal(
+  command: string,
+  preferredShell: NativeRuntimeSetupShell = 'powershell',
+): void {
   const { spawn } = requireNode<ChildProcessModule>('child_process')
   if (process.platform === 'win32') {
+    const executable = preferredShell === 'cmd' ? 'cmd.exe' : 'powershell.exe'
+    const shellArgs =
+      preferredShell === 'cmd'
+        ? ['/d', '/k', ...(command ? [command] : [])]
+        : ['-NoExit', '-NoProfile', ...(command ? ['-Command', command] : [])]
     const child = spawn(
-      'powershell.exe',
-      ['-NoExit', '-NoProfile', '-Command', command],
+      'cmd.exe',
+      ['/d', '/s', '/c', 'start', '', executable, ...shellArgs],
       {
         detached: true,
         stdio: 'ignore',
@@ -103,7 +112,8 @@ export function launchVisibleTerminal(command: string): void {
   }
 
   if (process.platform === 'darwin') {
-    const escaped = command.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+    const terminalCommand = command || 'clear'
+    const escaped = terminalCommand.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
     const child = spawn(
       'osascript',
       ['-e', `tell application "Terminal" to do script "${escaped}"`],
@@ -116,10 +126,14 @@ export function launchVisibleTerminal(command: string): void {
     return
   }
 
-  const child = spawn('x-terminal-emulator', ['-e', 'bash', '-lc', command], {
-    detached: true,
-    stdio: 'ignore',
-  })
+  const child = spawn(
+    'x-terminal-emulator',
+    ['-e', 'bash', '-lc', command || 'exec bash'],
+    {
+      detached: true,
+      stdio: 'ignore',
+    },
+  )
   child.unref()
 }
 

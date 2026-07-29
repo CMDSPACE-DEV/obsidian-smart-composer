@@ -105,6 +105,7 @@ function antigravityCandidates(home: string, path: PathModule): string[] {
     return [
       path.join(home, '.local', 'bin', 'agy.exe'),
       path.join(home, '.gemini', 'antigravity-cli', 'bin', 'agy.exe'),
+      path.join(localAppData, 'agy', 'bin', 'agy.exe'),
       path.join(localAppData, 'Antigravity', 'bin', 'agy.exe'),
       path.join(localAppData, 'Programs', 'Antigravity', 'agy.exe'),
       path.join(localAppData, 'Google', 'Antigravity', 'agy.exe'),

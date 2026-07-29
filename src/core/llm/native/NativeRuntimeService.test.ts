@@ -3,30 +3,45 @@ jest.mock('obsidian', () => ({
 }))
 
 import {
-  getNativeRuntimeInstallAction,
+  getNativeRuntimeInstallGuide,
   parseAntigravityModels,
 } from './NativeRuntimeService'
 
-describe('getNativeRuntimeInstallAction', () => {
-  it('uses the official WinGet package for Claude on Windows', () => {
-    expect(getNativeRuntimeInstallAction('claude', 'win32')).toEqual({
-      type: 'terminal',
-      command:
-        'winget install --id Anthropic.ClaudeCode --exact --source winget',
+describe('getNativeRuntimeInstallGuide', () => {
+  it('gives Windows beginners the official WinGet Claude command', () => {
+    const guide = getNativeRuntimeInstallGuide('claude', 'win32')
+
+    expect(guide).toMatchObject({
+      shell: 'powershell',
+      loginCommand: 'claude',
+      officialUrl: 'https://code.claude.com/docs/en/installation',
     })
+    expect(guide.command).toContain('winget install')
+    expect(guide.command).toContain('Anthropic.ClaudeCode')
   })
 
-  it('never executes the remote Antigravity installer script', () => {
-    expect(getNativeRuntimeInstallAction('gemini', 'win32')).toEqual({
-      type: 'guide',
-      url: 'https://codelabs.developers.google.com/antigravity-cli-hands-on#1',
+  it('uses the official downloaded CMD installer without PowerShell eval', () => {
+    const guide = getNativeRuntimeInstallGuide('gemini', 'win32')
+
+    expect(guide).toMatchObject({
+      shell: 'cmd',
+      loginCommand: 'agy',
+      officialUrl:
+        'https://codelabs.developers.google.com/antigravity-cli-hands-on#1',
     })
+    expect(guide.command).toContain(
+      'https://antigravity.google/cli/install.cmd',
+    )
+    expect(guide.command).not.toMatch(/\biex\b|Invoke-Expression/i)
   })
 
-  it('opens the Claude install guide when WinGet is unavailable by platform', () => {
-    expect(getNativeRuntimeInstallAction('claude', 'darwin')).toEqual({
-      type: 'guide',
-      url: 'https://code.claude.com/docs/en/installation',
+  it('uses Homebrew for Claude on macOS', () => {
+    expect(getNativeRuntimeInstallGuide('claude', 'darwin')).toEqual({
+      command: 'brew install --cask claude-code',
+      loginCommand: 'claude',
+      shell: 'terminal',
+      shellLabel: 'Terminal',
+      officialUrl: 'https://code.claude.com/docs/en/installation',
     })
   })
 })

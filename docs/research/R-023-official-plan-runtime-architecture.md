@@ -255,16 +255,26 @@ cards:
 Each card provides:
 
 - detect and diagnose;
-- install or update with explicit confirmation;
+- a Korean beginner installation wizard with separate copy, terminal-open,
+  install-check, and sign-in steps;
+- install or update with explicit user action;
 - open a visible login terminal;
 - refresh model catalog;
 - advanced device-local executable path.
 
 On Windows, Claude installation uses Anthropic's official WinGet package.
 Smart Composer never pipes downloaded PowerShell into `Invoke-Expression` and
-never bypasses the user's execution policy. When no verified package-manager
-path is available, including Antigravity installation, the card opens the
-official installation guide instead of executing a remote installer.
+never bypasses the user's execution policy. The plugin displays the official
+command, copies it only after the user clicks, and opens a separate visible
+PowerShell window; the user pastes and runs the command themselves.
+
+For Antigravity on Windows, the wizard displays Google's documented CMD
+installer flow, opens Command Prompt, and gives exact `Ctrl+V` and `Enter`
+instructions. Google's installer validates the downloaded `agy.exe` checksum.
+Smart Composer does not auto-run the downloaded installer, disable Defender, or
+add antivirus exclusions. It recognizes the official
+`%LOCALAPPDATA%\agy\bin\agy.exe` install path. Official documentation remains a
+secondary source link rather than the primary installation experience.
 
 OpenAI Plan keeps its existing connection flow unchanged.
 

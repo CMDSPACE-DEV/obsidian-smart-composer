@@ -20,9 +20,15 @@ const CLAUDE_INSTALL_GUIDE_URL = 'https://code.claude.com/docs/en/installation'
 const ANTIGRAVITY_INSTALL_GUIDE_URL =
   'https://codelabs.developers.google.com/antigravity-cli-hands-on#1'
 
-export type NativeRuntimeInstallAction =
-  | { type: 'terminal'; command: string }
-  | { type: 'guide'; url: string }
+export type NativeRuntimeSetupShell = 'powershell' | 'cmd' | 'terminal'
+
+export type NativeRuntimeInstallGuide = {
+  command: string
+  loginCommand: string
+  shell: NativeRuntimeSetupShell
+  shellLabel: string
+  officialUrl: string
+}
 
 export class NativeRuntimeService {
   constructor(private readonly resolver = new NativeCliResolver()) {}
@@ -71,20 +77,18 @@ export class NativeRuntimeService {
     return this.resolver.getCustomPath(provider)
   }
 
-  openInstall(provider: NativeRuntimeProvider): void {
-    const action = getNativeRuntimeInstallAction(provider)
-    if (action.type === 'terminal') {
-      launchVisibleTerminal(action.command)
-      return
-    }
-    window.open(action.url, '_blank')
+  openSetupTerminal(shell: NativeRuntimeSetupShell): void {
+    launchVisibleTerminal('', shell)
   }
 
   openUpdateTerminal(provider: NativeRuntimeProvider): void {
     const executablePath = this.resolver.resolve(provider)
     if (!executablePath) {
-      this.openInstall(provider)
-      return
+      throw new Error(
+        provider === 'claude'
+          ? 'Claude Code is not installed. Open the installation guide first.'
+          : 'Antigravity CLI is not installed. Open the installation guide first.',
+      )
     }
     launchVisibleTerminal(
       provider === 'claude'
@@ -353,21 +357,51 @@ function defaultModels(provider: NativeRuntimeProvider): NativeRuntimeModel[] {
     : []
 }
 
-export function getNativeRuntimeInstallAction(
+export function getNativeRuntimeInstallGuide(
   provider: NativeRuntimeProvider,
   platform: NodeJS.Platform = process.platform,
-): NativeRuntimeInstallAction {
-  if (provider === 'claude' && platform === 'win32') {
+): NativeRuntimeInstallGuide {
+  if (platform === 'win32') {
+    if (provider === 'claude') {
+      return {
+        command:
+          'winget install --id Anthropic.ClaudeCode --exact --source winget --accept-source-agreements --accept-package-agreements',
+        loginCommand: 'claude',
+        shell: 'powershell',
+        shellLabel: 'PowerShell',
+        officialUrl: CLAUDE_INSTALL_GUIDE_URL,
+      }
+    }
+
     return {
-      type: 'terminal',
       command:
-        'winget install --id Anthropic.ClaudeCode --exact --source winget',
+        'curl.exe -fsSL https://antigravity.google/cli/install.cmd -o "%TEMP%\\antigravity-install.cmd" && call "%TEMP%\\antigravity-install.cmd" && del "%TEMP%\\antigravity-install.cmd"',
+      loginCommand: 'agy',
+      shell: 'cmd',
+      shellLabel: '명령 프롬프트',
+      officialUrl: ANTIGRAVITY_INSTALL_GUIDE_URL,
+    }
+  }
+
+  if (provider === 'claude' && platform === 'darwin') {
+    return {
+      command: 'brew install --cask claude-code',
+      loginCommand: 'claude',
+      shell: 'terminal',
+      shellLabel: 'Terminal',
+      officialUrl: CLAUDE_INSTALL_GUIDE_URL,
     }
   }
 
   return {
-    type: 'guide',
-    url:
+    command:
+      provider === 'claude'
+        ? 'curl -fsSL https://claude.ai/install.sh -o /tmp/claude-install.sh && bash /tmp/claude-install.sh && rm -f /tmp/claude-install.sh'
+        : 'curl -fsSL https://antigravity.google/cli/install.sh -o /tmp/antigravity-install.sh && bash /tmp/antigravity-install.sh && rm -f /tmp/antigravity-install.sh',
+    loginCommand: provider === 'claude' ? 'claude' : 'agy',
+    shell: 'terminal',
+    shellLabel: 'Terminal',
+    officialUrl:
       provider === 'claude'
         ? CLAUDE_INSTALL_GUIDE_URL
         : ANTIGRAVITY_INSTALL_GUIDE_URL,
