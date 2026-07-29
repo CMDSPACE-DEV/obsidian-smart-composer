@@ -221,10 +221,14 @@ function NativeRuntimeCard({
     new ConfirmModal(app, {
       title: `Install ${title} runtime`,
       message:
-        `A visible terminal will open and run the official ${provider === 'claude' ? 'Anthropic' : 'Google'} installer.\n\n` +
-        'Review the terminal output, finish installation, then return here and click Diagnose.',
-      ctaText: 'Open installer',
-      onConfirm: () => service.openInstallTerminal(provider),
+        provider === 'claude' && process.platform === 'win32'
+          ? 'A visible terminal will open the official Anthropic Claude Code package in WinGet. Smart Composer will not download or execute a remote PowerShell script.\n\nReview the package details, finish installation, then return here and click Diagnose.'
+          : `The official ${provider === 'claude' ? 'Anthropic' : 'Google'} installation guide will open in your browser. For safety, Smart Composer does not download and execute remote installation scripts.\n\nFinish installation, then return here and click Diagnose.`,
+      ctaText:
+        provider === 'claude' && process.platform === 'win32'
+          ? 'Open WinGet'
+          : 'Open install guide',
+      onConfirm: () => service.openInstall(provider),
     }).open()
   }
 

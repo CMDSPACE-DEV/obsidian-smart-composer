@@ -2,7 +2,34 @@ jest.mock('obsidian', () => ({
   Platform: { isDesktop: true },
 }))
 
-import { parseAntigravityModels } from './NativeRuntimeService'
+import {
+  getNativeRuntimeInstallAction,
+  parseAntigravityModels,
+} from './NativeRuntimeService'
+
+describe('getNativeRuntimeInstallAction', () => {
+  it('uses the official WinGet package for Claude on Windows', () => {
+    expect(getNativeRuntimeInstallAction('claude', 'win32')).toEqual({
+      type: 'terminal',
+      command:
+        'winget install --id Anthropic.ClaudeCode --exact --source winget',
+    })
+  })
+
+  it('never executes the remote Antigravity installer script', () => {
+    expect(getNativeRuntimeInstallAction('gemini', 'win32')).toEqual({
+      type: 'guide',
+      url: 'https://codelabs.developers.google.com/antigravity-cli-hands-on#1',
+    })
+  })
+
+  it('opens the Claude install guide when WinGet is unavailable by platform', () => {
+    expect(getNativeRuntimeInstallAction('claude', 'darwin')).toEqual({
+      type: 'guide',
+      url: 'https://code.claude.com/docs/en/installation',
+    })
+  })
+})
 
 describe('parseAntigravityModels', () => {
   it('parses a JSON model catalog with stable slugs', () => {

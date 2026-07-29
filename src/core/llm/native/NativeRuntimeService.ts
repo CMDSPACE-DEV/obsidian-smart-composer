@@ -16,6 +16,13 @@ import {
 import { requireNode } from './nodeRuntime'
 
 const DIAGNOSTIC_TIMEOUT_MS = 30_000
+const CLAUDE_INSTALL_GUIDE_URL = 'https://code.claude.com/docs/en/installation'
+const ANTIGRAVITY_INSTALL_GUIDE_URL =
+  'https://codelabs.developers.google.com/antigravity-cli-hands-on#1'
+
+export type NativeRuntimeInstallAction =
+  | { type: 'terminal'; command: string }
+  | { type: 'guide'; url: string }
 
 export class NativeRuntimeService {
   constructor(private readonly resolver = new NativeCliResolver()) {}
@@ -64,14 +71,19 @@ export class NativeRuntimeService {
     return this.resolver.getCustomPath(provider)
   }
 
-  openInstallTerminal(provider: NativeRuntimeProvider): void {
-    launchVisibleTerminal(installCommand(provider))
+  openInstall(provider: NativeRuntimeProvider): void {
+    const action = getNativeRuntimeInstallAction(provider)
+    if (action.type === 'terminal') {
+      launchVisibleTerminal(action.command)
+      return
+    }
+    window.open(action.url, '_blank')
   }
 
   openUpdateTerminal(provider: NativeRuntimeProvider): void {
     const executablePath = this.resolver.resolve(provider)
     if (!executablePath) {
-      this.openInstallTerminal(provider)
+      this.openInstall(provider)
       return
     }
     launchVisibleTerminal(
@@ -341,15 +353,25 @@ function defaultModels(provider: NativeRuntimeProvider): NativeRuntimeModel[] {
     : []
 }
 
-function installCommand(provider: NativeRuntimeProvider): string {
-  if (provider === 'claude') {
-    return process.platform === 'win32'
-      ? 'irm https://claude.ai/install.ps1 | iex'
-      : 'curl -fsSL https://claude.ai/install.sh | bash'
+export function getNativeRuntimeInstallAction(
+  provider: NativeRuntimeProvider,
+  platform: NodeJS.Platform = process.platform,
+): NativeRuntimeInstallAction {
+  if (provider === 'claude' && platform === 'win32') {
+    return {
+      type: 'terminal',
+      command:
+        'winget install --id Anthropic.ClaudeCode --exact --source winget',
+    }
   }
-  return process.platform === 'win32'
-    ? 'irm https://antigravity.google/cli/install.ps1 | iex'
-    : 'curl -fsSL https://antigravity.google/cli/install.sh | bash'
+
+  return {
+    type: 'guide',
+    url:
+      provider === 'claude'
+        ? CLAUDE_INSTALL_GUIDE_URL
+        : ANTIGRAVITY_INSTALL_GUIDE_URL,
+  }
 }
 
 function quoteForShell(value: string): string {

@@ -260,6 +260,12 @@ Each card provides:
 - refresh model catalog;
 - advanced device-local executable path.
 
+On Windows, Claude installation uses Anthropic's official WinGet package.
+Smart Composer never pipes downloaded PowerShell into `Invoke-Expression` and
+never bypasses the user's execution policy. When no verified package-manager
+path is available, including Antigravity installation, the card opens the
+official installation guide instead of executing a remote installer.
+
 OpenAI Plan keeps its existing connection flow unchanged.
 
 ## Migration Decision

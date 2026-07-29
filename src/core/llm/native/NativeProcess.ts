@@ -91,7 +91,7 @@ export function launchVisibleTerminal(command: string): void {
   if (process.platform === 'win32') {
     const child = spawn(
       'powershell.exe',
-      ['-NoExit', '-ExecutionPolicy', 'Bypass', '-Command', command],
+      ['-NoExit', '-NoProfile', '-Command', command],
       {
         detached: true,
         stdio: 'ignore',
