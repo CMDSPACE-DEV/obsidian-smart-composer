@@ -3,7 +3,7 @@ name: Release Obsidian plugin
 on:
   push:
     tags:
-      - '1.4.0'
+      - '2.6.1'
 
 permissions:
   contents: write
@@ -13,11 +13,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  RELEASE_BRANCH: release/1.4.0-plan-models
-  RELEASE_NOTES: RELEASE_NOTES_1.4.0.md
+  RELEASE_BRANCH: codex/2.6.1-plan-runtime-hotfix
+  RELEASE_NOTES: RELEASE_NOTES_2.6.1.md
 
 jobs:
-  verify-and-draft:
+  verify-and-release:
     runs-on: ubuntu-latest
 
     steps:
@@ -107,7 +107,7 @@ jobs:
       - name: Build plugin
         run: npm run build
 
-      - name: Create or update draft release
+      - name: Create or update release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
@@ -120,23 +120,17 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --json isDraft \
             --jq '.isDraft' 2>/dev/null)"; then
-            if [[ "${is_draft}" != "true" ]]; then
-              echo "Release ${TAG} is already published; refusing to replace it." >&2
-              exit 1
-            fi
-
             gh release upload "${TAG}" "${assets[@]}" \
               --repo "${GITHUB_REPOSITORY}" \
               --clobber
             gh release edit "${TAG}" \
               --repo "${GITHUB_REPOSITORY}" \
-              --draft \
+              --draft=false \
               --title "${title}" \
               --notes-file "${RELEASE_NOTES}"
           else
             gh release create "${TAG}" "${assets[@]}" \
               --repo "${GITHUB_REPOSITORY}" \
-              --draft \
               --verify-tag \
               --title "${title}" \
               --notes-file "${RELEASE_NOTES}"
