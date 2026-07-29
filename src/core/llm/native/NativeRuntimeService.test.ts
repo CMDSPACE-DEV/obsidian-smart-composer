@@ -2,6 +2,12 @@ jest.mock('obsidian', () => ({
   Platform: { isDesktop: true },
 }))
 
+jest.mock('@anthropic-ai/claude-agent-sdk', () => {
+  throw new Error(
+    'NativeRuntimeService must not initialize the Claude SDK while settings load.',
+  )
+})
+
 import {
   getNativeRuntimeInstallGuide,
   parseAntigravityModels,

@@ -1,8 +1,7 @@
-import {
-  type Options,
-  type SDKMessage,
-  type SDKUserMessage,
-  query as createClaudeQuery,
+import type {
+  Options,
+  SDKMessage,
+  SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk'
 import type {
   Base64ImageSource,
@@ -110,6 +109,7 @@ export class ClaudeAgentProvider extends BaseLLMProvider<
     request: LLMRequestStreaming,
     options?: LLMOptions,
   ): AsyncGenerator<LLMResponseStreaming> {
+    const sdk = await import('@anthropic-ai/claude-agent-sdk')
     const nativePrompt = buildNativePrompt(request.messages)
     const abortController = new AbortController()
     const abort = () => abortController.abort()
@@ -157,7 +157,7 @@ export class ClaudeAgentProvider extends BaseLLMProvider<
     let emittedReasoning = ''
     let finalUsage: ResponseUsage | undefined
     try {
-      const query = createClaudeQuery({
+      const query = sdk.query({
         prompt: createClaudePromptInput(nativePrompt.prompt, request.messages),
         options: sdkOptions,
       })

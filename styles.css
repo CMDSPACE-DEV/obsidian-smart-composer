@@ -1834,6 +1834,26 @@ button.smtcmp-research-source-main:focus-visible {
   user-select: text;
 }
 
+.smtcmp-settings-load-error {
+  max-width: 720px;
+  padding: 24px;
+  color: var(--text-normal);
+}
+
+.smtcmp-settings-load-error p {
+  color: var(--text-muted);
+}
+
+.smtcmp-settings-load-error pre {
+  max-height: 240px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .smtcmp-plan-runtime-models {
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);

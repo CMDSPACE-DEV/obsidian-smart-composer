@@ -1,12 +1,5 @@
-import {
-  type ModelInfo,
-  type Options,
-  type SDKUserMessage,
-  query as createClaudeQuery,
-} from '@anthropic-ai/claude-agent-sdk'
 import { Platform } from 'obsidian'
 
-import { createClaudeSpawnAdapter } from './ClaudeSpawnAdapter'
 import { NativeCliResolver } from './NativeCliResolver'
 import { launchVisibleTerminal, runNativeProcess } from './NativeProcess'
 import type {
@@ -14,7 +7,6 @@ import type {
   NativeRuntimeModel,
   NativeRuntimeProvider,
 } from './nativeRuntime.types'
-import { requireNode } from './nodeRuntime'
 
 const DIAGNOSTIC_TIMEOUT_MS = 30_000
 const CLAUDE_INSTALL_GUIDE_URL = 'https://code.claude.com/docs/en/installation'
@@ -146,71 +138,12 @@ async function diagnoseClaude(
     }
   }
 
-  let models = defaultModels('claude')
-  let modelDiscoveryWarning: string | undefined
-  try {
-    const catalog = await discoverClaudeCatalog(executablePath)
-    models = catalog.length > 0 ? catalog : models
-  } catch (error) {
-    modelDiscoveryWarning = `Using stable model aliases because catalog refresh failed: ${toErrorMessage(error)}`
-  }
-
   return {
     provider: 'claude',
     status: 'ready',
     executablePath,
     version: firstMeaningfulLine(versionResult.stdout),
-    models,
-    warning: modelDiscoveryWarning,
-  }
-}
-
-async function discoverClaudeCatalog(executablePath: string): Promise<
-  {
-    id: string
-    label: string
-    description?: string
-  }[]
-> {
-  const abortController = new AbortController()
-  const cwd = createEphemeralRuntimeDirectory('claude-diagnostics')
-  const options: Options = {
-    pathToClaudeCodeExecutable: executablePath,
-    spawnClaudeCodeProcess: createClaudeSpawnAdapter(),
-    cwd,
-    settingSources: [],
-    strictMcpConfig: true,
-    persistSession: false,
-    tools: [],
-    skills: [],
-    plugins: [],
-    settings: {
-      autoMemoryEnabled: false,
-      autoDreamEnabled: false,
-    },
-    permissionMode: 'dontAsk',
-    abortController,
-    env: {
-      ...process.env,
-      CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
-    },
-  }
-  const query = createClaudeQuery({
-    prompt: waitForAbort(abortController.signal),
-    options,
-  })
-
-  try {
-    const modelInfo = await withTimeout(
-      query.supportedModels(),
-      DIAGNOSTIC_TIMEOUT_MS,
-      'Claude Code model discovery timed out.',
-    )
-    return modelInfo.map(toNativeClaudeModel)
-  } finally {
-    abortController.abort()
-    query.close()
-    removeEphemeralRuntimeDirectory(cwd)
+    models: defaultModels('claude'),
   }
 }
 
@@ -336,17 +269,6 @@ function collectModelRecords(value: unknown): NativeRuntimeModel[] {
     : []
 }
 
-function toNativeClaudeModel(model: ModelInfo): NativeRuntimeModel {
-  return {
-    id: model.value,
-    label: model.displayName,
-    description:
-      model.resolvedModel && model.resolvedModel !== model.value
-        ? `${model.description} Resolves to ${model.resolvedModel}.`
-        : model.description,
-  }
-}
-
 function defaultModels(provider: NativeRuntimeProvider): NativeRuntimeModel[] {
   return provider === 'claude'
     ? [
@@ -432,62 +354,6 @@ async function runWithTimeout(options: Parameters<typeof runNativeProcess>[0]) {
   } finally {
     clearTimeout(timeout)
     options.signal?.removeEventListener('abort', abort)
-  }
-}
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  message: string,
-): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => reject(new Error(message)), timeoutMs)
-      }),
-    ])
-  } finally {
-    if (timeout) clearTimeout(timeout)
-  }
-}
-
-function waitForAbort(signal: AbortSignal): AsyncIterable<SDKUserMessage> {
-  return {
-    [Symbol.asyncIterator]() {
-      let complete = false
-      return {
-        async next(): Promise<IteratorResult<SDKUserMessage>> {
-          if (complete) return { done: true, value: undefined }
-          complete = true
-          await new Promise<void>((resolve) => {
-            if (signal.aborted) {
-              resolve()
-              return
-            }
-            signal.addEventListener('abort', () => resolve(), { once: true })
-          })
-          return { done: true, value: undefined }
-        },
-      }
-    },
-  }
-}
-
-function createEphemeralRuntimeDirectory(prefix: string): string {
-  const fs = requireNode<typeof import('fs')>('fs')
-  const os = requireNode<typeof import('os')>('os')
-  const path = requireNode<typeof import('path')>('path')
-  return fs.mkdtempSync(path.join(os.tmpdir(), `smart-composer-${prefix}-`))
-}
-
-function removeEphemeralRuntimeDirectory(directory: string) {
-  const fs = requireNode<typeof import('fs')>('fs')
-  try {
-    fs.rmSync(directory, { recursive: true, force: true })
-  } catch {
-    // The operating system will eventually clear its temporary directory.
   }
 }
 

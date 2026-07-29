@@ -27,6 +27,8 @@ export class SmartComposerSettingTab extends PluginSettingTab {
       })
       .catch((error) => {
         console.error('Failed to render Smart Composer settings:', error)
+        if (!this.visible || generation !== this.displayGeneration) return
+        this.renderLoadFailure(error)
       })
   }
 
@@ -55,5 +57,22 @@ export class SmartComposerSettingTab extends PluginSettingTab {
         })
     }
     return this.rendererInitPromise
+  }
+
+  private renderLoadFailure(error: unknown): void {
+    this.containerEl.empty()
+    const wrapper = this.containerEl.createDiv({
+      cls: 'smtcmp-settings-load-error',
+    })
+    wrapper.createEl('h2', { text: 'Smart Composer settings could not load' })
+    wrapper.createEl('p', {
+      text: 'Disable and re-enable Smart Composer, then open Settings again. Your saved settings have not been deleted.',
+    })
+    const details = wrapper.createEl('details')
+    details.createEl('summary', { text: 'Technical details' })
+    details.createEl('pre', {
+      text:
+        error instanceof Error ? (error.stack ?? error.message) : String(error),
+    })
   }
 }
