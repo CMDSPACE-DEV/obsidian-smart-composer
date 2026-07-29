@@ -7,8 +7,13 @@ import {
   migrateLegacyResearchSecrets,
 } from './ResearchSecretStore'
 
-function createApp({ failWrites = false }: { failWrites?: boolean } = {}) {
-  const secrets = new Map<string, string>()
+function createApp({
+  failWrites = false,
+  secrets = new Map<string, string>(),
+}: {
+  failWrites?: boolean
+  secrets?: Map<string, string>
+} = {}) {
   return {
     app: {
       secretStorage: {
@@ -44,6 +49,23 @@ function createSettings(): SmartComposerSettings {
     },
   } as unknown as SmartComposerSettings
 }
+
+describe('ResearchSecretStore persistence', () => {
+  it('reads NAVER credentials after the plugin store is recreated', () => {
+    const persistedSecrets = new Map<string, string>()
+    const firstPluginLoad = createApp({ secrets: persistedSecrets })
+    const firstStore = new ResearchSecretStore(firstPluginLoad.app)
+
+    firstStore.set('naver', 'key-id', 'test-client-id')
+    firstStore.set('naver', 'api-key', 'test-client-secret')
+
+    const restartedPlugin = createApp({ secrets: persistedSecrets })
+    const restartedStore = new ResearchSecretStore(restartedPlugin.app)
+
+    expect(restartedStore.get('naver', 'key-id')).toBe('test-client-id')
+    expect(restartedStore.get('naver', 'api-key')).toBe('test-client-secret')
+  })
+})
 
 describe('ResearchSecretStore legacy migration', () => {
   it('moves Korean Law oc out of the synced connection URL', () => {
