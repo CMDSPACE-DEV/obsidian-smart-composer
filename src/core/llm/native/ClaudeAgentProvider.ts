@@ -1,21 +1,12 @@
-import type {
-  Options,
-  SDKMessage,
-  SDKUserMessage,
-} from '@anthropic-ai/claude-agent-sdk'
-import type {
-  Base64ImageSource,
-  ImageBlockParam,
-  TextBlockParam,
-} from '@anthropic-ai/sdk/resources/messages'
-import { Platform } from 'obsidian'
+import { Platform, requestUrl } from 'obsidian'
 import { v4 as uuidv4 } from 'uuid'
 
-import { ChatModel } from '../../../types/chat-model.types'
+import { ChatModel, ClaudeEffort } from '../../../types/chat-model.types'
 import {
   LLMOptions,
   LLMRequestNonStreaming,
   LLMRequestStreaming,
+  RequestTool,
 } from '../../../types/llm/request'
 import {
   LLMResponseNonStreaming,
@@ -27,11 +18,33 @@ import { parseImageDataUrl } from '../../../utils/llm/image'
 import { BaseLLMProvider } from '../base'
 import { LLMAPIKeyNotSetException } from '../exception'
 
-import { createClaudeMcpBridge } from './claudeMcpBridge'
-import { createClaudeSpawnAdapter } from './ClaudeSpawnAdapter'
 import { NativeCliResolver } from './NativeCliResolver'
+import { runNativeProcess } from './NativeProcess'
 import { buildNativePrompt } from './nativePrompt'
+import { nativeToolResultToText } from './nativeToolResult'
 import { requireNode } from './nodeRuntime'
+
+type ClaudeFinal =
+  | {
+      type: 'final'
+      text: string
+    }
+  | {
+      type: 'tool_call'
+      tool: string
+      arguments: Record<string, unknown>
+    }
+
+type ClaudeStreamDelta = {
+  content?: string
+  reasoning?: string
+}
+
+type ClaudeIterationResult = {
+  finalValue: unknown
+  emittedText: string
+  usage?: ResponseUsage
+}
 
 export class ClaudeAgentProvider extends BaseLLMProvider<
   Extract<LLMProvider, { type: 'anthropic-plan' }>
@@ -109,138 +122,352 @@ export class ClaudeAgentProvider extends BaseLLMProvider<
     request: LLMRequestStreaming,
     options?: LLMOptions,
   ): AsyncGenerator<LLMResponseStreaming> {
-    const sdk = await import('@anthropic-ai/claude-agent-sdk')
     const nativePrompt = buildNativePrompt(request.messages)
-    const abortController = new AbortController()
-    const abort = () => abortController.abort()
-    if (options?.signal?.aborted) abort()
-    options?.signal?.addEventListener('abort', abort, { once: true })
-
-    const mcpBridge =
-      request.tools?.length && options?.nativeToolExecutor
-        ? await createClaudeMcpBridge({
-            tools: request.tools,
-            execute: options.nativeToolExecutor,
-          })
-        : undefined
+    const tools =
+      request.tools?.length && options?.nativeToolExecutor ? request.tools : []
+    const toolTranscript: string[] = []
     const cwd = createEphemeralRuntimeDirectory()
-    const sdkOptions: Options = {
-      pathToClaudeCodeExecutable: executablePath,
-      spawnClaudeCodeProcess: createClaudeSpawnAdapter(),
-      cwd,
-      model: normalizeClaudeModel(model.model),
-      systemPrompt: nativePrompt.systemPrompt,
-      includePartialMessages: true,
-      settingSources: [],
-      strictMcpConfig: true,
-      persistSession: false,
-      tools: [],
-      skills: [],
-      plugins: [],
-      settings: {
-        autoMemoryEnabled: false,
-        autoDreamEnabled: false,
-      },
-      mcpServers: mcpBridge ? { smart_composer: mcpBridge.server } : undefined,
-      allowedTools: mcpBridge?.allowedTools,
-      permissionMode: 'dontAsk',
-      abortController,
-      maxTurns: 24,
-      env: {
-        ...process.env,
-        CLAUDE_AGENT_SDK_CLIENT_APP: 'smart-composer-achmage/2.6.0',
-        CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
-      },
-      ...thinkingOptions(model),
-    }
-    let emittedText = ''
-    let emittedReasoning = ''
-    let finalUsage: ResponseUsage | undefined
+
     try {
-      const query = sdk.query({
-        prompt: createClaudePromptInput(nativePrompt.prompt, request.messages),
-        options: sdkOptions,
-      })
-      try {
-        for await (const message of query) {
-          const deltas = extractClaudeDeltas(
-            message,
-            emittedText,
-            emittedReasoning,
-          )
-          emittedText += deltas.content
-          emittedReasoning += deltas.reasoning
-          finalUsage = extractUsage(message) ?? finalUsage
-          if (deltas.content || deltas.reasoning || finalUsage) {
-            yield createChunk(model.model, {
-              content: deltas.content,
-              reasoning: deltas.reasoning,
-              usage: finalUsage,
-            })
-            finalUsage = undefined
-          }
-          throwIfClaudeResultError(message)
-        }
-        yield createChunk(model.model, {
-          finishReason: 'stop',
+      const attachments = await materializeClaudeImages(request.messages, cwd)
+      const promptWithAttachments = appendClaudeAttachments(
+        nativePrompt.prompt,
+        attachments,
+      )
+
+      if (tools.length === 0) {
+        const iteration = startClaudeIteration({
+          executablePath,
+          model,
+          systemPrompt: nativePrompt.systemPrompt,
+          prompt: promptWithAttachments,
+          structured: false,
+          allowImageRead: attachments.length > 0,
+          cwd,
+          signal: options?.signal,
         })
-      } finally {
-        query.close()
+        for await (const delta of iteration.deltas) {
+          yield createChunk(model.model, delta)
+        }
+        const result = await iteration.result
+        if (!result.emittedText && typeof result.finalValue === 'string') {
+          yield createChunk(model.model, { content: result.finalValue })
+        }
+        if (result.usage) {
+          yield createChunk(model.model, { usage: result.usage })
+        }
+        yield createChunk(model.model, { finishReason: 'stop' })
+        return
+      }
+
+      for (let iterationIndex = 0; iterationIndex < 24; iterationIndex++) {
+        throwIfAborted(options?.signal)
+        const prompt = buildClaudeToolIterationPrompt({
+          prompt: promptWithAttachments,
+          tools,
+          toolTranscript,
+        })
+        const iteration = startClaudeIteration({
+          executablePath,
+          model,
+          systemPrompt: nativePrompt.systemPrompt,
+          prompt,
+          structured: true,
+          allowImageRead: attachments.length > 0,
+          cwd,
+          signal: options?.signal,
+        })
+        const parsed = await iteration.result
+        const decision = parseClaudeDecision(parsed.finalValue)
+
+        if (decision.type === 'final') {
+          yield createChunk(model.model, { content: decision.text })
+          if (parsed.usage) {
+            yield createChunk(model.model, { usage: parsed.usage })
+          }
+          yield createChunk(model.model, { finishReason: 'stop' })
+          return
+        }
+
+        const definition = tools.find(
+          (tool) => tool.function.name === decision.tool,
+        )
+        if (!definition || !options?.nativeToolExecutor) {
+          throw new Error(
+            `Claude requested an unavailable Smart Composer tool: ${decision.tool}`,
+          )
+        }
+        const response = await options.nativeToolExecutor({
+          id: uuidv4(),
+          name: definition.function.name,
+          arguments: JSON.stringify(decision.arguments),
+        })
+        const result = nativeToolResultToText(response)
+        toolTranscript.push(
+          [
+            `[TOOL CALL ${definition.function.name}]`,
+            JSON.stringify(decision.arguments),
+            `[TOOL RESULT${result.isError ? ' ERROR' : ''}]`,
+            result.text,
+          ].join('\n'),
+        )
       }
     } finally {
-      options?.signal?.removeEventListener('abort', abort)
       removeEphemeralRuntimeDirectory(cwd)
     }
-  }
-}
 
-export function createClaudePromptInput(
-  prompt: string,
-  messages: LLMRequestStreaming['messages'],
-): string | AsyncIterable<SDKUserMessage> {
-  const imageBlocks = messages.flatMap((message) => {
-    if (message.role !== 'user' || !Array.isArray(message.content)) {
-      return []
-    }
-    return message.content.flatMap((part): ImageBlockParam[] =>
-      part.type === 'image_url' ? [toClaudeImageBlock(part.image_url.url)] : [],
+    throw new Error(
+      "Claude reached Smart Composer's 24-step tool safety limit.",
     )
-  })
-  if (imageBlocks.length === 0) return prompt
-
-  return (async function* (): AsyncGenerator<SDKUserMessage> {
-    const content: (TextBlockParam | ImageBlockParam)[] = [
-      ...imageBlocks,
-      { type: 'text', text: prompt },
-    ]
-    yield {
-      type: 'user',
-      message: { role: 'user', content },
-      parent_tool_use_id: null,
-    }
-  })()
+  }
 }
 
-function toClaudeImageBlock(url: string): ImageBlockParam {
-  if (/^https?:\/\//i.test(url)) {
-    return {
-      type: 'image',
-      source: { type: 'url', url },
+export function buildClaudeCliArgs(params: {
+  model: Extract<ChatModel, { providerType: 'anthropic-plan' }>
+  systemPrompt: string
+  structured: boolean
+  allowImageRead: boolean
+}): string[] {
+  const args = [
+    '-p',
+    '--verbose',
+    '--output-format',
+    'stream-json',
+    '--include-partial-messages',
+    '--no-session-persistence',
+    '--safe-mode',
+    '--permission-mode',
+    'dontAsk',
+    '--no-chrome',
+    '--disable-slash-commands',
+    '--model',
+    normalizeClaudeModel(params.model.model),
+    '--system-prompt',
+    params.systemPrompt,
+    `--tools=${params.allowImageRead ? 'Read' : ''}`,
+    '--effort',
+    claudeEffort(params.model),
+  ]
+  if (params.structured) {
+    args.push('--json-schema', JSON.stringify(CLAUDE_TOOL_SCHEMA))
+  }
+  return args
+}
+
+function startClaudeIteration(params: {
+  executablePath: string
+  model: Extract<ChatModel, { providerType: 'anthropic-plan' }>
+  systemPrompt: string
+  prompt: string
+  structured: boolean
+  allowImageRead: boolean
+  cwd: string
+  signal?: AbortSignal
+}): {
+  deltas: AsyncIterable<ClaudeStreamDelta>
+  result: Promise<ClaudeIterationResult>
+} {
+  const queue = new AsyncEventQueue<ClaudeStreamDelta>()
+  let finalValue: unknown
+  let emittedText = ''
+  let usage: ResponseUsage | undefined
+  let requestError: Error | undefined
+
+  const result = runNativeProcess({
+    executable: params.executablePath,
+    args: buildClaudeCliArgs(params),
+    cwd: params.cwd,
+    stdin: params.prompt,
+    signal: params.signal,
+    env: {
+      ...process.env,
+      CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
+    },
+    onStdoutLine: (line) => {
+      const event = parseJsonLine(line)
+      if (!event) return
+      const parsed = parseClaudeStreamEvent(event)
+      if (parsed.content) {
+        emittedText += parsed.content
+      }
+      if (!params.structured && (parsed.content || parsed.reasoning)) {
+        queue.push({
+          content: parsed.content,
+          reasoning: parsed.reasoning,
+        })
+      }
+      finalValue = parsed.finalValue ?? finalValue
+      usage = parsed.usage ?? usage
+      requestError = parsed.error ?? requestError
+    },
+  })
+    .then((processResult) => {
+      if (processResult.exitCode !== 0) {
+        const detail =
+          processResult.stderr.trim() || processResult.stdout.trim()
+        throw new Error(
+          detail ||
+            'Claude Code failed. Open Settings > Plan connections and sign in again.',
+        )
+      }
+      if (requestError) throw requestError
+      if (finalValue === undefined) finalValue = emittedText
+      if (
+        (finalValue === undefined || finalValue === '') &&
+        emittedText.length === 0
+      ) {
+        throw new Error('Claude Code completed without returning an answer.')
+      }
+      return { finalValue, emittedText, usage }
+    })
+    .finally(() => queue.close())
+
+  return { deltas: queue, result }
+}
+
+export function parseClaudeStreamEvent(event: Record<string, unknown>): {
+  content?: string
+  reasoning?: string
+  finalValue?: unknown
+  usage?: ResponseUsage
+  error?: Error
+} {
+  if (event.type === 'stream_event') {
+    const streamEvent = asRecord(event.event)
+    if (streamEvent?.type === 'content_block_delta') {
+      const delta = asRecord(streamEvent.delta)
+      if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
+        return { content: delta.text }
+      }
+      if (
+        delta?.type === 'thinking_delta' &&
+        typeof delta.thinking === 'string'
+      ) {
+        return { reasoning: delta.thinking }
+      }
+    }
+    if (streamEvent?.type === 'message_delta') {
+      return { usage: parseClaudeUsage(streamEvent.usage) }
     }
   }
-  const { mimeType, base64Data } = parseImageDataUrl(url)
-  if (
-    !['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mimeType)
-  ) {
-    throw new Error(`Claude Plan does not support image type ${mimeType}.`)
+
+  if (event.type === 'assistant') {
+    const message = asRecord(event.message)
+    return {
+      usage: parseClaudeUsage(message?.usage),
+      error:
+        typeof event.error === 'string'
+          ? new Error(`Claude Code request failed: ${event.error}`)
+          : undefined,
+    }
   }
+
+  if (event.type === 'result') {
+    const failed =
+      event.is_error === true ||
+      (typeof event.subtype === 'string' && event.subtype !== 'success')
+    const detail = firstString(event.error, event.result)
+    return {
+      finalValue:
+        event.structured_output ??
+        event.result ??
+        event.output ??
+        event.content ??
+        event.text,
+      usage: parseClaudeUsage(event.usage),
+      error: failed
+        ? new Error(detail || 'Claude Code request failed.')
+        : undefined,
+    }
+  }
+
+  return {}
+}
+
+function buildClaudeToolIterationPrompt(params: {
+  prompt: string
+  tools: RequestTool[]
+  toolTranscript: string[]
+}): string {
+  const catalog = params.tools.map((tool) => ({
+    name: tool.function.name,
+    description: tool.function.description,
+    parameters: tool.function.parameters,
+  }))
+  return [
+    'Use only the Smart Composer tool catalog below. Return a JSON object matching the required schema. Use type "tool_call" for exactly one required tool call, or type "final" when ready to answer. Never claim a tool result that is not present in the transcript.',
+    `[SMART COMPOSER TOOL CATALOG]\n${JSON.stringify(catalog)}`,
+    params.prompt,
+    ...params.toolTranscript,
+  ].join('\n\n')
+}
+
+export function parseClaudeDecision(value: unknown): ClaudeFinal {
+  const parsed = parseStructuredValue(value)
+  const record = asRecord(parsed)
+  if (record?.type === 'tool_call' && typeof record.tool === 'string') {
+    return {
+      type: 'tool_call',
+      tool: record.tool,
+      arguments: asRecord(record.arguments) ?? {},
+    }
+  }
+  if (record?.type === 'final' && typeof record.text === 'string') {
+    return { type: 'final', text: record.text }
+  }
+  if (typeof parsed === 'string' && parsed.trim()) {
+    return { type: 'final', text: parsed }
+  }
+  throw new Error('Claude returned an invalid structured tool result.')
+}
+
+function parseStructuredValue(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  const trimmed = value.trim()
+  const direct = parseJsonValue(trimmed)
+  if (direct !== undefined) return direct
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]
+  if (fenced) {
+    const parsed = parseJsonValue(fenced.trim())
+    if (parsed !== undefined) return parsed
+  }
+  const firstBrace = trimmed.indexOf('{')
+  const lastBrace = trimmed.lastIndexOf('}')
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    const parsed = parseJsonValue(trimmed.slice(firstBrace, lastBrace + 1))
+    if (parsed !== undefined) return parsed
+  }
+  return value
+}
+
+function parseJsonValue(value: string): unknown {
+  try {
+    return JSON.parse(value) as unknown
+  } catch {
+    return undefined
+  }
+}
+
+function parseJsonLine(line: string): Record<string, unknown> | null {
+  const value = parseJsonValue(line)
+  return asRecord(value)
+}
+
+function parseClaudeUsage(value: unknown): ResponseUsage | undefined {
+  const usage = asRecord(value)
+  if (!usage) return undefined
+  const promptTokens =
+    numberValue(usage.input_tokens ?? usage.prompt_tokens) +
+    numberValue(usage.cache_creation_input_tokens) +
+    numberValue(usage.cache_read_input_tokens)
+  const completionTokens = numberValue(
+    usage.output_tokens ?? usage.completion_tokens,
+  )
+  if (!promptTokens && !completionTokens) return undefined
   return {
-    type: 'image',
-    source: {
-      type: 'base64',
-      media_type: mimeType as Base64ImageSource['media_type'],
-      data: base64Data,
-    },
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: promptTokens + completionTokens,
   }
 }
 
@@ -251,97 +478,79 @@ function normalizeClaudeModel(model: string): string {
   return model
 }
 
-function thinkingOptions(
+function claudeEffort(
   model: Extract<ChatModel, { providerType: 'anthropic-plan' }>,
-): Pick<Options, 'thinking' | 'effort'> {
-  if (model.thinking?.enabled === false) {
-    return { thinking: { type: 'disabled' } }
-  }
+): ClaudeEffort {
   if (model.thinking?.mode === 'adaptive') {
-    return {
-      thinking: {
-        type: 'adaptive',
-        display: model.thinking.display,
-      },
-      effort: model.thinking.effort,
-    }
+    return model.thinking.effort
   }
-  if (model.thinking?.enabled) {
-    return {
-      thinking: {
-        type: 'enabled',
-        budgetTokens: model.thinking.budget_tokens,
-      },
-    }
-  }
-  return {
-    thinking: { type: 'adaptive', display: 'summarized' },
-    effort: 'high',
-  }
+  if (model.thinking?.enabled === false) return 'low'
+  return 'high'
 }
 
-function extractClaudeDeltas(
-  message: SDKMessage,
-  emittedText: string,
-  emittedReasoning: string,
-): { content: string; reasoning: string } {
-  if (message.type === 'stream_event') {
-    const event = message.event
-    if (
-      event.type === 'content_block_delta' &&
-      event.delta.type === 'text_delta'
-    ) {
-      return { content: event.delta.text, reasoning: '' }
+async function materializeClaudeImages(
+  messages: LLMRequestStreaming['messages'],
+  directory: string,
+): Promise<string[]> {
+  const urls = messages.flatMap((message) => {
+    if (message.role !== 'user' || !Array.isArray(message.content)) return []
+    return message.content.flatMap((part) =>
+      part.type === 'image_url' ? [part.image_url.url] : [],
+    )
+  })
+  if (urls.length === 0) return []
+
+  const fs = requireNode<typeof import('fs')>('fs')
+  const path = requireNode<typeof import('path')>('path')
+  const { Buffer } = requireNode<typeof import('buffer')>('buffer')
+  const files: string[] = []
+
+  for (const [index, url] of urls.entries()) {
+    let mimeType: string
+    let bytes: Uint8Array
+    if (/^https?:\/\//i.test(url)) {
+      const response = await requestUrl({ url, method: 'GET' })
+      mimeType =
+        response.headers['content-type']?.split(';')[0]?.trim() ?? 'image/png'
+      bytes = new Uint8Array(response.arrayBuffer)
+    } else {
+      const parsed = parseImageDataUrl(url)
+      mimeType = parsed.mimeType
+      bytes = Buffer.from(parsed.base64Data, 'base64')
     }
-    if (
-      event.type === 'content_block_delta' &&
-      event.delta.type === 'thinking_delta'
-    ) {
-      return { content: '', reasoning: event.delta.thinking }
-    }
+    const extension = imageExtension(mimeType)
+    const filePath = path.join(
+      directory,
+      `smart-composer-image-${index + 1}.${extension}`,
+    )
+    fs.writeFileSync(filePath, bytes)
+    files.push(filePath)
   }
-  if (message.type !== 'assistant') {
-    return { content: '', reasoning: '' }
-  }
-  const fullText = message.message.content
-    .filter((block) => block.type === 'text')
-    .map((block) => block.text)
-    .join('')
-  const fullReasoning = message.message.content
-    .filter((block) => block.type === 'thinking')
-    .map((block) => block.thinking)
-    .join('')
-  return {
-    content: fullText.startsWith(emittedText)
-      ? fullText.slice(emittedText.length)
-      : '',
-    reasoning: fullReasoning.startsWith(emittedReasoning)
-      ? fullReasoning.slice(emittedReasoning.length)
-      : '',
-  }
+  return files
 }
 
-function extractUsage(message: SDKMessage): ResponseUsage | undefined {
-  if (message.type !== 'assistant') return undefined
-  const usage = message.message.usage
-  const promptTokens =
-    usage.input_tokens +
-    (usage.cache_creation_input_tokens ?? 0) +
-    (usage.cache_read_input_tokens ?? 0)
-  return {
-    prompt_tokens: promptTokens,
-    completion_tokens: usage.output_tokens,
-    total_tokens: promptTokens + usage.output_tokens,
-  }
+function appendClaudeAttachments(prompt: string, files: string[]): string {
+  if (files.length === 0) return prompt
+  return [
+    prompt,
+    '[SMART COMPOSER IMAGE ATTACHMENTS]',
+    'Use the Read tool only on the exact temporary image paths listed below. Do not read any other file.',
+    ...files.map((file, index) => `${index + 1}. ${file}`),
+  ].join('\n\n')
 }
 
-function throwIfClaudeResultError(message: SDKMessage): void {
-  if (message.type === 'assistant' && message.error) {
-    throw new Error(`Claude Code request failed: ${message.error}`)
-  }
-  if (message.type === 'result' && message.subtype !== 'success') {
-    const errors = 'errors' in message ? message.errors.join('\n') : ''
-    throw new Error(errors || `Claude Code request failed: ${message.subtype}`)
+function imageExtension(mimeType: string): string {
+  switch (mimeType.toLowerCase()) {
+    case 'image/jpeg':
+      return 'jpg'
+    case 'image/gif':
+      return 'gif'
+    case 'image/webp':
+      return 'webp'
+    case 'image/png':
+      return 'png'
+    default:
+      throw new Error(`Claude Plan does not support image type ${mimeType}.`)
   }
 }
 
@@ -386,4 +595,78 @@ function removeEphemeralRuntimeDirectory(directory: string | undefined) {
   } catch {
     // The operating system will eventually clear its temporary directory.
   }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return
+  const error = new Error('Claude Plan request was canceled.')
+  error.name = 'AbortError'
+  throw error
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+function firstString(...values: unknown[]): string {
+  return (
+    values.find((value): value is string => typeof value === 'string') ?? ''
+  )
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+class AsyncEventQueue<T> implements AsyncIterable<T> {
+  private readonly items: T[] = []
+  private readonly waiters: ((result: IteratorResult<T>) => void)[] = []
+  private closed = false
+
+  push(item: T): void {
+    const waiter = this.waiters.shift()
+    if (waiter) {
+      waiter({ value: item, done: false })
+      return
+    }
+    this.items.push(item)
+  }
+
+  close(): void {
+    this.closed = true
+    for (const waiter of this.waiters.splice(0)) {
+      waiter({ value: undefined, done: true })
+    }
+  }
+
+  [Symbol.asyncIterator](): AsyncIterator<T> {
+    return {
+      next: () => {
+        const item = this.items.shift()
+        if (item !== undefined) {
+          return Promise.resolve({ value: item, done: false })
+        }
+        if (this.closed) {
+          return Promise.resolve({ value: undefined, done: true })
+        }
+        return new Promise<IteratorResult<T>>((resolve) => {
+          this.waiters.push(resolve)
+        })
+      },
+    }
+  }
+}
+
+const CLAUDE_TOOL_SCHEMA = {
+  type: 'object',
+  properties: {
+    type: { type: 'string', enum: ['final', 'tool_call'] },
+    text: { type: 'string' },
+    tool: { type: 'string' },
+    arguments: { type: 'object' },
+  },
+  required: ['type'],
+  additionalProperties: false,
 }

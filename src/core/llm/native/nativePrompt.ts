@@ -16,7 +16,7 @@ export function buildNativePrompt(messages: RequestMessage[]): {
   return {
     systemPrompt: [
       systemPrompt,
-      'You are running inside Smart Composer. Do not read, write, search, or execute files and commands directly. Use only the Smart Composer MCP tools supplied for this request. Return the requested answer in Markdown.',
+      'You are running inside Smart Composer. Do not read, write, search, or execute files and commands directly. Use only the Smart Composer tools supplied for this request. Return the requested answer in Markdown.',
     ]
       .filter(Boolean)
       .join('\n\n'),

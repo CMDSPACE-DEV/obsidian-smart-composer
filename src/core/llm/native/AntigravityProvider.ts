@@ -140,6 +140,13 @@ export class AntigravityProvider extends BaseLLMProvider<
           for (const text of parsed.textDeltas) {
             yield createChunk(model.model, { content: text })
           }
+          if (
+            parsed.textDeltas.length === 0 &&
+            typeof parsed.finalValue === 'string' &&
+            parsed.finalValue
+          ) {
+            yield createChunk(model.model, { content: parsed.finalValue })
+          }
           if (parsed.usage) {
             yield createChunk(model.model, { usage: parsed.usage })
           }
@@ -202,29 +209,45 @@ async function runAntigravityIteration(params: {
   finalValue: unknown
   usage?: ResponseUsage
 }> {
-  const args = ['-p', '--output-format', 'stream-json', '--model', params.model]
-  if (params.structured) {
-    args.push('--json-schema', JSON.stringify(ANTIGRAVITY_TOOL_SCHEMA))
-  }
+  const args = buildAntigravityCliArgs({
+    prompt: params.prompt,
+    model: params.model,
+    structured: params.structured,
+  })
   const textDeltas: string[] = []
   let finalValue: unknown
   let usage: ResponseUsage | undefined
+  let requestError: string | undefined
   const result = await runNativeProcess({
     executable: params.executablePath,
     args,
     cwd: params.cwd,
-    stdin: params.prompt,
     signal: params.signal,
     onStdoutLine: (line) => {
       const event = parseJsonLine(line)
       if (!event) return
-      const text = extractTextDelta(event)
+      const text = extractAntigravityTextDelta(event)
       if (text) {
         textDeltas.push(text)
       }
-      if (event.type === 'result') {
-        finalValue = event.result ?? event.output ?? event.content ?? event.text
-        usage = parseUsage(event.usage)
+      const resultEvent = extractAntigravityResultEvent(event)
+      if (resultEvent) {
+        finalValue =
+          resultEvent.structured_output ??
+          resultEvent.response ??
+          resultEvent.result ??
+          resultEvent.output ??
+          resultEvent.content ??
+          resultEvent.text
+        usage = parseUsage(resultEvent.usage) ?? usage
+        if (
+          typeof resultEvent.status === 'string' &&
+          resultEvent.status !== 'SUCCESS'
+        ) {
+          requestError =
+            firstString(resultEvent.error, resultEvent.response) ||
+            `Antigravity request failed: ${resultEvent.status}`
+        }
       }
     },
   })
@@ -235,11 +258,41 @@ async function runAntigravityIteration(params: {
         'Antigravity CLI failed. Open Settings > Plan connections and sign in again.',
     )
   }
+  if (requestError) {
+    throw new Error(requestError)
+  }
 
   if (finalValue === undefined) {
     finalValue = textDeltas.join('')
   }
+  if (
+    (finalValue === undefined || finalValue === '') &&
+    textDeltas.length === 0
+  ) {
+    throw new Error('Antigravity completed without returning an answer.')
+  }
   return { textDeltas, finalValue, usage }
+}
+
+export function buildAntigravityCliArgs(params: {
+  prompt: string
+  model: string
+  structured: boolean
+}): string[] {
+  const args = [
+    '-p',
+    params.prompt,
+    '--output-format',
+    'stream-json',
+    '--model',
+    params.model,
+    '--mode',
+    'plan',
+  ]
+  if (params.structured) {
+    args.push('--json-schema', JSON.stringify(ANTIGRAVITY_TOOL_SCHEMA))
+  }
+  return args
 }
 
 function createEphemeralRuntimeDirectory(): string {
@@ -324,19 +377,33 @@ function parseJsonLine(line: string): Record<string, unknown> | null {
   }
 }
 
-function extractTextDelta(event: Record<string, unknown>): string {
-  if (event.type !== 'step_update') return ''
+export function extractAntigravityTextDelta(
+  event: Record<string, unknown>,
+): string {
+  if (event.type !== 'step_update' && event.event !== 'step_update') return ''
   for (const key of ['delta', 'text', 'content', 'output']) {
     if (typeof event[key] === 'string') return event[key]
   }
-  const step = event.step
+  const step = event.step_update ?? event.step
   if (step && typeof step === 'object' && !Array.isArray(step)) {
     for (const key of ['delta', 'text', 'content', 'output']) {
       const value = (step as Record<string, unknown>)[key]
       if (typeof value === 'string') return value
     }
+    const textDelta = (step as Record<string, unknown>).text_delta
+    if (typeof textDelta === 'string') return textDelta
   }
   return ''
+}
+
+export function extractAntigravityResultEvent(
+  event: Record<string, unknown>,
+): Record<string, unknown> | null {
+  if (event.type !== 'result' && event.event !== 'result') return null
+  const nested = event.result
+  return nested && typeof nested === 'object' && !Array.isArray(nested)
+    ? (nested as Record<string, unknown>)
+    : event
 }
 
 function parseUsage(value: unknown): ResponseUsage | undefined {
@@ -358,6 +425,12 @@ function parseUsage(value: unknown): ResponseUsage | undefined {
 
 function numberValue(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function firstString(...values: unknown[]): string {
+  return (
+    values.find((value): value is string => typeof value === 'string') ?? ''
+  )
 }
 
 function createChunk(
@@ -385,25 +458,13 @@ function createChunk(
 }
 
 const ANTIGRAVITY_TOOL_SCHEMA = {
-  oneOf: [
-    {
-      type: 'object',
-      properties: {
-        type: { const: 'final' },
-        text: { type: 'string' },
-      },
-      required: ['type', 'text'],
-      additionalProperties: false,
-    },
-    {
-      type: 'object',
-      properties: {
-        type: { const: 'tool_call' },
-        tool: { type: 'string' },
-        arguments: { type: 'object' },
-      },
-      required: ['type', 'tool', 'arguments'],
-      additionalProperties: false,
-    },
-  ],
+  type: 'object',
+  properties: {
+    type: { type: 'string', enum: ['final', 'tool_call'] },
+    text: { type: 'string' },
+    tool: { type: 'string' },
+    arguments: { type: 'object' },
+  },
+  required: ['type'],
+  additionalProperties: false,
 }

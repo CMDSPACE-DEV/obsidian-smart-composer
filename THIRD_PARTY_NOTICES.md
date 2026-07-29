@@ -26,15 +26,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-## Claude Agent SDK
-
-The plugin includes `@anthropic-ai/claude-agent-sdk`. The package copyright is
-held by Anthropic PBC and use is subject to Anthropic's legal agreements:
-
-https://code.claude.com/docs/en/legal-and-compliance
-
-Anthropic's current authentication policy directs third-party products to API
-key authentication and does not permit routing consumer Claude Plan credentials
-on behalf of users. The optional local Claude runtime in this custom build is
-therefore labeled experimental and personal-use only.

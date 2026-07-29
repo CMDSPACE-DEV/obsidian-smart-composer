@@ -7,6 +7,11 @@
 - Investigation date: 2026-07-29
 - Target release: Smart Composer Achmage 2.6.0
 
+> [!NOTE]
+> The installation, authentication, model-catalog, and trust-boundary findings
+> remain valid. R-024 supersedes the Agent SDK execution decision after live
+> production testing exposed a bundled MCP constructor failure.
+
 ## Question
 
 How can Smart Composer keep subscription-backed Claude and Gemini Plan access
