@@ -59,3 +59,46 @@ describe('launchVisibleTerminal on Windows', () => {
     )
   })
 })
+
+describe('launchVisibleTerminal on macOS', () => {
+  const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')
+
+  beforeAll(() => {
+    Object.defineProperty(process, 'platform', { value: 'darwin' })
+  })
+
+  afterAll(() => {
+    if (originalPlatform) {
+      Object.defineProperty(process, 'platform', originalPlatform)
+    }
+  })
+
+  beforeEach(() => {
+    mockSpawn.mockClear()
+    mockUnref.mockClear()
+  })
+
+  it('opens an empty Terminal.app window without running a command', () => {
+    launchVisibleTerminal('', 'terminal')
+
+    expect(mockSpawn).toHaveBeenCalledWith(
+      'osascript',
+      ['-e', 'tell application "Terminal" to do script ""'],
+      expect.objectContaining({ detached: true, stdio: 'ignore' }),
+    )
+    expect(mockUnref).toHaveBeenCalled()
+  })
+
+  it('escapes backslashes and quotes in a generated AppleScript argument', () => {
+    launchVisibleTerminal('printf "C:\\runtime"', 'terminal')
+
+    expect(mockSpawn).toHaveBeenCalledWith(
+      'osascript',
+      [
+        '-e',
+        'tell application "Terminal" to do script "printf \\"C:\\\\runtime\\""',
+      ],
+      expect.any(Object),
+    )
+  })
+})

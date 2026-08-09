@@ -21,6 +21,11 @@ import { LLMAPIKeyNotSetException } from '../exception'
 import { NativeCliResolver } from './NativeCliResolver'
 import { runNativeProcess } from './NativeProcess'
 import { buildNativePrompt } from './nativePrompt'
+import {
+  assertRuntimeAuthAllowed,
+  prepareNativePlanEnvironment,
+  verifyClaudePlanAuth,
+} from './NativeRuntimeAuth'
 import { nativeToolResultToText } from './nativeToolResult'
 import { requireNode } from './nodeRuntime'
 
@@ -52,6 +57,7 @@ export class ClaudeAgentProvider extends BaseLLMProvider<
   constructor(
     provider: Extract<LLMProvider, { type: 'anthropic-plan' }>,
     private readonly resolver = new NativeCliResolver(),
+    private readonly environmentSource: NodeJS.ProcessEnv = process.env,
   ) {
     super(provider)
   }
@@ -109,7 +115,17 @@ export class ClaudeAgentProvider extends BaseLLMProvider<
         'Claude Code is not installed. Open Settings > Plan connections to install and sign in.',
       )
     }
-    return this.run(executablePath, model, request, options)
+    const environment = prepareNativePlanEnvironment(
+      'claude',
+      this.environmentSource,
+    )
+    environment.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = '1'
+    const verification = await verifyClaudePlanAuth(executablePath, {
+      environment,
+      signal: options?.signal,
+    })
+    assertRuntimeAuthAllowed('claude', verification.decision)
+    return this.run(executablePath, model, request, environment.env, options)
   }
 
   async getEmbedding(): Promise<number[]> {
@@ -120,6 +136,7 @@ export class ClaudeAgentProvider extends BaseLLMProvider<
     executablePath: string,
     model: Extract<ChatModel, { providerType: 'anthropic-plan' }>,
     request: LLMRequestStreaming,
+    environment: NodeJS.ProcessEnv,
     options?: LLMOptions,
   ): AsyncGenerator<LLMResponseStreaming> {
     const nativePrompt = buildNativePrompt(request.messages)
@@ -144,6 +161,7 @@ export class ClaudeAgentProvider extends BaseLLMProvider<
           structured: false,
           allowImageRead: attachments.length > 0,
           cwd,
+          environment,
           signal: options?.signal,
         })
         for await (const delta of iteration.deltas) {
@@ -175,6 +193,7 @@ export class ClaudeAgentProvider extends BaseLLMProvider<
           structured: true,
           allowImageRead: attachments.length > 0,
           cwd,
+          environment,
           signal: options?.signal,
         })
         const parsed = await iteration.result
@@ -230,6 +249,8 @@ export function buildClaudeCliArgs(params: {
 }): string[] {
   const args = [
     '-p',
+    '--setting-sources',
+    '',
     '--verbose',
     '--output-format',
     'stream-json',
@@ -262,6 +283,7 @@ function startClaudeIteration(params: {
   structured: boolean
   allowImageRead: boolean
   cwd: string
+  environment: NodeJS.ProcessEnv
   signal?: AbortSignal
 }): {
   deltas: AsyncIterable<ClaudeStreamDelta>
@@ -279,10 +301,7 @@ function startClaudeIteration(params: {
     cwd: params.cwd,
     stdin: params.prompt,
     signal: params.signal,
-    env: {
-      ...process.env,
-      CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
-    },
+    env: params.environment,
     onStdoutLine: (line) => {
       const event = parseJsonLine(line)
       if (!event) return

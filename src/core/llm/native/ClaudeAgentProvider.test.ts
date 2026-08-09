@@ -25,6 +25,7 @@ describe('ClaudeAgentProvider official CLI protocol', () => {
     })
 
     expect(args[0]).toBe('-p')
+    expect(args.slice(1, 3)).toEqual(['--setting-sources', ''])
     expect(args).toContain('--verbose')
     expect(args).toContain('stream-json')
     expect(args).toContain('--tools=')

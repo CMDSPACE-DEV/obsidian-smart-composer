@@ -17,11 +17,6 @@ describe('parseSmartComposerSettings', () => {
 
       providers: [...DEFAULT_PROVIDERS],
 
-      nativeRuntimes: {
-        claude: { status: 'not-installed', models: [] },
-        gemini: { status: 'not-installed', models: [] },
-      },
-
       chatModels: [...DEFAULT_CHAT_MODELS],
       embeddingModels: [...DEFAULT_EMBEDDING_MODELS],
 
@@ -80,6 +75,31 @@ describe('parseSmartComposerSettings', () => {
         maxAutoIterations: 12,
       },
     })
+  })
+
+  it('drops v28 runtime health without changing provider or model choices', () => {
+    const result = parseSmartComposerSettings({
+      version: 28,
+      providers: [...DEFAULT_PROVIDERS],
+      chatModels: [...DEFAULT_CHAT_MODELS],
+      chatModelId: DEFAULT_CHAT_MODEL_ID,
+      nativeRuntimes: {
+        claude: {
+          status: 'ready',
+          models: [{ id: 'sonnet', label: 'Sonnet' }],
+        },
+        gemini: {
+          status: 'ready',
+          models: [{ id: 'gemini-pro', label: 'Gemini Pro' }],
+        },
+      },
+    })
+
+    expect(result.version).toBe(29)
+    expect(result.providers).toEqual(DEFAULT_PROVIDERS)
+    expect(result.chatModels).toEqual(DEFAULT_CHAT_MODELS)
+    expect(result.chatModelId).toBe(DEFAULT_CHAT_MODEL_ID)
+    expect(result).not.toHaveProperty('nativeRuntimes')
   })
 
   it('upgrades v18 while preserving OpenAI OAuth and custom models', () => {

@@ -20,6 +20,11 @@ import { LLMAPIKeyNotSetException } from '../exception'
 import { NativeCliResolver } from './NativeCliResolver'
 import { runNativeProcess } from './NativeProcess'
 import { buildNativePrompt } from './nativePrompt'
+import {
+  assertRuntimeAuthAllowed,
+  prepareNativePlanEnvironment,
+  verifyAntigravityPlanAuth,
+} from './NativeRuntimeAuth'
 import { nativeToolResultToText } from './nativeToolResult'
 import { requireNode } from './nodeRuntime'
 
@@ -40,6 +45,7 @@ export class AntigravityProvider extends BaseLLMProvider<
   constructor(
     provider: Extract<LLMProvider, { type: 'gemini-plan' }>,
     private readonly resolver = new NativeCliResolver(),
+    private readonly environmentSource: NodeJS.ProcessEnv = process.env,
   ) {
     super(provider)
   }
@@ -94,7 +100,16 @@ export class AntigravityProvider extends BaseLLMProvider<
         'Antigravity CLI is not installed. Open Settings > Plan connections to install and sign in.',
       )
     }
-    return this.run(executablePath, model, request, options)
+    const environment = prepareNativePlanEnvironment(
+      'gemini',
+      this.environmentSource,
+    )
+    const verification = await verifyAntigravityPlanAuth(executablePath, {
+      environment,
+      signal: options?.signal,
+    })
+    assertRuntimeAuthAllowed('gemini', verification.decision)
+    return this.run(executablePath, model, request, environment.env, options)
   }
 
   async getEmbedding(): Promise<number[]> {
@@ -105,6 +120,7 @@ export class AntigravityProvider extends BaseLLMProvider<
     executablePath: string,
     model: Extract<ChatModel, { providerType: 'gemini-plan' }>,
     request: LLMRequestStreaming,
+    environment: NodeJS.ProcessEnv,
     options?: LLMOptions,
   ): AsyncGenerator<LLMResponseStreaming> {
     const nativePrompt = buildNativePrompt(request.messages)
@@ -133,6 +149,7 @@ export class AntigravityProvider extends BaseLLMProvider<
           prompt,
           structured: tools.length > 0,
           cwd,
+          environment,
           signal: options?.signal,
         })
 
@@ -203,6 +220,7 @@ async function runAntigravityIteration(params: {
   prompt: string
   structured: boolean
   cwd: string
+  environment: NodeJS.ProcessEnv
   signal?: AbortSignal
 }): Promise<{
   textDeltas: string[]
@@ -222,6 +240,7 @@ async function runAntigravityIteration(params: {
     executable: params.executablePath,
     args,
     cwd: params.cwd,
+    env: params.environment,
     signal: params.signal,
     onStdoutLine: (line) => {
       const event = parseJsonLine(line)

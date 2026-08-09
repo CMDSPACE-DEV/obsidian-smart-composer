@@ -112,7 +112,7 @@ export function launchVisibleTerminal(
   }
 
   if (process.platform === 'darwin') {
-    const terminalCommand = command || 'clear'
+    const terminalCommand = command
     const escaped = terminalCommand.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
     const child = spawn(
       'osascript',
