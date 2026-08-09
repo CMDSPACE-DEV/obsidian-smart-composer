@@ -301,7 +301,7 @@ verify_installer_modal() {
     "the ${provider} login step to unlock without closing the modal"
 
   run_cli dev:screenshot "path=${artifact_dir}/${provider}-installer.png" > /dev/null
-  eval_obsidian '(() => { const close = document.querySelector(".modal-close-button"); if (!(close instanceof HTMLElement)) return false; close.click(); return true; })()' \
+  eval_obsidian "(() => { const marker = document.querySelector('[data-runtime-installer=\"${provider}\"]'); if (!(marker instanceof HTMLElement)) return false; const container = marker.closest('.modal-container'); if (!(container instanceof HTMLElement)) return false; const backdrop = container.querySelector('.modal-bg'); if (!(backdrop instanceof HTMLElement)) return false; backdrop.click(); return true; })()" \
     | is_true_output
   wait_for_true \
     "document.querySelector('[data-runtime-installer=\"${provider}\"]') === null" \

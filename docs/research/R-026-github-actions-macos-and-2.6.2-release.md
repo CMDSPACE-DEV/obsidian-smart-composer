@@ -56,6 +56,16 @@ proves that override loaded, opens Settings once through the registered
 result, waits for the main-window modal and plugin-tab registration, and
 selects the plugin tab once before asserting its terminal render state.
 
+Run 31328304443 at `eacde293a5c79d49ead6e2ac045f8ac1124b350c`
+proved that correction on both architectures. Each desktop job reached the
+main-document Settings root, found both Plan cards, opened the Claude installer,
+verified its Windows/macOS tabs, completed installation checking with an inert
+fixture, and observed Step 4 unlock without closing the modal. The only failure
+was the harness's document-global `.modal-close-button` predicate immediately
+after the Claude screenshot; Gemini was never reached. Modal teardown is now
+scoped from the active provider marker to its own modal container and backdrop,
+then verified by waiting for that provider marker to disappear.
+
 ## Research Question
 
 How can Smart Composer 2.6.2 obtain reproducible Windows and dual-architecture
@@ -151,6 +161,7 @@ All sources were accessed on 2026-08-10.
   Settings modal `shouldUsePopout()` implementation
 - Sanitized `obsidian-smoke-arm64` and `obsidian-smoke-x86_64` artifacts plus
   job logs from exact-SHA push run 31327311829
+- Sanitized artifacts and job logs from exact-SHA push run 31328304443
 
 ### Reviewed mutable artifacts
 
@@ -167,6 +178,16 @@ The Obsidian digest is also published in the official GitHub release asset
 metadata. Installer endpoints are mutable; equality with this table is a
 pre-execution gate, not permanent trust in a URL.
 
+### Sanitized run 31328304443 artifacts
+
+These are the GitHub artifact API's uploaded-archive sizes and SHA-256 digests,
+not hashes reconstructed from extracted files.
+
+| Artifact | API ID | Bytes | GitHub SHA-256 |
+| --- | ---: | ---: | --- |
+| `obsidian-smoke-arm64` | 9042274255 | 346,858 | `8f1b9e8f822b5f03adeb1ead9cfbee1e436c7bbc1a74114f94af6bf47033d3ad` |
+| `obsidian-smoke-x86_64` | 9042294748 | 397,807 | `eb0ec7d8d63e8393d659885ccf441964a9ea80739adb41dfb5e38783f437b6a5` |
+
 ## Evidence Ledger
 
 | ID | Claim | Class | Evidence | Confidence |
@@ -180,12 +201,14 @@ pre-execution gate, not permanent trust in a URL.
 | E-07 | Obsidian CLI can reload plugins, query DOM, inspect errors, evaluate code, and capture screenshots | Verified: first-party docs | Official CLI developer-command reference | High |
 | E-08 | Obsidian CLI needs installer 1.12.7+ and a running app | Verified: first-party docs | Official CLI prerequisites | High |
 | E-09 | Obsidian 1.13.4 DMG verifies, launches, and exposes the CLI on both selected runners | Verified: live Actions | Exact digest, codesign, universal architecture, socket, plugin reload, and eval on run 31326265208 | High |
-| E-10 | The secret-free Obsidian CLI smoke passes twice on both architectures | Not verified | Runs 31326265208 and 31327311829 exposed successive harness defects; no exact-SHA dual-architecture smoke has passed twice | Not applicable |
+| E-10 | The secret-free Obsidian CLI smoke passes twice on both architectures | Not verified | Runs 31326265208, 31327311829, and 31328304443 exposed successive harness defects; no exact-SHA dual-architecture smoke has passed twice | Not applicable |
 | E-11 | OAuth, Keychain persistence, and Plan billing provenance are tested by CI | Contradicted | CI intentionally supplies no account or secret | High |
 | E-12 | The release workflow publishes only bytes rebuilt from the annotated branch-head tag | Proposal/implementation contract | Workflow source; remote execution pending | High for design, not runtime |
 | E-13 | New workflow/script source passes local static validation | Verified: local static | YAML parse, actionlint 1.7.12, `bash -n`, `node --check`, verifier positive/negative checks, Prettier | High |
 | E-14 | Obsidian 1.13.4 opens Settings in a separate renderer by default | Verified: pinned source + live Actions artifact | Pinned `app.js` default `settingsPopoutWindow: true`, `shouldUsePopout()` implementation, and run 31327311829 dual-architecture artifacts | High |
 | E-15 | Run 31327311829 failed on a main-document Settings gate rather than plugin loading | Verified: live Actions | arm64 job 93280339093 and x86_64 job 93280339080 both timed out with `=> false`; both sanitized structures reported `layoutReady: true`, `pluginLoaded: true`, `settingsRoot: false`, `loadError: false`, and both error captures reported no JavaScript errors | High |
+| E-16 | Main-window Settings and the Claude install-check-to-login transition work in the pinned smoke on both architectures | Verified: live Actions | Run 31328304443 jobs 93283178500 and 93283178499 reached Settings root/two cards, both OS tabs, Claude installation check, and enabled Step 4; screenshots and sanitized structures agree | High |
+| E-17 | Run 31328304443 verifies the Gemini modal flow | Not verified | Both jobs stopped at the document-global Claude modal-close predicate before invoking the Gemini verifier | Not applicable |
 
 ## Verified Findings
 
@@ -256,6 +279,20 @@ harness proves the loaded setting is `false`, uses the registered
 document, waits for the plugin tab, and then calls
 `openTabById("smart-composer")` once.
 
+Run 31328304443 then verified those gates on both architectures. Its sanitized
+failure structures agreed exactly on the relevant state:
+`settingsPopoutConfigured: false`, `settingsPopoutOpen: false`,
+`settingsDocumentIsMain: true`, `settingsTabRegistered: true`,
+`settingsRoot: true`, `loadError: false`, and `cardCount: 2`. The command trace
+continued through the Claude provider marker, two platform tabs, selected Mac
+tab, platform labels, installation-check click, enabled login step, and
+`claude-installer.png`. It stopped on the next document-global
+`.modal-close-button` predicate. The failure screenshot was byte-identical to
+the preceding Claude screenshot on each architecture, and no Gemini verifier
+command appears in either trace. This narrows the failed assertion to harness
+modal teardown; it is not evidence of a product transition failure or Gemini
+success.
+
 ### 5. Release publication must fail closed
 
 The tag workflow first runs the complete reusable CI. It then proves the tag
@@ -304,6 +341,11 @@ being overwritten or published with a stale qualification.
   It finally requires either the plugin settings root or its explicit load-error
   root, and fails immediately on the latter. Polling must not repeatedly reopen
   Settings or reselect the tab.
+- Provider modal teardown must start at that provider's
+  `[data-runtime-installer]` marker, resolve its nearest `.modal-container`,
+  click only the contained `.modal-bg`, and wait for the same provider marker
+  to disappear. A document-global `.modal-close-button` must not be used while
+  the Obsidian Settings modal and a provider modal coexist.
 - Screenshots and diagnostic summaries contain only a fresh empty vault and
   fake unauthenticated runtimes. They are retained for 14 days.
 - The Draft PR remains unmerged. The repository default branch is unchanged.
@@ -359,6 +401,7 @@ being overwritten or published with a stale qualification.
 | Superseded push run | [Run 31325631944](https://github.com/laguna821/obsidian_smart_composer_Achmage/actions/runs/31325631944), failed only on the Linux-hosted Windows interaction fixture; Windows and both macOS source jobs passed |
 | Superseded push run 2 | [Run 31326265208](https://github.com/laguna821/obsidian_smart_composer_Achmage/actions/runs/31326265208), all source and official-installer jobs passed; both Obsidian jobs exposed the harness boolean/readiness defects |
 | Superseded push run 3 | [Run 31327311829](https://github.com/laguna821/obsidian_smart_composer_Achmage/actions/runs/31327311829) at `dce2a49538f4f103ded85024b450c92fc2563af7`: all source and official-installer jobs passed; arm64 job 93280339093 and x86_64 job 93280339080 both proved plugin load/no JavaScript errors, then failed the main-document Settings terminal gate because Settings had opened in the default popout renderer |
+| Superseded push run 4 | [Run 31328304443](https://github.com/laguna821/obsidian_smart_composer_Achmage/actions/runs/31328304443) at `eacde293a5c79d49ead6e2ac045f8ac1124b350c`: all source and official-installer jobs passed; arm64 job 93283178500 and x86_64 job 93283178499 both proved main-window Settings, two cards, Claude Windows/macOS tabs, and installation check -> enabled Step 4; both then stopped at the global modal-close harness before Gemini, with artifact IDs/digests recorded above |
 | Qualifying push CI run attempt 1 | Pending replacement SHA |
 | Same run/SHA rerun attempt 2 | Pending |
 | Annotated `2.6.2` tag object and commit | Pending |
@@ -411,3 +454,8 @@ logs and uploaded artifacts must remain secret-free.
   while the CLI inspected the main document. Pinned the disposable vault to an
   in-window Settings modal and separated command open, modal readiness,
   plugin-tab registration, one-shot tab selection, and render assertions.
+- 2026-08-10: Recorded superseded run 31328304443 and both sanitized artifact
+  digests. It proved the main-window Settings root, two Plan cards, Claude OS
+  tabs, and installation-check-to-Step-4 transition on both architectures. The
+  jobs then exposed an unscoped modal-close harness predicate before Gemini;
+  modal teardown is now anchored to the active provider's own backdrop.

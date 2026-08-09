@@ -56,7 +56,7 @@ premature synthesis.
 | R-023 | Official Claude Agent SDK and Antigravity CLI Plan runtime architecture, model discovery, tool isolation, and credential migration | **Verified; SDK execution decision superseded by R-024** | **Mandatory** | [R-023 report](R-023-official-plan-runtime-architecture.md) |
 | R-024 | Claude Code and Antigravity live headless protocol capture, bundled SDK failure, and direct CLI correction | **Verified + Implemented in 2.6.0 hotfix** | **Mandatory** | [R-024 report](R-024-native-plan-cli-live-protocol-and-runtime-fix.md) |
 | R-025 | Native Plan onboarding state flow, Windows/macOS installation and authentication, and the 2.6.2 implementation contract | **Partially verified; source and official-document analysis complete, clean-machine validation pending** | **Mandatory** | [R-025 report](R-025-native-plan-onboarding-cross-platform.md) |
-| R-026 | GitHub Actions macOS qualification and safe 2.6.2 branch/tag/release contract | **Partially verified; workflow harness exercised on both macOS architectures, exact-SHA qualification and publication pending** | **Mandatory for 2.6.2 release** | [R-026 report](R-026-github-actions-macos-and-2.6.2-release.md) |
+| R-026 | GitHub Actions macOS qualification and safe 2.6.2 branch/tag/release contract | **Partially verified; dual-architecture Settings and Claude transition verified, complete two-provider exact-SHA qualification and publication pending** | **Mandatory for 2.6.2 release** | [R-026 report](R-026-github-actions-macos-and-2.6.2-release.md) |
 
 ## Mandatory Synthesis Rule
 
