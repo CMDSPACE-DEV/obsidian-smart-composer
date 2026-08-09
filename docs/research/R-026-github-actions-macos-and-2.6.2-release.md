@@ -35,6 +35,15 @@ was corrected to declare Windows explicitly. Because the Ubuntu prerequisite
 failed, official-installer and Obsidian desktop matrices did not run. A fresh
 exact-SHA run and its second attempt therefore remain release gates.
 
+The replacement run proved all four source gates and both reviewed official
+installer jobs. Both Obsidian jobs then exposed two harness defects rather
+than a product assertion: the CLI socket appeared before its documented
+`version` command was registered, and the harness compared the CLI's actual
+`=> true` result with the impossible exact string `true`. The harness now waits
+for the documented command registry, waits again after restricted-mode reload,
+checks plugin load completion, and parses both documented-style and raw boolean
+results. No failed run is reused for release qualification.
+
 ## Research Question
 
 How can Smart Composer 2.6.2 obtain reproducible Windows and dual-architecture
@@ -153,8 +162,8 @@ pre-execution gate, not permanent trust in a URL.
 | E-06 | The current Google page advertises two flags absent from all three reviewed scripts | Contradicted: first-party source conflict | Docs list `--skip-path`/`--skip-aliases`; byte search finds neither, while shell implements `-d`/`--dir` | High for reviewed bytes |
 | E-07 | Obsidian CLI can reload plugins, query DOM, inspect errors, evaluate code, and capture screenshots | Verified: first-party docs | Official CLI developer-command reference | High |
 | E-08 | Obsidian CLI needs installer 1.12.7+ and a running app | Verified: first-party docs | Official CLI prerequisites | High |
-| E-09 | Obsidian 1.13.4 DMG is universal and usable on both selected CI runners | Partially verified | Official asset and digest; CI execution pending | Medium-high |
-| E-10 | The secret-free Obsidian CLI smoke passes twice on both architectures | Not verified | Initial run skipped the matrix after an Ubuntu fixture failure | Not applicable |
+| E-09 | Obsidian 1.13.4 DMG verifies, launches, and exposes the CLI on both selected runners | Verified: live Actions | Exact digest, codesign, universal architecture, socket, plugin reload, and eval on run 31326265208 | High |
+| E-10 | The secret-free Obsidian CLI smoke passes twice on both architectures | Not verified | Run 31326265208 exposed boolean parsing and command-readiness defects in the harness | Not applicable |
 | E-11 | OAuth, Keychain persistence, and Plan billing provenance are tested by CI | Contradicted | CI intentionally supplies no account or secret | High |
 | E-12 | The release workflow publishes only bytes rebuilt from the annotated branch-head tag | Proposal/implementation contract | Workflow source; remote execution pending | High for design, not runtime |
 | E-13 | New workflow/script source passes local static validation | Verified: local static | YAML parse, actionlint 1.7.12, `bash -n`, `node --check`, verifier positive/negative checks, Prettier | High |
@@ -302,6 +311,7 @@ being overwritten or published with a stale qualification.
 | --- | --- |
 | Draft PR URL | [PR #1](https://github.com/laguna821/obsidian_smart_composer_Achmage/pull/1), Draft and unmerged |
 | Superseded push run | [Run 31325631944](https://github.com/laguna821/obsidian_smart_composer_Achmage/actions/runs/31325631944), failed only on the Linux-hosted Windows interaction fixture; Windows and both macOS source jobs passed |
+| Superseded push run 2 | [Run 31326265208](https://github.com/laguna821/obsidian_smart_composer_Achmage/actions/runs/31326265208), all source and official-installer jobs passed; both Obsidian jobs exposed the harness boolean/readiness defects |
 | Qualifying push CI run attempt 1 | Pending replacement SHA |
 | Same run/SHA rerun attempt 2 | Pending |
 | Annotated `2.6.2` tag object and commit | Pending |
@@ -341,3 +351,10 @@ logs and uploaded artifacts must remain secret-free.
   matrices when an Ubuntu-hosted UI test omitted its intended Windows platform.
   Final immutable provenance is assigned to generated Release notes so the
   tagged branch is never moved by a post-publication documentation commit.
+- 2026-08-10: Recorded superseded run 31326265208. It proved every source gate,
+  both official installers, the pinned Obsidian bytes/signature/architectures,
+  CLI socket, plugin reload, and JavaScript eval. Both desktop jobs then failed
+  closed because the harness did not accept `=> true` and did not wait for CLI
+  command registration across the restricted-mode reload. Added centralized
+  boolean parsing, documented-command readiness waits, plugin-load wait, and a
+  sanitized startup summary/screenshot for future failure evidence.

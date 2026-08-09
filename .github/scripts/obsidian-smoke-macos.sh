@@ -12,9 +12,27 @@ plugin_path="${vault_path}/.obsidian/plugins/smart-composer"
 obsidian_dmg="${smoke_root}/Obsidian-1.13.4.dmg"
 obsidian_url='https://github.com/obsidianmd/obsidian-releases/releases/download/v1.13.4/Obsidian-1.13.4.dmg'
 obsidian_pid=''
+cli_path=''
+cli_socket=''
 mounted='false'
 
 cleanup() {
+  local exit_status="$?"
+  trap - EXIT
+  set +e
+  if [[ "${exit_status}" -ne 0 && -x "${cli_path}" && -S "${cli_socket}" ]]; then
+    "${cli_path}" 'vault=smart-composer-ci' dev:errors \
+      > "${artifact_dir}/failure-javascript-errors.txt" 2>&1 || true
+    "${cli_path}" 'vault=smart-composer-ci' dev:console level=error limit=200 \
+      > "${artifact_dir}/failure-console-errors.txt" 2>&1 || true
+    "${cli_path}" 'vault=smart-composer-ci' plugin id=smart-composer \
+      > "${artifact_dir}/failure-plugin.txt" 2>&1 || true
+    "${cli_path}" 'vault=smart-composer-ci' eval \
+      'code=JSON.stringify({layoutReady: app.workspace?.layoutReady === true, pluginLoaded: Boolean(app.plugins.getPlugin("smart-composer")), settingsRoot: document.querySelector(".smtcmp-settings-root") !== null, loadError: document.querySelector(".smtcmp-settings-load-error") !== null, cardCount: document.querySelectorAll("[data-runtime-provider]").length, modalCount: document.querySelectorAll(".modal").length})' \
+      > "${artifact_dir}/failure-structure.json" 2>&1 || true
+    "${cli_path}" 'vault=smart-composer-ci' dev:screenshot \
+      "path=${artifact_dir}/failure-settings.png" > /dev/null 2>&1 || true
+  fi
   if [[ -n "${obsidian_pid}" ]]; then
     kill "${obsidian_pid}" 2>/dev/null || true
     wait "${obsidian_pid}" 2>/dev/null || true
@@ -22,6 +40,7 @@ cleanup() {
   if [[ "${mounted}" == 'true' ]]; then
     hdiutil detach "${mount_dir}" -quiet 2>/dev/null || true
   fi
+  exit "${exit_status}"
 }
 trap cleanup EXIT
 
@@ -131,13 +150,35 @@ eval_obsidian() {
   run_cli eval "code=$1"
 }
 
+is_true_output() {
+  local output=''
+  output="$(cat)"
+  ! grep -Fq 'Error:' <<< "${output}" \
+    && grep -Eq '^[[:space:]]*(=>[[:space:]]*)?true[[:space:]]*$' <<< "${output}"
+}
+
+wait_for_cli_ready() {
+  local output=''
+  for _ in {1..120}; do
+    output="$(run_cli version 2>&1 || true)"
+    if grep -Eq '(^|[^0-9])1\.13\.4([^0-9]|$)' <<< "${output}" \
+      && ! grep -Eq '^Error:|not found|Failed to connect' <<< "${output}"; then
+      printf '%s\n' "${output}" > "${artifact_dir}/obsidian-version.txt"
+      return 0
+    fi
+    sleep 1
+  done
+  printf 'Timed out waiting for the documented Obsidian version command. Last result: %s\n' "${output}" >&2
+  return 1
+}
+
 wait_for_true() {
   local expression="$1"
   local description="$2"
   local output=''
   for _ in {1..90}; do
     output="$(eval_obsidian "${expression}" 2>&1 || true)"
-    if grep -Fxq 'true' <<< "${output}"; then
+    if is_true_output <<< "${output}"; then
       return 0
     fi
     sleep 1
@@ -146,20 +187,53 @@ wait_for_true() {
   return 1
 }
 
-run_cli version | tee "${artifact_dir}/obsidian-version.txt"
-run_cli plugins:restrict off
-run_cli dev:errors clear
-run_cli dev:errors > "${artifact_dir}/javascript-errors-baseline.txt"
+wait_for_cli_ready
+wait_for_true \
+  'typeof app !== "undefined" && app.workspace?.layoutReady === true && app.vault != null && app.plugins != null && app.setting != null' \
+  'the initial Obsidian workspace layout'
+restrict_output="$(run_cli plugins:restrict off 2>&1)"
+printf '%s\n' "${restrict_output}"
+if grep -Fq 'Error:' <<< "${restrict_output}"; then
+  exit 1
+fi
+sleep 2
+wait_for_cli_ready
+wait_for_true \
+  'typeof app !== "undefined" && app.workspace?.layoutReady === true && app.vault != null && app.plugins != null && app.setting != null' \
+  'the Obsidian workspace after restricted-mode reload'
+errors_clear_output="$(run_cli dev:errors clear 2>&1)"
+if grep -Fq 'Error:' <<< "${errors_clear_output}"; then
+  printf '%s\n' "${errors_clear_output}" >&2
+  exit 1
+fi
+baseline_errors="$(run_cli dev:errors 2>&1)"
+if grep -Fq 'Error:' <<< "${baseline_errors}"; then
+  printf '%s\n' "${baseline_errors}" >&2
+  exit 1
+fi
+printf '%s\n' "${baseline_errors}" > "${artifact_dir}/javascript-errors-baseline.txt"
 run_cli plugin:enable id=smart-composer filter=community
+eval_obsidian 'globalThis.__smtcmpPreviousPlugin = app.plugins.getPlugin("smart-composer"); true' \
+  | is_true_output
 run_cli plugin:reload id=smart-composer
+wait_for_true \
+  'Boolean(app.plugins.getPlugin("smart-composer")) && app.plugins.getPlugin("smart-composer") !== globalThis.__smtcmpPreviousPlugin' \
+  'the reloaded Smart Composer plugin instance'
 
-eval_obsidian 'app.setting.open(); app.setting.openTabById("smart-composer"); true'
+wait_for_true \
+  '(() => { const terminal = document.querySelector(".smtcmp-settings-root, .smtcmp-settings-load-error"); if (terminal) return true; app.setting.open(); app.setting.openTabById("smart-composer"); return false; })()' \
+  'the Smart Composer settings terminal state'
+load_error_state="$(eval_obsidian 'document.querySelector(".smtcmp-settings-load-error") !== null' 2>&1 || true)"
+if is_true_output <<< "${load_error_state}"; then
+  echo 'Smart Composer rendered its settings load-error state.' >&2
+  exit 1
+fi
+eval_obsidian 'JSON.stringify({appVersion: app.getVersion?.() ?? null, pluginLoaded: Boolean(app.plugins.getPlugin("smart-composer")), settingsOpen: document.querySelector(".modal.mod-settings") !== null})' \
+  > "${artifact_dir}/startup-summary.json"
+run_cli dev:screenshot "path=${artifact_dir}/settings-open.png" > /dev/null
 wait_for_true \
   'document.querySelectorAll("[data-runtime-provider]").length >= 2' \
   'the Plan runtime cards'
-wait_for_true \
-  'document.querySelector(".smtcmp-settings-load-error") === null' \
-  'the settings renderer to remain healthy'
 
 verify_installer_modal() {
   local provider="$1"
@@ -168,7 +242,7 @@ verify_installer_modal() {
     "document.querySelector('[data-runtime-provider=\"${provider}\"] [data-runtime-action=\"install\"]') !== null" \
     "the ${provider} install action"
   eval_obsidian "(() => { const card = document.querySelector('[data-runtime-provider=\"${provider}\"]'); const button = card?.querySelector('[data-runtime-action=\"install\"]'); if (!(button instanceof HTMLElement)) return false; button.click(); return true; })()" \
-    | grep -Fxq 'true'
+    | is_true_output
   wait_for_true \
     "document.querySelector('[data-runtime-installer=\"${provider}\"]') !== null" \
     "the ${provider} installer modal"
@@ -201,14 +275,14 @@ verify_installer_modal() {
   fi
 
   eval_obsidian '(() => { const button = document.querySelector("[data-runtime-action=check-installation]"); if (!(button instanceof HTMLElement)) return false; button.click(); return true; })()' \
-    | grep -Fxq 'true'
+    | is_true_output
   wait_for_true \
     '(() => { const step = document.querySelector("[data-runtime-step=login]"); if (!(step instanceof HTMLElement)) return false; const action = step.querySelector("button"); return step.getAttribute("aria-disabled") !== "true" && !(action instanceof HTMLButtonElement && action.disabled); })()' \
     "the ${provider} login step to unlock without closing the modal"
 
   run_cli dev:screenshot "path=${artifact_dir}/${provider}-installer.png" > /dev/null
   eval_obsidian '(() => { const close = document.querySelector(".modal-close-button"); if (!(close instanceof HTMLElement)) return false; close.click(); return true; })()' \
-    | grep -Fxq 'true'
+    | is_true_output
   wait_for_true \
     "document.querySelector('[data-runtime-installer=\"${provider}\"]') === null" \
     "the ${provider} installer modal to close"
