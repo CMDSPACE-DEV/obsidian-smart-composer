@@ -1942,6 +1942,56 @@ button.smtcmp-research-source-main:focus-visible {
   color: var(--text-muted);
 }
 
+.smtcmp-runtime-platform-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--size-4-1);
+  margin: var(--size-4-2) 0 var(--size-4-3);
+  padding: var(--size-4-1);
+  border: var(--border-width) solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+}
+
+.smtcmp-runtime-platform-tabs button[role='tab'] {
+  justify-content: center;
+  min-height: 38px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: var(--font-medium);
+}
+
+.smtcmp-runtime-platform-tabs button[role='tab'].is-active {
+  border-color: var(--interactive-accent);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  box-shadow: 0 0 0 1px
+    color-mix(in srgb, var(--interactive-accent) 30%, transparent);
+}
+
+.smtcmp-runtime-platform-tabs button[role='tab']:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+.smtcmp-runtime-platform-current {
+  border-radius: 9999px;
+  padding: 1px var(--size-4-1);
+  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+  color: var(--interactive-accent);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-normal);
+}
+
+.smtcmp-runtime-platform-notice {
+  margin-bottom: var(--size-4-2);
+  border-left: 3px solid var(--text-warning);
+  padding: var(--size-4-2) var(--size-4-3);
+  background: color-mix(in srgb, var(--text-warning) 8%, transparent);
+  color: var(--text-muted);
+}
+
 .smtcmp-runtime-install-step {
   padding: var(--size-4-3) 0;
   border-top: var(--border-width) solid var(--background-modifier-border);
@@ -1949,6 +1999,21 @@ button.smtcmp-research-source-main:focus-visible {
 
 .smtcmp-runtime-install-step.is-disabled {
   opacity: 0.58;
+}
+
+.smtcmp-runtime-install-step:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+.smtcmp-runtime-install-step.is-complete
+  .smtcmp-runtime-install-step-heading
+  > span {
+  background: var(--text-success);
+}
+
+.smtcmp-runtime-install-step-heading[aria-current='step'] > strong {
+  color: var(--interactive-accent);
 }
 
 .smtcmp-runtime-install-step p {
@@ -1994,6 +2059,38 @@ button.smtcmp-research-source-main:focus-visible {
 
 .smtcmp-runtime-installer-command.is-compact {
   max-height: 56px;
+}
+
+.smtcmp-runtime-install-alternatives {
+  margin-top: var(--size-4-3);
+  color: var(--text-muted);
+}
+
+.smtcmp-runtime-install-alternatives summary {
+  cursor: pointer;
+  font-weight: var(--font-medium);
+}
+
+.smtcmp-runtime-install-alternative {
+  margin-top: var(--size-4-2);
+  border-left: 2px solid var(--background-modifier-border-hover);
+  padding-left: var(--size-4-3);
+}
+
+.smtcmp-runtime-install-alternative > strong {
+  color: var(--text-normal);
+}
+
+.smtcmp-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .smtcmp-runtime-installer-hint {
@@ -2088,6 +2185,30 @@ button.smtcmp-research-source-main:focus-visible {
 @keyframes smtcmp-runtime-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 600px) {
+  .smtcmp-runtime-installer {
+    max-width: 100%;
+  }
+
+  .smtcmp-runtime-installer-actions,
+  .smtcmp-runtime-installer-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .smtcmp-runtime-installer-actions button,
+  .smtcmp-runtime-installer-footer button {
+    justify-content: center;
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .smtcmp-icon-spin {
+    animation: none;
   }
 }
 
