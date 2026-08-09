@@ -28,7 +28,7 @@ cleanup() {
     "${cli_path}" 'vault=smart-composer-ci' plugin id=smart-composer \
       > "${artifact_dir}/failure-plugin.txt" 2>&1 || true
     "${cli_path}" 'vault=smart-composer-ci' eval \
-      'code=JSON.stringify({layoutReady: app.workspace?.layoutReady === true, pluginLoaded: Boolean(app.plugins.getPlugin("smart-composer")), settingsRoot: document.querySelector(".smtcmp-settings-root") !== null, loadError: document.querySelector(".smtcmp-settings-load-error") !== null, cardCount: document.querySelectorAll("[data-runtime-provider]").length, modalCount: document.querySelectorAll(".modal").length})' \
+      'code=JSON.stringify({layoutReady: app.workspace?.layoutReady === true, pluginLoaded: Boolean(app.plugins.getPlugin("smart-composer")), settingsPopoutConfigured: app.vault?.getConfig("settingsPopoutWindow") === true, settingsPopoutOpen: app.setting?.isPopoutModal?.() === true, settingsDocumentIsMain: app.setting?.modalEl?.ownerDocument === document, settingsTabRegistered: app.setting?.pluginTabs?.some(tab => tab.id === "smart-composer") === true, settingsRoot: document.querySelector(".smtcmp-settings-root") !== null, loadError: document.querySelector(".smtcmp-settings-load-error") !== null, cardCount: document.querySelectorAll("[data-runtime-provider]").length, modalCount: document.querySelectorAll(".modal").length})' \
       > "${artifact_dir}/failure-structure.json" 2>&1 || true
     "${cli_path}" 'vault=smart-composer-ci' dev:screenshot \
       "path=${artifact_dir}/failure-settings.png" > /dev/null 2>&1 || true
@@ -103,6 +103,10 @@ cp "${repository_root}/main.js" "${plugin_path}/main.js"
 cp "${repository_root}/manifest.json" "${plugin_path}/manifest.json"
 cp "${repository_root}/styles.css" "${plugin_path}/styles.css"
 printf '["smart-composer"]\n' > "${vault_path}/.obsidian/community-plugins.json"
+# Obsidian 1.13.4 defaults settingsPopoutWindow to true. Keep this disposable
+# smoke in the main renderer so CLI eval, DOM assertions, and screenshots all
+# observe the same document.
+printf '{"settingsPopoutWindow":false}\n' > "${vault_path}/.obsidian/app.json"
 printf '# Smart Composer CI smoke vault\n' > "${vault_path}/Smoke.md"
 
 obsidian_user_data="${HOME}/Library/Application Support/obsidian"
@@ -221,7 +225,23 @@ wait_for_true \
   'the reloaded Smart Composer plugin instance'
 
 wait_for_true \
-  '(() => { const terminal = document.querySelector(".smtcmp-settings-root, .smtcmp-settings-load-error"); if (terminal) return true; app.setting.open(); app.setting.openTabById("smart-composer"); return false; })()' \
+  'app.vault?.getConfig("settingsPopoutWindow") === false' \
+  'the disposable vault in-window Settings override'
+settings_command_output="$(run_cli command id=app:open-settings 2>&1)"
+printf '%s\n' "${settings_command_output}"
+if ! grep -Fxq 'Executed: app:open-settings' <<< "${settings_command_output}"; then
+  exit 1
+fi
+wait_for_true \
+  'document.querySelector(".modal.mod-settings") !== null && app.setting?.isPopoutModal?.() !== true && app.setting?.modalEl?.ownerDocument === document' \
+  'the main-window Obsidian settings modal'
+wait_for_true \
+  'app.setting?.pluginTabs?.some(tab => tab.id === "smart-composer") === true' \
+  'the registered Smart Composer settings tab'
+eval_obsidian 'Boolean(app.setting.openTabById("smart-composer"))' \
+  | is_true_output
+wait_for_true \
+  'document.querySelector(".smtcmp-settings-root, .smtcmp-settings-load-error") !== null' \
   'the Smart Composer settings terminal state'
 load_error_state="$(eval_obsidian 'document.querySelector(".smtcmp-settings-load-error") !== null' 2>&1 || true)"
 if is_true_output <<< "${load_error_state}"; then

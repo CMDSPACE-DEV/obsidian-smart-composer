@@ -44,6 +44,18 @@ for the documented command registry, waits again after restricted-mode reload,
 checks plugin load completion, and parses both documented-style and raw boolean
 results. No failed run is reused for release qualification.
 
+The next exact-SHA run proved those corrections and again passed every source
+and official-installer job. Its two desktop jobs exposed a third independent
+harness assumption: Obsidian 1.13.4 defaults `settingsPopoutWindow` to `true`,
+so `app.setting.open()` created a separate renderer while CLI `eval`, DOM
+queries, and screenshots remained scoped to the main renderer. Both artifacts
+showed the plugin loaded with no JavaScript errors and no settings DOM in the
+main document. The disposable vault now explicitly sets the option to `false`,
+proves that override loaded, opens Settings once through the registered
+`app:open-settings` command, requires the CLI's exact successful execution
+result, waits for the main-window modal and plugin-tab registration, and
+selects the plugin tab once before asserting its terminal render state.
+
 ## Research Question
 
 How can Smart Composer 2.6.2 obtain reproducible Windows and dual-architecture
@@ -134,6 +146,11 @@ All sources were accessed on 2026-08-10.
 - [Obsidian 1.13.4 release](https://github.com/obsidianmd/obsidian-releases/releases/tag/v1.13.4)
 - GitHub repository, Git tag, release, workflow, and asset API responses for the
   Smart Composer and `obsidianmd/obsidian-releases` repositories
+- `Obsidian.app/Contents/Resources/obsidian.asar/app.js` extracted from the
+  hash-pinned 1.13.4 DMG, specifically the `settingsPopoutWindow` default and
+  Settings modal `shouldUsePopout()` implementation
+- Sanitized `obsidian-smoke-arm64` and `obsidian-smoke-x86_64` artifacts plus
+  job logs from exact-SHA push run 31327311829
 
 ### Reviewed mutable artifacts
 
@@ -163,10 +180,12 @@ pre-execution gate, not permanent trust in a URL.
 | E-07 | Obsidian CLI can reload plugins, query DOM, inspect errors, evaluate code, and capture screenshots | Verified: first-party docs | Official CLI developer-command reference | High |
 | E-08 | Obsidian CLI needs installer 1.12.7+ and a running app | Verified: first-party docs | Official CLI prerequisites | High |
 | E-09 | Obsidian 1.13.4 DMG verifies, launches, and exposes the CLI on both selected runners | Verified: live Actions | Exact digest, codesign, universal architecture, socket, plugin reload, and eval on run 31326265208 | High |
-| E-10 | The secret-free Obsidian CLI smoke passes twice on both architectures | Not verified | Run 31326265208 exposed boolean parsing and command-readiness defects in the harness | Not applicable |
+| E-10 | The secret-free Obsidian CLI smoke passes twice on both architectures | Not verified | Runs 31326265208 and 31327311829 exposed successive harness defects; no exact-SHA dual-architecture smoke has passed twice | Not applicable |
 | E-11 | OAuth, Keychain persistence, and Plan billing provenance are tested by CI | Contradicted | CI intentionally supplies no account or secret | High |
 | E-12 | The release workflow publishes only bytes rebuilt from the annotated branch-head tag | Proposal/implementation contract | Workflow source; remote execution pending | High for design, not runtime |
 | E-13 | New workflow/script source passes local static validation | Verified: local static | YAML parse, actionlint 1.7.12, `bash -n`, `node --check`, verifier positive/negative checks, Prettier | High |
+| E-14 | Obsidian 1.13.4 opens Settings in a separate renderer by default | Verified: pinned source + live Actions artifact | Pinned `app.js` default `settingsPopoutWindow: true`, `shouldUsePopout()` implementation, and run 31327311829 dual-architecture artifacts | High |
+| E-15 | Run 31327311829 failed on a main-document Settings gate rather than plugin loading | Verified: live Actions | arm64 job 93280339093 and x86_64 job 93280339080 both timed out with `=> false`; both sanitized structures reported `layoutReady: true`, `pluginLoaded: true`, `settingsRoot: false`, `loadError: false`, and both error captures reported no JavaScript errors | High |
 
 ## Verified Findings
 
@@ -220,6 +239,23 @@ headless runner. JavaScript errors are checked by comparing `dev:errors` with a
 post-clear empty baseline rather than matching an incomplete list of error
 strings.
 
+The pinned 1.13.4 source initializes `settingsPopoutWindow` to `true`, and its
+Settings modal's `shouldUsePopout()` method reads that vault option before
+creating a second renderer. That code reassigns `activeWindow` and
+`activeDocument`, but the CLI `eval` handler explicitly invokes `window.eval()`
+and the screenshot handler captures the CLI host renderer. They therefore
+remain scoped to the main renderer, so a main-document selector cannot observe
+that popout. Both architecture artifacts reported `pluginLoaded: true`,
+`settingsRoot: false`, `loadError: false`, zero cards/modals, and no captured
+JavaScript errors in that main document. The fixture therefore writes only
+`{"settingsPopoutWindow":false}` to the fresh vault's `app.json`. This is a
+deterministic test-layout override, not a product preference change. The
+harness proves the loaded setting is `false`, uses the registered
+`app:open-settings` command once, requires its exact
+`Executed: app:open-settings` result, proves the modal belongs to the main
+document, waits for the plugin tab, and then calls
+`openTabById("smart-composer")` once.
+
 ### 5. Release publication must fail closed
 
 The tag workflow first runs the complete reusable CI. It then proves the tag
@@ -258,6 +294,16 @@ being overwritten or published with a stale qualification.
 - Windows 2025 and both macOS architectures run all tests and build.
 - Separate dual-architecture jobs cover reviewed official installers and the
   pinned Obsidian fixture smoke.
+- The disposable vault fixes only `settingsPopoutWindow: false` in its
+  `.obsidian/app.json` before launch, keeping Settings in the main renderer
+  observed by CLI `eval`, its global `document`, DOM queries, and
+  `dev:screenshot`.
+- The desktop smoke opens Settings once through the registered
+  `app:open-settings` command, gates on a main-document Settings modal, then
+  gates on Smart Composer tab registration before selecting that tab once.
+  It finally requires either the plugin settings root or its explicit load-error
+  root, and fails immediately on the latter. Polling must not repeatedly reopen
+  Settings or reselect the tab.
 - Screenshots and diagnostic summaries contain only a fresh empty vault and
   fake unauthenticated runtimes. They are retained for 14 days.
 - The Draft PR remains unmerged. The repository default branch is unchanged.
@@ -312,6 +358,7 @@ being overwritten or published with a stale qualification.
 | Draft PR URL | [PR #1](https://github.com/laguna821/obsidian_smart_composer_Achmage/pull/1), Draft and unmerged |
 | Superseded push run | [Run 31325631944](https://github.com/laguna821/obsidian_smart_composer_Achmage/actions/runs/31325631944), failed only on the Linux-hosted Windows interaction fixture; Windows and both macOS source jobs passed |
 | Superseded push run 2 | [Run 31326265208](https://github.com/laguna821/obsidian_smart_composer_Achmage/actions/runs/31326265208), all source and official-installer jobs passed; both Obsidian jobs exposed the harness boolean/readiness defects |
+| Superseded push run 3 | [Run 31327311829](https://github.com/laguna821/obsidian_smart_composer_Achmage/actions/runs/31327311829) at `dce2a49538f4f103ded85024b450c92fc2563af7`: all source and official-installer jobs passed; arm64 job 93280339093 and x86_64 job 93280339080 both proved plugin load/no JavaScript errors, then failed the main-document Settings terminal gate because Settings had opened in the default popout renderer |
 | Qualifying push CI run attempt 1 | Pending replacement SHA |
 | Same run/SHA rerun attempt 2 | Pending |
 | Annotated `2.6.2` tag object and commit | Pending |
@@ -358,3 +405,9 @@ logs and uploaded artifacts must remain secret-free.
   command registration across the restricted-mode reload. Added centralized
   boolean parsing, documented-command readiness waits, plugin-load wait, and a
   sanitized startup summary/screenshot for future failure evidence.
+- 2026-08-10: Recorded superseded run 31327311829. It proved the readiness and
+  boolean fixes on both architectures, but pinned 1.13.4 source and the
+  sanitized artifacts showed Settings opening in its default popout renderer
+  while the CLI inspected the main document. Pinned the disposable vault to an
+  in-window Settings modal and separated command open, modal readiness,
+  plugin-tab registration, one-shot tab selection, and render assertions.
