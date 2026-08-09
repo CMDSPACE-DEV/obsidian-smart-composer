@@ -4,6 +4,12 @@
 > This register is a mandatory planning input. Before creating a large combined
 > update plan, read every report marked **Verified** and **Mandatory** below.
 
+The repository-root `AGENTS.md` also requires Codex to open this register before
+any non-trivial implementation work and to read the reports relevant to the
+affected feature. For Plan runtime onboarding work, R-023 through R-025 are an
+explicit mandatory set. R-026 is additionally mandatory when qualifying or
+publishing the 2.6.2 release.
+
 ## Purpose
 
 The custom Smart Composer roadmap will be assembled only after several features
@@ -18,6 +24,8 @@ premature synthesis.
 - **Planned**: The topic is known, but no findings may be assumed yet.
 - **Superseded**: A newer report replaces the older report.
 - **Mandatory**: The report must be read before broad planning or implementation.
+- **Partially verified**: Source or official-document evidence exists, but a
+  required live environment or clean-machine reproduction is still pending.
 
 ## Research Reports
 
@@ -47,6 +55,8 @@ premature synthesis.
 | R-022 | RISS chat-tool exposure, `@` mention recovery, typed source-name routing, and legacy Auto-policy migration | **Verified + Implemented in 2.5.5** | **Mandatory** | [R-022 report](R-022-riss-chat-tool-routing-and-mention-recovery.md) |
 | R-023 | Official Claude Agent SDK and Antigravity CLI Plan runtime architecture, model discovery, tool isolation, and credential migration | **Verified; SDK execution decision superseded by R-024** | **Mandatory** | [R-023 report](R-023-official-plan-runtime-architecture.md) |
 | R-024 | Claude Code and Antigravity live headless protocol capture, bundled SDK failure, and direct CLI correction | **Verified + Implemented in 2.6.0 hotfix** | **Mandatory** | [R-024 report](R-024-native-plan-cli-live-protocol-and-runtime-fix.md) |
+| R-025 | Native Plan onboarding state flow, Windows/macOS installation and authentication, and the 2.6.2 implementation contract | **Partially verified; source and official-document analysis complete, clean-machine validation pending** | **Mandatory** | [R-025 report](R-025-native-plan-onboarding-cross-platform.md) |
+| R-026 | GitHub Actions macOS qualification and safe 2.6.2 branch/tag/release contract | **Partially verified; source, API, hash, and first-party-document analysis complete, workflow runs pending** | **Mandatory for 2.6.2 release** | [R-026 report](R-026-github-actions-macos-and-2.6.2-release.md) |
 
 ## Mandatory Synthesis Rule
 
@@ -61,6 +71,16 @@ the synthesis. At that point:
    answers.
 
 ## Adding Future Reports
+
+Use the next unused zero-padded ID and keep the established descriptive naming
+form: `R-###-topic-slug.md`. Start from
+[`REPORT_TEMPLATE.md`](REPORT_TEMPLATE.md). A materially different question
+gets a new report; an older verified report is never silently repurposed or
+renumbered.
+
+Update this register in the same change that adds the report. If new evidence
+contradicts an older report, identify the exact superseded claim in both the new
+row/report and the older report instead of deleting history.
 
 Each investigation should produce one report with:
 
