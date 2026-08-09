@@ -112,6 +112,24 @@ function createSharedService(initial: NativeRuntimeSnapshot) {
 }
 
 const scrollIntoViewMock = jest.fn()
+const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(
+  process,
+  'platform',
+)
+
+beforeAll(() => {
+  Object.defineProperty(process, 'platform', {
+    ...originalPlatformDescriptor,
+    configurable: true,
+    value: 'win32',
+  })
+})
+
+afterAll(() => {
+  if (originalPlatformDescriptor) {
+    Object.defineProperty(process, 'platform', originalPlatformDescriptor)
+  }
+})
 
 beforeEach(() => {
   scrollIntoViewMock.mockClear()

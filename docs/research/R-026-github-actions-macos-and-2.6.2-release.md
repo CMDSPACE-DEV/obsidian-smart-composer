@@ -5,9 +5,9 @@
 - Evidence status: **Partially verified**
 - Planning use: **Mandatory for the 2.6.2 release**
 - Investigation date: 2026-08-10
-- Repository baseline: tag `2.6.1`, branch
-  `codex/2.6.2-native-plan-onboarding`, commit
-  `bb6f24821c5e4e8c567b0600598b2b66437511ae`
+- Repository baseline: tag `2.6.1` at
+  `bb6f24821c5e4e8c567b0600598b2b66437511ae`; release work occurs only on
+  `codex/2.6.2-native-plan-onboarding`
 - Target release: `2.6.2`
 
 ## Executive Summary
@@ -27,9 +27,13 @@ macOS runner architectures, reviewed installer-byte allowlists, a secret-free
 Obsidian CLI fixture smoke, and a tag workflow that creates a draft, verifies
 downloaded assets, and only then publishes.
 
-No workflow run has occurred on the new branch at the time of this report.
-Consequently the runner-label, installer execution, and GUI/CLI behavior remain
-release gates rather than verified live results.
+The first remote branch run reached all four source-test platforms. Windows,
+Apple Silicon macOS, and Intel macOS passed; Ubuntu exposed a host-dependent
+test fixture that treated its unsupported host OS as the selected Windows tab.
+The product correctly refused to run that other-platform action, so the test
+was corrected to declare Windows explicitly. Because the Ubuntu prerequisite
+failed, official-installer and Obsidian desktop matrices did not run. A fresh
+exact-SHA run and its second attempt therefore remain release gates.
 
 ## Research Question
 
@@ -62,8 +66,10 @@ Repository API and local Git checks on 2026-08-10 established:
 - default branch: `codex/2.6.1-plan-runtime-hotfix`;
 - 2.6.1/default-branch commit:
   `bb6f24821c5e4e8c567b0600598b2b66437511ae`;
-- new local branch: `codex/2.6.2-native-plan-onboarding`, created from that
-  exact commit and not yet present on the remote during this investigation;
+- new local and remote branch: `codex/2.6.2-native-plan-onboarding`, created
+  from that exact commit;
+- Draft PR [#1](https://github.com/laguna821/obsidian_smart_composer_Achmage/pull/1)
+  targets the unchanged 2.6.1 default branch and remains unmerged;
 - `main` remains an older baseline and is not the 2.6.2 PR base;
 - the 2.6.1 annotated tag resolves to the same commit;
 - the published 2.6.1 release is stable and has exactly `main.js`,
@@ -71,8 +77,9 @@ Repository API and local Git checks on 2026-08-10 established:
 - no branch protection or ruleset currently supplies required checks.
 
 The old workflow source was inspected at the same commit. The new workflow and
-allowlist source paths are recorded below. CI results, URLs, and generated
-artifact hashes are intentionally left pending until the remote workflow runs.
+allowlist source paths are recorded below. Final qualifying-run results and
+generated artifact hashes remain pending until the replacement branch SHA
+passes both attempts and the tag workflow rebuilds the release assets.
 
 Local static validation completed on 2026-08-10:
 
@@ -147,7 +154,7 @@ pre-execution gate, not permanent trust in a URL.
 | E-07 | Obsidian CLI can reload plugins, query DOM, inspect errors, evaluate code, and capture screenshots | Verified: first-party docs | Official CLI developer-command reference | High |
 | E-08 | Obsidian CLI needs installer 1.12.7+ and a running app | Verified: first-party docs | Official CLI prerequisites | High |
 | E-09 | Obsidian 1.13.4 DMG is universal and usable on both selected CI runners | Partially verified | Official asset and digest; CI execution pending | Medium-high |
-| E-10 | The secret-free Obsidian CLI smoke passes twice on both architectures | Not verified | No new-branch run yet | Not applicable |
+| E-10 | The secret-free Obsidian CLI smoke passes twice on both architectures | Not verified | Initial run skipped the matrix after an Ubuntu fixture failure | Not applicable |
 | E-11 | OAuth, Keychain persistence, and Plan billing provenance are tested by CI | Contradicted | CI intentionally supplies no account or secret | High |
 | E-12 | The release workflow publishes only bytes rebuilt from the annotated branch-head tag | Proposal/implementation contract | Workflow source; remote execution pending | High for design, not runtime |
 | E-13 | New workflow/script source passes local static validation | Verified: local static | YAML parse, actionlint 1.7.12, `bash -n`, `node --check`, verifier positive/negative checks, Prettier | High |
@@ -284,17 +291,21 @@ being overwritten or published with a stale qualification.
   logs or artifacts.
 - The complete macOS workflow succeeds twice consecutively before tagging.
 - Draft release asset names, sizes, and SHA-256 values match the tag build.
-- After publication, record the PR, run, release, tag, and asset evidence below.
+- Preserve pre-publication evidence below. The tag workflow appends final run,
+  tag, and asset provenance to the immutable GitHub Release notes before it
+  publishes. This avoids moving the release branch after the required
+  `tag commit == branch HEAD` check merely to add a self-referential run URL.
 
 ### Publication evidence ledger
 
 | Evidence | Status |
 | --- | --- |
-| Draft PR URL | Pending branch push |
-| Push CI run attempt 1 | Pending |
+| Draft PR URL | [PR #1](https://github.com/laguna821/obsidian_smart_composer_Achmage/pull/1), Draft and unmerged |
+| Superseded push run | [Run 31325631944](https://github.com/laguna821/obsidian_smart_composer_Achmage/actions/runs/31325631944), failed only on the Linux-hosted Windows interaction fixture; Windows and both macOS source jobs passed |
+| Qualifying push CI run attempt 1 | Pending replacement SHA |
 | Same run/SHA rerun attempt 2 | Pending |
 | Annotated `2.6.2` tag object and commit | Pending |
-| Stable release URL | Pending |
+| Stable release URL | Reserved: [release tag 2.6.2](https://github.com/laguna821/obsidian_smart_composer_Achmage/releases/tag/2.6.2); publish pending |
 | `main.js` size/SHA-256 | Pending |
 | `manifest.json` size/SHA-256 | Pending |
 | `styles.css` size/SHA-256 | Pending |
@@ -325,3 +336,8 @@ logs and uploaded artifacts must remain secret-free.
 - 2026-08-10: Initial repository/API, runner, first-party-document, installer
   hash, Obsidian release, CI, and release-pipeline investigation. Remote run and
   publication evidence remains pending.
+- 2026-08-10: Recorded Draft PR #1 and superseded run 31325631944. That run
+  proved Windows and both macOS source jobs, then failed closed before desktop
+  matrices when an Ubuntu-hosted UI test omitted its intended Windows platform.
+  Final immutable provenance is assigned to generated Release notes so the
+  tagged branch is never moved by a post-publication documentation commit.

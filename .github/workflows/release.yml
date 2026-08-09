@@ -104,6 +104,7 @@ jobs:
           run_url="$(jq -r '.[0].html_url' <<< "${matching_runs}")"
           echo "Branch qualification attempt 1: ${run_url}/attempts/1"
           echo "Branch qualification attempt 2: ${run_url}/attempts/2"
+          printf 'QUALIFICATION_RUN_URL=%s\n' "${run_url}" >> "${GITHUB_ENV}"
 
       - name: Verify release version parity
         env:
@@ -172,7 +173,26 @@ jobs:
           assets=(main.js manifest.json styles.css)
           tagged_sha="$(git rev-parse "refs/tags/${TAG}^{commit}")"
           download_dir="$(mktemp -d)"
-          trap 'rm -rf "${download_dir}"' EXIT
+          release_notes_with_evidence="$(mktemp)"
+          trap 'rm -rf "${download_dir}"; rm -f "${release_notes_with_evidence}"' EXIT
+
+          cp "${RELEASE_NOTES}" "${release_notes_with_evidence}"
+          {
+            printf '\n## Verified release provenance\n\n'
+            printf -- '- Release workflow: %s/%s/actions/runs/%s\n' \
+              "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}"
+            printf -- '- Branch qualification attempt 1: %s/attempts/1\n' \
+              "${QUALIFICATION_RUN_URL}"
+            printf -- '- Branch qualification attempt 2: %s/attempts/2\n' \
+              "${QUALIFICATION_RUN_URL}"
+            printf -- '- Annotated tag commit: `%s`\n' "${tagged_sha}"
+            for asset in "${assets[@]}"; do
+              printf -- '- `%s`: %s bytes, SHA-256 `%s`\n' \
+                "${asset}" "$(wc -c < "${asset}" | tr -d ' ')" \
+                "$(sha256sum "${asset}" | cut -d ' ' -f 1)"
+            done
+            printf -- '- Qualification boundary: no OAuth secret, browser callback, or Keychain state was used in Actions.\n'
+          } >> "${release_notes_with_evidence}"
 
           if release_json="$(gh release view "${TAG}" \
             --repo "${GITHUB_REPOSITORY}" \
@@ -195,7 +215,7 @@ jobs:
               --latest=false \
               --target "${tagged_sha}" \
               --title "${title}" \
-              --notes-file "${RELEASE_NOTES}"
+              --notes-file "${release_notes_with_evidence}"
             gh release upload "${TAG}" "${assets[@]}" \
               --repo "${GITHUB_REPOSITORY}" \
               --clobber
@@ -207,7 +227,7 @@ jobs:
               --latest=false \
               --target "${tagged_sha}" \
               --title "${title}" \
-              --notes-file "${RELEASE_NOTES}"
+              --notes-file "${release_notes_with_evidence}"
           fi
 
           release_json="$(gh release view "${TAG}" \
@@ -247,7 +267,7 @@ jobs:
             --latest \
             --target "${tagged_sha}" \
             --title "${title}" \
-            --notes-file "${RELEASE_NOTES}"
+            --notes-file "${release_notes_with_evidence}"
 
           gh release view "${TAG}" \
             --repo "${GITHUB_REPOSITORY}" \

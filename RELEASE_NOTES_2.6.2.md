@@ -44,6 +44,8 @@ settings window after installation.
 - Disables user/project/local Claude setting sources for requests and blocks
   all Claude Plan inference in 2.6.2 because the current CLI cannot prove that
   remote managed credentials will not override an apparent Pro/Max login.
+- Blocks all Gemini Plan inference in 2.6.2 because the current Antigravity CLI
+  exposes no machine-readable proof of personal Plan quota provenance.
 - Never stores or logs CLI tokens, account identifiers, browser sessions, or
   Keychain/Credential Manager contents.
 
