@@ -3,9 +3,10 @@ name: Release Obsidian plugin
 on:
   push:
     tags:
-      - '2.6.1'
+      - '2.6.2'
 
 permissions:
+  actions: read
   contents: write
 
 concurrency:
@@ -13,27 +14,36 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  RELEASE_BRANCH: codex/2.6.1-plan-runtime-hotfix
-  RELEASE_NOTES: RELEASE_NOTES_2.6.1.md
+  RELEASE_BRANCH: codex/2.6.2-native-plan-onboarding
+  RELEASE_NOTES: RELEASE_NOTES_2.6.2.md
 
 jobs:
-  verify-and-release:
+  gates:
+    name: Required cross-platform gates
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
+  draft-verify-publish:
+    name: Draft, verify, and publish release
+    needs: gates
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Check out tagged source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Use Node.js
-        uses: actions/setup-node@v6
+      - name: Use Node.js 20
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: npm
 
-      - name: Verify tag points to the release branch head
+      - name: Verify annotated tag and release branch head
         shell: bash
         run: |
           git fetch --no-tags origin \
@@ -41,18 +51,59 @@ jobs:
 
           tag_ref="refs/tags/${GITHUB_REF_NAME}"
           tag_type="$(git cat-file -t "${tag_ref}")"
-          if [[ "${tag_type}" != "tag" ]]; then
+          if [[ "${tag_type}" != 'tag' ]]; then
             echo "${tag_ref} is not an annotated tag (object type: ${tag_type})." >&2
             exit 1
           fi
 
           tagged_sha="$(git rev-parse "${tag_ref}^{commit}")"
           branch_sha="$(git rev-parse "refs/remotes/origin/${RELEASE_BRANCH}^{commit}")"
-
           if [[ "${tagged_sha}" != "${branch_sha}" ]]; then
             echo "Tag ${GITHUB_REF_NAME} points to ${tagged_sha}, but ${RELEASE_BRANCH} points to ${branch_sha}." >&2
             exit 1
           fi
+
+      - name: Verify two successful branch run attempts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tagged_sha="$(git rev-parse "refs/tags/${GITHUB_REF_NAME}^{commit}")"
+          runs_json="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+            -f branch="${RELEASE_BRANCH}" \
+            -f status='completed' \
+            -f per_page=100)"
+          matching_runs="$(jq --arg sha "${tagged_sha}" \
+            '[.workflow_runs[] | select(.head_sha == $sha and .event == "push")]' \
+            <<< "${runs_json}")"
+          if [[ "$(jq 'length' <<< "${matching_runs}")" -lt 1 ]]; then
+            echo "A completed push CI run is required for ${RELEASE_BRANCH} at ${tagged_sha}." >&2
+            exit 1
+          fi
+
+          run_id="$(jq -r '.[0].id' <<< "${matching_runs}")"
+          run_attempt="$(jq -r '.[0].run_attempt' <<< "${matching_runs}")"
+          if [[ "${run_attempt}" != '2' ]]; then
+            echo "CI run ${run_id} must have exactly two attempts; found ${run_attempt}." >&2
+            exit 1
+          fi
+
+          attempt_one="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/attempts/1")"
+          attempt_two="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/attempts/2")"
+          if ! jq -s -e --arg sha "${tagged_sha}" \
+            'length == 2 and all(.[]; .head_sha == $sha and .event == "push" and .conclusion == "success")' \
+            <(printf '%s\n' "${attempt_one}") \
+            <(printf '%s\n' "${attempt_two}") > /dev/null; then
+            echo "CI run ${run_id} attempts 1 and 2 are not both successful for ${tagged_sha}." >&2
+            exit 1
+          fi
+
+          run_url="$(jq -r '.[0].html_url' <<< "${matching_runs}")"
+          echo "Branch qualification attempt 1: ${run_url}/attempts/1"
+          echo "Branch qualification attempt 2: ${run_url}/attempts/2"
 
       - name: Verify release version parity
         env:
@@ -60,7 +111,7 @@ jobs:
         shell: bash
         run: |
           node --input-type=module <<'NODE'
-          import { readFileSync } from 'node:fs'
+          import { existsSync, readFileSync } from 'node:fs'
 
           const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'))
           const tag = process.env.TAG
@@ -68,6 +119,7 @@ jobs:
           const packageLock = readJson('package-lock.json')
           const manifest = readJson('manifest.json')
           const versions = readJson('versions.json')
+          const releaseNotes = 'RELEASE_NOTES_2.6.2.md'
 
           const checks = [
             ['package.json', packageJson.version],
@@ -75,14 +127,11 @@ jobs:
             ['package-lock.json root package', packageLock.packages?.['']?.version],
             ['manifest.json', manifest.version],
           ]
-
           const mismatches = checks.filter(([, version]) => version !== tag)
-          if (mismatches.length > 0) {
-            for (const [source, version] of mismatches) {
-              console.error(`${source} has ${String(version)}; expected ${tag}.`)
-            }
-            process.exit(1)
+          for (const [source, version] of mismatches) {
+            console.error(`${source} has ${String(version)}; expected ${tag}.`)
           }
+          if (mismatches.length > 0) process.exit(1)
 
           if (versions[tag] !== manifest.minAppVersion) {
             console.error(
@@ -90,24 +139,30 @@ jobs:
             )
             process.exit(1)
           }
+          if (!existsSync(releaseNotes)) {
+            console.error(`${releaseNotes} is missing.`)
+            process.exit(1)
+          }
           NODE
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Type check
-        run: npm run type:check
-
-      - name: Lint check
-        run: npm run lint:check
-
-      - name: Test
-        run: npm test -- --runInBand
-
-      - name: Build plugin
+      - name: Build release assets
         run: npm run build
 
-      - name: Create or update release
+      - name: Verify exact release asset set
+        shell: bash
+        run: |
+          expected=(main.js manifest.json styles.css)
+          for asset in "${expected[@]}"; do
+            if [[ ! -f "${asset}" || ! -s "${asset}" ]]; then
+              echo "Release asset ${asset} is missing or empty." >&2
+              exit 1
+            fi
+          done
+
+      - name: Create draft, verify downloaded assets, and publish
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
@@ -115,23 +170,86 @@ jobs:
         run: |
           title="Smart_composer_Achmage v${TAG}"
           assets=(main.js manifest.json styles.css)
+          tagged_sha="$(git rev-parse "refs/tags/${TAG}^{commit}")"
+          download_dir="$(mktemp -d)"
+          trap 'rm -rf "${download_dir}"' EXIT
 
-          if is_draft="$(gh release view "${TAG}" \
+          if release_json="$(gh release view "${TAG}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --json isDraft \
-            --jq '.isDraft' 2>/dev/null)"; then
+            --json isDraft,assets,targetCommitish 2>/dev/null)"; then
+            if [[ "$(jq -r '.isDraft' <<< "${release_json}")" != 'true' ]]; then
+              echo "Release ${TAG} is already public; refusing to modify it." >&2
+              exit 1
+            fi
+            unexpected="$(jq -r '.assets[].name' <<< "${release_json}" \
+              | grep -Ev '^(main\.js|manifest\.json|styles\.css)$' || true)"
+            if [[ -n "${unexpected}" ]]; then
+              echo "Draft release contains unexpected assets:" >&2
+              echo "${unexpected}" >&2
+              exit 1
+            fi
+            gh release edit "${TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --verify-tag \
+              --draft \
+              --latest=false \
+              --target "${tagged_sha}" \
+              --title "${title}" \
+              --notes-file "${RELEASE_NOTES}"
             gh release upload "${TAG}" "${assets[@]}" \
               --repo "${GITHUB_REPOSITORY}" \
               --clobber
-            gh release edit "${TAG}" \
-              --repo "${GITHUB_REPOSITORY}" \
-              --draft=false \
-              --title "${title}" \
-              --notes-file "${RELEASE_NOTES}"
           else
             gh release create "${TAG}" "${assets[@]}" \
               --repo "${GITHUB_REPOSITORY}" \
               --verify-tag \
+              --draft \
+              --latest=false \
+              --target "${tagged_sha}" \
               --title "${title}" \
               --notes-file "${RELEASE_NOTES}"
           fi
+
+          release_json="$(gh release view "${TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json isDraft,assets,targetCommitish)"
+          jq -e --arg sha "${tagged_sha}" \
+            '.isDraft == true and .targetCommitish == $sha and ([.assets[].name] | sort) == ["main.js", "manifest.json", "styles.css"]' \
+            <<< "${release_json}" > /dev/null
+
+          gh release download "${TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --dir "${download_dir}" \
+            --pattern 'main.js' \
+            --pattern 'manifest.json' \
+            --pattern 'styles.css'
+
+          for asset in "${assets[@]}"; do
+            cmp --silent "${asset}" "${download_dir}/${asset}"
+            printf '%s  %s\n' "$(sha256sum "${asset}" | cut -d ' ' -f 1)" "${asset}"
+          done
+
+          # The qualification jobs can run for a long time. Re-read the
+          # release branch immediately before publication so a concurrent
+          # branch push cannot silently invalidate the tag/head invariant.
+          git fetch --no-tags origin \
+            "+refs/heads/${RELEASE_BRANCH}:refs/remotes/origin/${RELEASE_BRANCH}"
+          current_branch_sha="$(git rev-parse "refs/remotes/origin/${RELEASE_BRANCH}^{commit}")"
+          if [[ "${current_branch_sha}" != "${tagged_sha}" ]]; then
+            echo "Release branch moved to ${current_branch_sha} after qualification; keeping ${TAG} as a draft." >&2
+            exit 1
+          fi
+
+          gh release edit "${TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --verify-tag \
+            --draft=false \
+            --latest \
+            --target "${tagged_sha}" \
+            --title "${title}" \
+            --notes-file "${RELEASE_NOTES}"
+
+          gh release view "${TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json isDraft,isPrerelease,assets,targetCommitish,url \
+            --jq '{url, isDraft, isPrerelease, targetCommitish, assets: [.assets[] | {name, size, digest}]}'
