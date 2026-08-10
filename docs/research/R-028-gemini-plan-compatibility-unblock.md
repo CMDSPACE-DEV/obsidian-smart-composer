@@ -15,9 +15,10 @@
   `bb6f24821c5e4e8c567b0600598b2b66437511ae`)
 - Target release: Smart Composer Achmage `2.6.4`
 - Completed evidence: tagged-source comparison, R-023 through R-025 review,
-  R-024's sanitized live Antigravity protocol evidence, and current
-  first-party-document refresh
-- Pending evidence: implementation, current-runtime live compatibility probe,
+  R-024's sanitized live Antigravity protocol evidence, current
+  first-party-document refresh, implementation commit `78d0c0b`, local full
+  test/build verification, and portable build-metadata commit `49ee21a`
+- Pending evidence: current-runtime authenticated live compatibility probe,
   real-Obsidian smoke test, exact-SHA CI, and release qualification
 
 > [!IMPORTANT]
@@ -149,6 +150,7 @@ All sources below were accessed on 2026-08-10.
 - [Google Antigravity: Model quotas (`/usage`)](https://antigravity.google/docs/cli/commands/usage)
 - [Google Antigravity: AI credits and quota settings](https://antigravity.google/docs/cli/credits)
 - [Google Antigravity: Plans](https://antigravity.google/docs/plans)
+- [Google Cloud: Google Gen AI SDK environment setup](https://cloud.google.com/vertex-ai/generative-ai/docs/sdks/overview)
 
 The inspected current pages document keyring/browser authentication,
 interactive `/usage`, interactive `/credits`, the `useG1Credits` setting, and
@@ -175,7 +177,8 @@ exist.
 | E-11 | A successful catalog proves which quota will fund the next request | Not verified | No such field in the inspected current contract | Not applicable |
 | E-12 | Blanket blocking is required to keep Antigravity credentials secure | Contradicted: source/live | Official CLI still owns keyring credentials; R-024 request required no plugin token storage | High |
 | E-13 | Restoring compatibility while retaining concrete override blocks is the 2.6.4 policy | Decision: user-approved | Explicit 2026-08-10 hotfix direction | Not applicable |
-| E-14 | The 2.6.4 implementation and current-runtime probe pass | Not verified | Work not complete when this report was created | Not applicable |
+| E-14 | The 2.6.4 implementation passes local source verification | Verified: source + local test | `78d0c0b`; typecheck, lint, 95 suites/642 tests, production build, and bundle budget passed | High |
+| E-15 | A current authenticated Antigravity runtime passes the sanitized live probe | Not verified | No authenticated `agy` executable was available in this local workspace; exact-SHA CI uses secret-free fixtures only | Not applicable |
 
 ## Verified Findings
 
@@ -271,9 +274,14 @@ release requirement if it would expand the hotfix unnecessarily.
 The hotfix must still reject the request when any of the following is present:
 
 - non-empty `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_API_KEY`,
-  `GEMINI_API_KEY`, `GOOGLE_CLOUD_PROJECT`, `GCLOUD_PROJECT`,
-  `CLOUDSDK_CORE_PROJECT`, `GOOGLE_CLOUD_QUOTA_PROJECT`,
-  `VERTEX_AI_PROJECT`, or `VERTEX_AI_LOCATION`, matched case-insensitively;
+  `GEMINI_API_KEY`, `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`,
+  `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_PROJECT_ID`,
+  `GOOGLE_CLOUD_LOCATION`, `GCLOUD_PROJECT`, `CLOUDSDK_CORE_PROJECT`,
+  `GOOGLE_CLOUD_QUOTA_PROJECT`, `VERTEX_AI_PROJECT`, or
+  `VERTEX_AI_LOCATION`, matched case-insensitively;
+- active `GOOGLE_GENAI_USE_ENTERPRISE` or
+  `GOOGLE_GENAI_USE_VERTEXAI`; explicit `false` or `0` values are disabled
+  routing flags and must not cause a false positive;
 - a recognized project ID, billing/quota project, service account, Cloud,
   enterprise, ADC, or consumption-billing marker in machine-readable output;
 - a signed-out response, failed catalog command, empty/unparseable catalog, or
@@ -392,6 +400,12 @@ GitHub Actions must continue to use fixtures only for authentication. Personal
 OAuth, browser callbacks, Keychain/Credential Manager persistence, and live
 quota provenance are not CI claims.
 
+The final local 2.6.4 verification completed on 2026-08-10 with 95 Jest
+suites and 642 tests passing, followed by typecheck, lint, production build,
+and the 6.5 MiB bundle-budget gate. The generated `main.js` was 5,281,352
+bytes. The normalized `meta.json` contained zero absolute path strings. This
+does not replace the pending authenticated runtime or exact-SHA hosted checks.
+
 ## Inferences Requiring Validation
 
 1. A current Antigravity `1.1.11`-series binary preserves the exact model-list
@@ -438,3 +452,7 @@ Composer to read or persist those credentials.
   the R-024 working path, current first-party account/quota boundaries, the
   user-approved 2.6.4 compatibility rollback, and the retained concrete
   Cloud/API guard.
+- 2026-08-10: Recorded implementation commits and local verification: 95 test
+  suites/642 tests, typecheck, lint, production build, bundle budget, and zero
+  absolute paths in normalized build metadata. Authenticated current-runtime
+  and exact-SHA hosted verification remain pending.
