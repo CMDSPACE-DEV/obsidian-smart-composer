@@ -3,7 +3,7 @@ name: Release Obsidian plugin
 on:
   push:
     tags:
-      - '2.6.2'
+      - '2.6.3'
 
 permissions:
   actions: read
@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  RELEASE_BRANCH: codex/2.6.2-native-plan-onboarding
-  RELEASE_NOTES: RELEASE_NOTES_2.6.2.md
+  RELEASE_BRANCH: codex/2.6.3-claude-pro-max-auth-hotfix
+  RELEASE_NOTES: RELEASE_NOTES_2.6.3.md
 
 jobs:
   gates:
@@ -120,7 +120,7 @@ jobs:
           const packageLock = readJson('package-lock.json')
           const manifest = readJson('manifest.json')
           const versions = readJson('versions.json')
-          const releaseNotes = 'RELEASE_NOTES_2.6.2.md'
+          const releaseNotes = 'RELEASE_NOTES_2.6.3.md'
 
           const checks = [
             ['package.json', packageJson.version],

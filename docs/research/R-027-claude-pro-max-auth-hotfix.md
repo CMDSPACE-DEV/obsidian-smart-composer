@@ -11,9 +11,11 @@
 - Runtime inspected: Claude Code `2.1.226` on Windows
 - Target release: Smart Composer Achmage `2.6.3`
 - Completed evidence: 2.6.2 source inspection, current Anthropic documentation,
-  a sanitized local authentication probe, and the user-observed 2.6.2 UI error
-- Pending evidence: implemented unit/component tests, a fixed real-Obsidian
-  diagnosis, a user-authorized live request, complete CI, and publication
+  a sanitized local authentication probe, the user-observed 2.6.2 UI error,
+  implemented unit/component and full local tests, production build, and one
+  authorized minimal live protocol validation
+- Pending evidence: a fixed real-Obsidian diagnosis, complete exact-SHA CI, and
+  publication
 
 > [!IMPORTANT]
 > This report supersedes the 2.6.2 implementation choice that blocks an exact,
@@ -190,7 +192,7 @@ All external sources were accessed on 2026-08-10.
 | E-05 | Endpoint-managed settings can still outrank a personal login | Verified: first-party documentation and source | Settings hierarchy plus local inspector | High |
 | E-06 | API, token, helper, gateway, and cloud credentials can override subscription OAuth | Verified: first-party documentation and source | Authentication precedence; sanitized environment filtering and marker classifier | High |
 | E-07 | 2.6.2 has any successful Claude classification path | Contradicted: source | Every return after parsing is `allowed: false`; no `allowed: true` branch exists | High |
-| E-08 | The fix restores a live Smart Composer request | Not verified | Implementation and user-authorized live request pending | Not applicable |
+| E-08 | The sanitized CLI contract used by the fix reaches a live subscription request | Partially verified | Claude Code 2.1.226 exited successfully in 3,586 ms with `system`, `assistant`, `rate_limit_event`, and successful `result` event types; the prompt and response were not recorded; built-plugin execution remains pending | High for the direct CLI contract |
 | E-09 | Public third-party Pro/Max routing is permitted | Contradicted: current first-party legal documentation | Legal-and-compliance authentication restriction | High |
 | E-10 | The help-center statement is a contractual permission grant | Not verified | It describes current usage accounting while the legal page separately forbids third-party credential routing | Not applicable |
 
@@ -385,8 +387,24 @@ external plugin API change is required.
    hashes, version parity, annotated tag, branch HEAD, Draft PR, and stable
    release state for 2.6.3.
 
+### Local implementation evidence on 2026-08-10
+
+- The focused authentication, provider, service, and UI suites passed 75/75
+  tests after the compact-key provenance fail-closed review fix.
+- The full local suite passed 95/95 suites and 582/582 tests.
+- Type checking and repository lint completed with zero errors; ten pre-existing
+  warnings remained in unrelated Research modules.
+- The production build passed at 5,275,362 of 6,815,744 bytes.
+- A one-request Windows validation used the same empty setting-source, safe-mode,
+  no-tool, no-session-persistence shape as the provider. Claude Code 2.1.226
+  confirmed only the allowlisted `claude.ai`, `firstParty`, and `max`
+  classifications, exited successfully in 3,586 ms, and emitted `system`,
+  `assistant`, `rate_limit_event`, and successful `result` event types. The
+  prompt, response, email, organization, token, quota, and credential values
+  were neither printed nor stored.
+
 The report remains **Partially verified** until the fixed real-Obsidian
-diagnosis, authorized live request, CI, and release evidence exist.
+diagnosis, exact-SHA CI, and release evidence exist.
 
 ## Known Unknowns And Deferred Decisions
 
@@ -436,3 +454,7 @@ Claude.ai login or route personal-plan credentials for users. Consequently:
   block, captured only allowlisted Claude Code 2.1.226 Max fields, rechecked
   current first-party remote-settings and credential-precedence contracts, and
   defined the narrow 2.6.3 hotfix and release gates.
+- 2026-08-10: Implemented and locally verified the narrow allow path, added
+  fail-closed future-provenance coverage, passed 582 local tests and the bundle
+  budget, and recorded only the non-sensitive shape of one authorized live
+  request. Real-Obsidian, exact-SHA CI, and publication evidence remain pending.
