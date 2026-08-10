@@ -914,6 +914,11 @@ mandatory because onboarding changes must not alter the runtime protocol.
     provenance is verified or the request is blocked with a clear warning.
 13. Gemini Plan does not promise personal quota when Antigravity auth provenance
     is unknown or a Google Cloud project was selected.
+    [R-028](R-028-gemini-plan-compatibility-unblock.md) partially supersedes
+    the unknown-provenance handling: a successful official Antigravity model
+    catalog may enable the compatibility path without claiming that personal
+    quota was machine-verified, while explicit API and Google Cloud markers
+    remain blocked.
 14. Persisted status from another computer is never treated as current-device
     installation, authentication, or update truth before local diagnosis.
 
@@ -1013,3 +1018,7 @@ dumps.
   `targetCommitish` statements, recorded the documented Antigravity installer
   flags that are absent from the reviewed scripts, and linked the macOS/2.6.2
   publication evidence to R-026.
+- 2026-08-10: R-028 partially superseded acceptance criterion 13 for the
+  user-approved Gemini compatibility rollback. Successful official catalog
+  discovery may enable requests without claiming machine-verified personal
+  quota; explicit API and Google Cloud evidence remains blocking.
