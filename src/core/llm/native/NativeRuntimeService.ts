@@ -15,7 +15,9 @@ import type {
   RuntimeDiscovery,
 } from './nativeRuntime.types'
 import {
+  classifyAntigravityBlockingSignals,
   classifyAntigravityQuotaProvenance,
+  classifyAntigravityTextCatalog,
   prepareNativePlanEnvironment,
   verifyClaudePlanAuth,
 } from './NativeRuntimeAuth'
@@ -280,7 +282,7 @@ async function diagnoseAntigravity(
     update: getUpdateDecision('gemini', discovery).state,
   }
   if (environment.blockedVariables.length > 0) {
-    const authDecision: RuntimeAuthDecision = {
+    const failureDecision: RuntimeAuthDecision = {
       status: 'billing-blocked',
       allowed: false,
       reason:
@@ -296,8 +298,8 @@ async function diagnoseAntigravity(
       authentication: 'billing-blocked',
       catalog: 'not-checked',
       models: [],
-      authDecision,
-      error: authDecision.reason,
+      authDecision: failureDecision,
+      error: failureDecision.reason,
     })
   }
 
@@ -307,21 +309,64 @@ async function diagnoseAntigravity(
     env: environment.env,
     signal,
   })
-  let provenanceOutput = modelsResult.stdout
-  if (modelsResult.exitCode !== 0 && !isLoginText(modelsResult.stderr)) {
+  let hasJsonCatalog = modelsResult.exitCode === 0
+  let authDecision: RuntimeAuthDecision | undefined =
+    classifyAntigravityBlockingSignals(
+      [modelsResult.stdout, modelsResult.stderr],
+      environment,
+    ) ??
+    (hasJsonCatalog
+      ? classifyAntigravityQuotaProvenance(modelsResult.stdout, environment)
+      : undefined)
+  if (
+    (modelsResult.exitCode !== 0 &&
+      authDecision === undefined &&
+      !isLoginText(`${modelsResult.stderr}\n${modelsResult.stdout}`)) ||
+    authDecision?.status === 'quota-unverified'
+  ) {
     modelsResult = await runWithTimeout(runner, {
       executable: executablePath,
       args: ['models'],
       env: environment.env,
       signal,
     })
-    provenanceOutput = ''
+    hasJsonCatalog = false
+    authDecision =
+      classifyAntigravityBlockingSignals(
+        [modelsResult.stdout, modelsResult.stderr],
+        environment,
+      ) ??
+      (modelsResult.exitCode === 0
+        ? classifyAntigravityTextCatalog(modelsResult.stdout, environment)
+        : undefined)
   }
   if (modelsResult.exitCode !== 0) {
+    if (authDecision) {
+      const billingBlocked = authDecision.status === 'billing-blocked'
+      const loginRequired = authDecision.status === 'login-required'
+      return settledSnapshot('gemini', {
+        ...common,
+        status: billingBlocked
+          ? 'billing-blocked'
+          : loginRequired
+            ? 'login-required'
+            : 'error',
+        installation: 'installed',
+        authentication: billingBlocked
+          ? 'billing-blocked'
+          : loginRequired
+            ? 'login-required'
+            : 'quota-unverified',
+        catalog: 'error',
+        models: [],
+        authDecision,
+        error: authDecision.reason,
+      })
+    }
     const loginRequired = isLoginText(
       `${modelsResult.stderr}\n${modelsResult.stdout}`,
     )
-    const authDecision: RuntimeAuthDecision = {
+    const failureDecision: RuntimeAuthDecision = {
       status: loginRequired ? 'login-required' : 'quota-unverified',
       allowed: false,
       reason: loginRequired
@@ -340,13 +385,17 @@ async function diagnoseAntigravity(
       authentication: loginRequired ? 'login-required' : 'quota-unverified',
       catalog: 'error',
       models: [],
-      authDecision,
-      error: authDecision.reason,
+      authDecision: failureDecision,
+      error: failureDecision.reason,
     })
   }
 
   const models = parseAntigravityModels(modelsResult.stdout)
-  if (models.length === 0) {
+  if (
+    models.length === 0 &&
+    authDecision?.status !== 'billing-blocked' &&
+    authDecision?.status !== 'login-required'
+  ) {
     return settledSnapshot('gemini', {
       ...common,
       status: 'error',
@@ -359,25 +408,34 @@ async function diagnoseAntigravity(
     })
   }
 
-  const authDecision = classifyAntigravityQuotaProvenance(
-    provenanceOutput,
-    environment,
-  )
+  authDecision ??= hasJsonCatalog
+    ? classifyAntigravityQuotaProvenance(modelsResult.stdout, environment)
+    : classifyAntigravityTextCatalog(modelsResult.stdout, environment)
+  const billingBlocked = authDecision.status === 'billing-blocked'
+  const loginRequired = authDecision.status === 'login-required'
   return settledSnapshot('gemini', {
     ...common,
-    status:
-      authDecision.status === 'billing-blocked'
+    status: authDecision.allowed
+      ? 'ready'
+      : billingBlocked
         ? 'billing-blocked'
-        : 'quota-unverified',
+        : loginRequired
+          ? 'login-required'
+          : 'quota-unverified',
     installation: 'installed',
-    authentication:
-      authDecision.status === 'billing-blocked'
+    authentication: authDecision.allowed
+      ? 'subscription'
+      : billingBlocked
         ? 'billing-blocked'
-        : 'quota-unverified',
-    catalog: 'ready',
+        : loginRequired
+          ? 'login-required'
+          : 'quota-unverified',
+    catalog: models.length > 0 ? 'ready' : 'error',
     models,
     authDecision,
-    error: authDecision.reason,
+    ...(authDecision.allowed
+      ? { warning: authDecision.reason }
+      : { error: authDecision.reason }),
   })
 }
 

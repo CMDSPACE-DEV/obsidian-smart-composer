@@ -112,6 +112,26 @@ const unverifiedGeminiSnapshot: NativeRuntimeSnapshot = {
   error: 'Personal Gemini Plan quota provenance is not available.',
 }
 
+const readyGeminiSnapshot: NativeRuntimeSnapshot = {
+  ...installedSnapshot,
+  provider: 'gemini',
+  status: 'ready',
+  authentication: 'subscription',
+  catalog: 'ready',
+  update: 'background',
+  executablePath: 'C:\\Users\\test\\AppData\\Local\\agy\\bin\\agy.exe',
+  models: [{ id: 'gemini-test', label: 'Gemini test' }],
+  authDecision: {
+    status: 'subscription',
+    allowed: true,
+    reason:
+      'Antigravity is signed in and returned a usable model catalog. Gemini requests are enabled in compatibility mode; the CLI does not expose the account quota source to Smart Composer.',
+    evidence: ['agy models --json returned a non-empty catalog'],
+  },
+  warning:
+    'Antigravity is signed in and returned a usable model catalog. Gemini requests are enabled in compatibility mode; the CLI does not expose the account quota source to Smart Composer.',
+}
+
 function createSharedService(
   initial: NativeRuntimeSnapshot,
   diagnosisResult: NativeRuntimeSnapshot = installedSnapshot,
@@ -367,6 +387,62 @@ describe('native runtime onboarding interaction', () => {
     )
     expect(card).not.toHaveTextContent('Ready')
     expect(screen.getByRole('button', { name: '로그인 관리' })).toBeEnabled()
+  })
+
+  it('shows Gemini as Ready and completes Step 4 after a successful catalog diagnosis', async () => {
+    const { service } = createSharedService(
+      { ...notInstalledSnapshot, provider: 'gemini' },
+      readyGeminiSnapshot,
+    )
+    const onDiagnostics = jest.fn()
+    const { container } = render(
+      <>
+        <NativeRuntimeCard
+          app={{} as App}
+          provider="gemini"
+          title="Gemini Plan"
+          description="Test runtime"
+          service={service}
+          onDiagnostics={onDiagnostics}
+        />
+        <NativeRuntimeInstallModalComponent
+          provider="gemini"
+          title="Gemini Plan"
+          service={service}
+          onDiagnostics={onDiagnostics}
+          onClose={() => undefined}
+        />
+      </>,
+    )
+
+    const installationCheck = container.querySelector<HTMLButtonElement>(
+      '[data-runtime-action="check-installation"]',
+    )
+    expect(installationCheck).not.toBeNull()
+    if (!installationCheck) {
+      throw new Error('Gemini installation check button was not rendered')
+    }
+    fireEvent.click(installationCheck)
+
+    await waitFor(() => {
+      const card = container.querySelector('[data-runtime-provider="gemini"]')
+      const loginStep = container.querySelector<HTMLElement>(
+        '[data-runtime-step="login"]',
+      )
+
+      expect(card).toHaveTextContent('Ready')
+      expect(card).toHaveTextContent('1 models detected')
+      expect(card).not.toHaveTextContent(
+        'Personal Gemini Plan quota provenance is not available.',
+      )
+      expect(loginStep).toHaveClass('is-complete')
+      expect(loginStep).toHaveAttribute('aria-disabled', 'false')
+      expect(loginStep?.querySelectorAll('button')).not.toHaveLength(0)
+      loginStep
+        ?.querySelectorAll('button')
+        .forEach((button) => expect(button).toBeEnabled())
+    })
+    expect(onDiagnostics).toHaveBeenCalledWith(readyGeminiSnapshot)
   })
 
   it.each([

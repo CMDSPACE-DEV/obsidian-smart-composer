@@ -39,6 +39,17 @@ type AntigravityFinal =
       arguments: Record<string, unknown>
     }
 
+const ANTIGRAVITY_REQUEST_FAILED_MESSAGE =
+  'Antigravity CLI request failed. Open Settings > Plan connections, verify the connection, and retry.'
+const SAFE_ANTIGRAVITY_FAILURE_STATUSES = new Set([
+  'CANCELLED',
+  'ERROR',
+  'FAILED',
+  'RATE_LIMITED',
+  'RESOURCE_EXHAUSTED',
+  'UNAUTHORIZED',
+])
+
 export class AntigravityProvider extends BaseLLMProvider<
   Extract<LLMProvider, { type: 'gemini-plan' }>
 > {
@@ -235,50 +246,63 @@ async function runAntigravityIteration(params: {
   const textDeltas: string[] = []
   let finalValue: unknown
   let usage: ResponseUsage | undefined
-  let requestError: string | undefined
-  const result = await runNativeProcess({
-    executable: params.executablePath,
-    args,
-    cwd: params.cwd,
-    env: params.environment,
-    signal: params.signal,
-    onStdoutLine: (line) => {
-      const event = parseJsonLine(line)
-      if (!event) return
-      const text = extractAntigravityTextDelta(event)
-      if (text) {
-        textDeltas.push(text)
-      }
-      const resultEvent = extractAntigravityResultEvent(event)
-      if (resultEvent) {
-        finalValue =
-          resultEvent.structured_output ??
-          resultEvent.response ??
-          resultEvent.result ??
-          resultEvent.output ??
-          resultEvent.content ??
-          resultEvent.text
-        usage = parseUsage(resultEvent.usage) ?? usage
-        if (
-          typeof resultEvent.status === 'string' &&
-          resultEvent.status !== 'SUCCESS'
-        ) {
-          requestError =
-            firstString(resultEvent.error, resultEvent.response) ||
-            `Antigravity request failed: ${resultEvent.status}`
+  let requestFailed = false
+  let requestFailureStatus: string | undefined
+  let result: Awaited<ReturnType<typeof runNativeProcess>>
+  try {
+    result = await runNativeProcess({
+      executable: params.executablePath,
+      args,
+      cwd: params.cwd,
+      env: params.environment,
+      signal: params.signal,
+      onStdoutLine: (line) => {
+        const event = parseJsonLine(line)
+        if (!event) return
+        const text = extractAntigravityTextDelta(event)
+        if (text) {
+          textDeltas.push(text)
         }
-      }
-    },
-  })
-  if (result.exitCode !== 0) {
-    const detail = result.stderr.trim() || result.stdout.trim()
-    throw new Error(
-      detail ||
-        'Antigravity CLI failed. Open Settings > Plan connections and sign in again.',
-    )
+        const resultEvent = extractAntigravityResultEvent(event)
+        if (resultEvent) {
+          finalValue =
+            resultEvent.structured_output ??
+            resultEvent.response ??
+            resultEvent.result ??
+            resultEvent.output ??
+            resultEvent.content ??
+            resultEvent.text
+          usage = parseUsage(resultEvent.usage) ?? usage
+          if (
+            typeof resultEvent.status === 'string' &&
+            resultEvent.status !== 'SUCCESS'
+          ) {
+            requestFailed = true
+            requestFailureStatus = safeAntigravityFailureStatus(
+              resultEvent.status,
+            )
+          }
+        }
+      },
+    })
+  } catch (error) {
+    if (
+      params.signal?.aborted ||
+      (error instanceof Error && error.name === 'AbortError')
+    ) {
+      const canceled = new Error('Gemini Plan request was canceled.')
+      canceled.name = 'AbortError'
+      throw canceled
+    }
+    throw new Error(ANTIGRAVITY_REQUEST_FAILED_MESSAGE)
   }
-  if (requestError) {
-    throw new Error(requestError)
+  if (result.exitCode !== 0) {
+    throw new Error(ANTIGRAVITY_REQUEST_FAILED_MESSAGE)
+  }
+  if (requestFailed) {
+    throw new Error(
+      `${ANTIGRAVITY_REQUEST_FAILED_MESSAGE}${requestFailureStatus ? ` (${requestFailureStatus})` : ''}`,
+    )
   }
 
   if (finalValue === undefined) {
@@ -446,10 +470,11 @@ function numberValue(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
 }
 
-function firstString(...values: unknown[]): string {
-  return (
-    values.find((value): value is string => typeof value === 'string') ?? ''
-  )
+function safeAntigravityFailureStatus(value: string): string | undefined {
+  const normalized = value.trim().toUpperCase()
+  return SAFE_ANTIGRAVITY_FAILURE_STATUSES.has(normalized)
+    ? normalized
+    : undefined
 }
 
 function createChunk(

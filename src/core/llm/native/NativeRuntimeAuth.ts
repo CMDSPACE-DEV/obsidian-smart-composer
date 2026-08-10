@@ -10,6 +10,8 @@ type NativeProcessRunner = (
   options: NativeProcessOptions,
 ) => ReturnType<typeof runNativeProcess>
 
+const ANTIGRAVITY_AUTH_TIMEOUT_MS = 15_000
+
 export type PreparedNativePlanEnvironment = {
   provider: NativeRuntimeProvider
   env: NodeJS.ProcessEnv
@@ -68,15 +70,25 @@ const CLAUDE_BOOLEAN_ROUTING_ENVIRONMENT = new Set([
 ])
 
 const GEMINI_BLOCKED_ENVIRONMENT = new Set([
+  'CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE',
+  'CLOUDSDK_CORE_PROJECT',
+  'GCLOUD_PROJECT',
   'GOOGLE_APPLICATION_CREDENTIALS',
   'GOOGLE_API_KEY',
+  'GOOGLE_CLOUD_LOCATION',
   'GEMINI_API_KEY',
   'GOOGLE_CLOUD_PROJECT',
-  'GCLOUD_PROJECT',
-  'CLOUDSDK_CORE_PROJECT',
+  'GOOGLE_CLOUD_PROJECT_ID',
   'GOOGLE_CLOUD_QUOTA_PROJECT',
+  'GOOGLE_GENAI_USE_ENTERPRISE',
+  'GOOGLE_GENAI_USE_VERTEXAI',
   'VERTEX_AI_PROJECT',
   'VERTEX_AI_LOCATION',
+])
+
+const GEMINI_BOOLEAN_ROUTING_ENVIRONMENT = new Set([
+  'GOOGLE_GENAI_USE_ENTERPRISE',
+  'GOOGLE_GENAI_USE_VERTEXAI',
 ])
 
 const CLAUDE_PERSONAL_SUBSCRIPTION_TYPES = new Set(['pro', 'max'])
@@ -121,6 +133,10 @@ export function prepareNativePlanEnvironment(
     provider === 'claude'
       ? CLAUDE_BLOCKED_ENVIRONMENT
       : GEMINI_BLOCKED_ENVIRONMENT
+  const booleanRoutingSet =
+    provider === 'claude'
+      ? CLAUDE_BOOLEAN_ROUTING_ENVIRONMENT
+      : GEMINI_BOOLEAN_ROUTING_ENVIRONMENT
   const env: NodeJS.ProcessEnv = {}
   const blockedVariables: string[] = []
 
@@ -137,11 +153,7 @@ export function prepareNativePlanEnvironment(
     if (
       typeof value === 'string' &&
       value.trim() &&
-      !(
-        provider === 'claude' &&
-        CLAUDE_BOOLEAN_ROUTING_ENVIRONMENT.has(canonicalName) &&
-        isExplicitlyDisabled(value)
-      )
+      !(booleanRoutingSet.has(canonicalName) && isExplicitlyDisabled(value))
     ) {
       blockedVariables.push(canonicalName)
     }
@@ -307,36 +319,152 @@ export async function verifyAntigravityPlanAuth(
     }
   }
 
-  const result = await (options.runner ?? runNativeProcess)({
-    executable: executablePath,
-    args: ['models', '--json'],
-    env: environment.env,
-    signal: options.signal,
-  })
-  if (result.exitCode !== 0) {
-    return {
+  const runner = options.runner ?? runNativeProcess
+  let result = await runAntigravityAuthCheck(
+    runner,
+    {
+      executable: executablePath,
+      args: ['models', '--json'],
+      env: environment.env,
+    },
+    options.signal,
+  )
+  if (!result) return antigravityAuthCheckFailed(environment)
+  let blockingDecision = classifyAntigravityBlockingSignals(
+    [result.stdout, result.stderr],
+    environment,
+  )
+  if (blockingDecision) {
+    return { environment, decision: blockingDecision }
+  }
+  if (result.exitCode === 0) {
+    const jsonDecision = classifyAntigravityQuotaProvenance(
+      result.stdout,
       environment,
-      decision: {
-        status: isLoginText(result.stderr || result.stdout)
-          ? 'login-required'
-          : 'quota-unverified',
-        allowed: false,
-        reason: isLoginText(result.stderr || result.stdout)
-          ? 'Open Antigravity CLI and sign in with Google.'
-          : 'Gemini Plan quota provenance could not be verified.',
-        evidence: [
-          isLoginText(result.stderr || result.stdout)
-            ? 'agy models reported signed out'
-            : 'agy models did not provide verifiable quota provenance',
-        ],
+    )
+    if (jsonDecision.status !== 'quota-unverified') {
+      return { environment, decision: jsonDecision }
+    }
+    result = await runAntigravityAuthCheck(
+      runner,
+      {
+        executable: executablePath,
+        args: ['models'],
+        env: environment.env,
       },
+      options.signal,
+    )
+    if (!result) return antigravityAuthCheckFailed(environment)
+    blockingDecision = classifyAntigravityBlockingSignals(
+      [result.stdout, result.stderr],
+      environment,
+    )
+    if (blockingDecision) {
+      return { environment, decision: blockingDecision }
+    }
+    if (result.exitCode === 0) {
+      return {
+        environment,
+        decision: classifyAntigravityTextCatalog(result.stdout, environment),
+      }
+    }
+  } else {
+    const failureText = `${result.stderr}\n${result.stdout}`
+    if (!isLoginText(failureText)) {
+      result = await runAntigravityAuthCheck(
+        runner,
+        {
+          executable: executablePath,
+          args: ['models'],
+          env: environment.env,
+        },
+        options.signal,
+      )
+      if (!result) return antigravityAuthCheckFailed(environment)
+      blockingDecision = classifyAntigravityBlockingSignals(
+        [result.stdout, result.stderr],
+        environment,
+      )
+      if (blockingDecision) {
+        return { environment, decision: blockingDecision }
+      }
+      if (result.exitCode === 0) {
+        return {
+          environment,
+          decision: classifyAntigravityTextCatalog(result.stdout, environment),
+        }
+      }
     }
   }
 
+  const fallbackFailureText = `${result.stderr}\n${result.stdout}`
   return {
     environment,
-    decision: classifyAntigravityQuotaProvenance(result.stdout, environment),
+    decision: {
+      status: isLoginText(fallbackFailureText)
+        ? 'login-required'
+        : 'quota-unverified',
+      allowed: false,
+      reason: isLoginText(fallbackFailureText)
+        ? 'Open Antigravity CLI and sign in with Google.'
+        : 'Antigravity did not return a readable model catalog.',
+      evidence: [
+        isLoginText(fallbackFailureText)
+          ? 'agy models reported signed out'
+          : 'agy models did not return a successful catalog',
+      ],
+    },
   }
+}
+
+async function runAntigravityAuthCheck(
+  runner: NativeProcessRunner,
+  options: Omit<NativeProcessOptions, 'signal'>,
+  externalSignal?: AbortSignal,
+): Promise<Awaited<ReturnType<NativeProcessRunner>> | null> {
+  const controller = new AbortController()
+  let timedOut = false
+  const abortFromCaller = () => controller.abort()
+  if (externalSignal?.aborted) controller.abort()
+  else {
+    externalSignal?.addEventListener('abort', abortFromCaller, { once: true })
+  }
+  const timeout = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, ANTIGRAVITY_AUTH_TIMEOUT_MS)
+  try {
+    const result = await runner({ ...options, signal: controller.signal })
+    if (externalSignal?.aborted) throw createAbortError()
+    return timedOut ? null : result
+  } catch {
+    if (externalSignal?.aborted) throw createAbortError()
+    return null
+  } finally {
+    clearTimeout(timeout)
+    externalSignal?.removeEventListener('abort', abortFromCaller)
+  }
+}
+
+function antigravityAuthCheckFailed(
+  environment: PreparedNativePlanEnvironment,
+): RuntimeAuthVerification {
+  return {
+    environment,
+    decision: {
+      status: 'quota-unverified',
+      allowed: false,
+      reason:
+        'Antigravity connection check timed out or failed. Retry from Plan connections.',
+      evidence: ['agy model catalog check did not complete'],
+    },
+  }
+}
+
+function createAbortError(): Error {
+  const error = new Error('Antigravity connection check was canceled.')
+  error.name = 'AbortError'
+  return error
 }
 
 export function classifyClaudeAuthStatus(
@@ -414,30 +542,117 @@ export function classifyAntigravityQuotaProvenance(
     {},
   ),
 ): RuntimeAuthDecision {
+  const blockingDecision = classifyAntigravityBlockingSignals(
+    [output],
+    environment,
+  )
+  if (blockingDecision) return blockingDecision
+  const parsed = parseJsonValue(output)
+
+  if (!hasAntigravityJsonModelCatalog(parsed)) {
+    return {
+      status: 'quota-unverified',
+      allowed: false,
+      reason:
+        'Antigravity did not return a readable JSON model catalog, so Gemini request readiness could not be confirmed.',
+      evidence: ['agy models --json returned no readable models'],
+    }
+  }
+
+  // Antigravity does not currently expose a supported personal-quota field.
+  // For compatibility with the working 2.6.1 flow, a successful non-empty
+  // catalog is accepted as login/readiness evidence only when neither the
+  // environment nor the machine-readable response identifies Cloud billing.
+  return {
+    status: 'subscription',
+    allowed: true,
+    reason:
+      'Antigravity is signed in and returned a usable model catalog. Gemini requests are enabled in compatibility mode; the CLI does not expose the account quota source to Smart Composer.',
+    evidence: [
+      'agy models --json returned a non-empty catalog',
+      'no explicit API or Google Cloud override detected',
+    ],
+  }
+}
+
+export function classifyAntigravityTextCatalog(
+  output: string,
+  environment: PreparedNativePlanEnvironment = prepareNativePlanEnvironment(
+    'gemini',
+    {},
+  ),
+): RuntimeAuthDecision {
+  const blockingDecision = classifyAntigravityBlockingSignals(
+    [output],
+    environment,
+  )
+  if (blockingDecision) return blockingDecision
+  if (!hasAntigravityTextModelCatalog(output)) {
+    return {
+      status: 'quota-unverified',
+      allowed: false,
+      reason:
+        'Antigravity did not return a readable text model catalog, so Gemini request readiness could not be confirmed.',
+      evidence: ['agy models returned no readable models'],
+    }
+  }
+  return {
+    status: 'subscription',
+    allowed: true,
+    reason:
+      'Antigravity is signed in and returned a usable legacy text model catalog. Gemini requests are enabled in compatibility mode; the CLI does not expose the account quota source to Smart Composer.',
+    evidence: [
+      'agy models returned a non-empty text catalog',
+      'no explicit API or Google Cloud override detected',
+    ],
+  }
+}
+
+export function classifyAntigravityBlockingSignals(
+  outputs: readonly string[],
+  environment: PreparedNativePlanEnvironment = prepareNativePlanEnvironment(
+    'gemini',
+    {},
+  ),
+): RuntimeAuthDecision | undefined {
   if (environment.blockedVariables.length > 0) {
     return blockedEnvironmentDecision('Gemini', environment.blockedVariables)
   }
-  const parsed = parseRecord(output)
-  if (parsed && collectRecords(parsed).some(hasGoogleCloudMarker)) {
+  const parsedOutputs: unknown[] = []
+  const textOutputs: string[] = []
+  for (const output of outputs) {
+    const parsed = parseJsonValue(output)
+    if (parsed === undefined) textOutputs.push(output)
+    else parsedOutputs.push(parsed)
+  }
+  if (
+    parsedOutputs.some((value) =>
+      collectRecords(value).some(hasGoogleCloudMarker),
+    ) ||
+    textOutputs.some(hasPlainTextGoogleCloudMarker)
+  ) {
     return {
       status: 'billing-blocked',
       allowed: false,
       reason:
         'Antigravity reported Google Cloud, ADC, enterprise, or consumption-billing provenance.',
-      evidence: ['machine-readable output contains a Cloud billing marker'],
+      evidence: ['runtime output contains a Cloud billing marker'],
     }
   }
-
-  // Google currently publishes no supported machine-readable contract that
-  // proves `agy` is consuming an individual Google AI Plan quota. A successful
-  // model catalog is authentication evidence only, not billing evidence.
-  return {
-    status: 'quota-unverified',
-    allowed: false,
-    reason:
-      'Antigravity is signed in, but personal Gemini Plan quota provenance cannot be verified by the current CLI.',
-    evidence: ['no supported personal-plan quota provenance field'],
+  if (
+    parsedOutputs.some((value) =>
+      collectRecords(value).some(hasAntigravityLoggedOutMarker),
+    ) ||
+    textOutputs.some(hasAntigravityLoginRequiredText)
+  ) {
+    return {
+      status: 'login-required',
+      allowed: false,
+      reason: 'Open Antigravity CLI and sign in with Google.',
+      evidence: ['agy models reported signed out'],
+    }
   }
+  return undefined
 }
 
 export function assertRuntimeAuthAllowed(
@@ -535,26 +750,117 @@ function hasActiveMarker(value: unknown): boolean {
 }
 
 function hasGoogleCloudMarker(record: Record<string, unknown>): boolean {
-  const fieldNames = Object.keys(record).map((name) => name.toLowerCase())
-  if (
-    fieldNames.some((name) =>
-      /projectid|project_id|billingproject|quota_project|serviceaccount/.test(
-        name,
-      ),
-    )
-  ) {
-    return true
+  for (const [name, value] of Object.entries(record)) {
+    const compactName = compactFieldName(name)
+    if (
+      /^(?:adc|billingproject(?:id)?|cloud|consumptionbilling|enterprise|gcpproject(?:id)?|googlecloud|googlecloudproject(?:id)?|project(?:id)?|quotaproject(?:id)?|serviceaccount|usevertexai|vertex(?:ai)?)$/.test(
+        compactName,
+      ) &&
+      hasActiveMarker(value)
+    ) {
+      return true
+    }
+    if (
+      /^(?:detail|error|message|reason)$/.test(compactName) &&
+      typeof value === 'string' &&
+      hasPlainTextGoogleCloudMarker(value)
+    ) {
+      return true
+    }
   }
   return [
     record.authMethod,
     record.accountType,
+    record.auth,
     record.billingSource,
+    record.method,
+    record.provider,
     record.quotaSource,
+    record.source,
   ]
     .map(normalizedString)
     .filter((value): value is string => value !== undefined)
     .some((value) =>
       /cloud|enterprise|adc|service[_ -]?account|consumption/.test(value),
+    )
+}
+
+function hasPlainTextGoogleCloudMarker(value: string): boolean {
+  return /\b(?:adc|enterprise|google\s+cloud|service[_ -]?account|vertex)\b|\bconsumption(?:[- ]billing)?\b|\b(?:billing|quota)?\s*project(?:\s+id)?\s*[:=]/i.test(
+    value,
+  )
+}
+
+function hasAntigravityLoggedOutMarker(
+  record: Record<string, unknown>,
+): boolean {
+  for (const [name, value] of Object.entries(record)) {
+    const compactName = compactFieldName(name)
+    if (
+      /^(?:authenticated|isauthenticated|issignedin|isloggedin|loggedin|signedin)$/.test(
+        compactName,
+      ) &&
+      value === false
+    ) {
+      return true
+    }
+    if (
+      /^(?:loginrequired|requireslogin)$/.test(compactName) &&
+      value === true
+    ) {
+      return true
+    }
+    const normalized = normalizedString(value)
+    if (
+      normalized &&
+      /^(?:auth(?:entication)?status|loginstatus|sessionstatus|state|status)$/.test(
+        compactName,
+      ) &&
+      /^(?:logged[_ -]?out|signed[_ -]?out|login[_ -]?required|not[_ -]?authenticated|unauthenticated|unauthorized)$/.test(
+        normalized,
+      )
+    ) {
+      return true
+    }
+    if (
+      /^(?:detail|error|message|reason)$/.test(compactName) &&
+      typeof value === 'string' &&
+      hasAntigravityLoginRequiredText(value)
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+function hasAntigravityLoginRequiredText(value: string): boolean {
+  return /\b(?:not\s+(?:signed|logged)\s*in|(?:please\s+)?sign\s*in(?:\s+with\s+google)?|(?:please\s+)?log\s*in(?:\s+with\s+google)?|login\s+required|unauthenticated|unauthorized|authentication\s+(?:failed|required)|no\s+(?:valid\s+)?credentials?)\b/i.test(
+    value,
+  )
+}
+
+function compactFieldName(value: string): string {
+  return value.replace(/[^a-zA-Z\d]+/g, '').toLowerCase()
+}
+
+function hasAntigravityTextModelCatalog(value: string): boolean {
+  const ansiSequence = new RegExp(
+    `${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`,
+    'g',
+  )
+  return value
+    .replace(ansiSequence, '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .some(
+      (line) =>
+        !/^(?:available\s+models?|models?|name\s+slug|loading|current)\b/i.test(
+          line,
+        ) &&
+        /\b(?:gemini[-_.][a-z0-9][a-z0-9._-]*|gemini\s+\d+(?:\.\d+)?(?:\s+[a-z0-9]+)*)\b/i.test(
+          line,
+        ),
     )
 }
 
@@ -564,12 +870,48 @@ function collectRecords(value: unknown): Record<string, unknown>[] {
   return [value, ...Object.values(value).flatMap(collectRecords)]
 }
 
+function hasAntigravityJsonModelCatalog(value: unknown): boolean {
+  return hasAntigravityCatalogEntries(value, Array.isArray(value))
+}
+
+function hasAntigravityCatalogEntries(
+  value: unknown,
+  insideCatalog: boolean,
+): boolean {
+  if (Array.isArray(value)) {
+    return value.some((entry) => hasAntigravityCatalogEntries(entry, true))
+  }
+  if (!isRecord(value)) return false
+  for (const key of ['models', 'data', 'items', 'availableModels']) {
+    if (key in value && hasAntigravityCatalogEntries(value[key], true)) {
+      return true
+    }
+  }
+  return insideCatalog && hasAntigravityModelRecord(value)
+}
+
+function hasAntigravityModelRecord(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  return ['slug', 'id', 'value', 'name'].some((key) => {
+    const candidate = value[key]
+    return typeof candidate === 'string' && candidate.trim().length > 0
+  })
+}
+
 function parseRecord(value: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(value) as unknown
     return isRecord(parsed) ? parsed : null
   } catch {
     return null
+  }
+}
+
+function parseJsonValue(value: string): unknown | undefined {
+  try {
+    return JSON.parse(value) as unknown
+  } catch {
+    return undefined
   }
 }
 

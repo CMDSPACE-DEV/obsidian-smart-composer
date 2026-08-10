@@ -375,7 +375,7 @@ describe('Claude Plan billing guard', () => {
   })
 })
 
-describe('Gemini Plan quota guard', () => {
+describe('Gemini Plan compatibility guard', () => {
   it('blocks Google Cloud environment provenance without retaining values', () => {
     const environment = prepareNativePlanEnvironment('gemini', {
       PATH: '/safe/bin',
@@ -404,15 +404,56 @@ describe('Gemini Plan quota guard', () => {
     expect(JSON.stringify(environment)).not.toContain('adc.json')
   })
 
-  it('does not mistake a successful model catalog for personal Plan quota', () => {
-    expect(
-      classifyAntigravityQuotaProvenance(
-        JSON.stringify({ models: [{ id: 'gemini-pro' }] }),
-      ),
-    ).toMatchObject({ status: 'quota-unverified', allowed: false })
+  it('blocks active Enterprise and Vertex routing but ignores disabled values', () => {
+    const active = prepareNativePlanEnvironment('gemini', {
+      PATH: '/safe/bin',
+      GOOGLE_GENAI_USE_ENTERPRISE: 'true',
+      GOOGLE_GENAI_USE_VERTEXAI: 'true',
+      GOOGLE_CLOUD_LOCATION: 'private-location',
+    })
+    const disabled = prepareNativePlanEnvironment('gemini', {
+      PATH: '/safe/bin',
+      GOOGLE_GENAI_USE_ENTERPRISE: '0',
+      GOOGLE_GENAI_USE_VERTEXAI: 'false',
+    })
+
+    expect(active.blockedVariables).toEqual([
+      'GOOGLE_CLOUD_LOCATION',
+      'GOOGLE_GENAI_USE_ENTERPRISE',
+      'GOOGLE_GENAI_USE_VERTEXAI',
+    ])
+    expect(active.env).toEqual({ PATH: '/safe/bin' })
+    expect(JSON.stringify(active)).not.toContain('private-location')
+    expect(disabled.blockedVariables).toEqual([])
+    expect(disabled.env).toEqual({ PATH: '/safe/bin' })
   })
 
-  it('keeps a successful models --json preflight blocked until Google exposes provenance', async () => {
+  it('allows a non-empty model catalog without claiming a proven quota source', () => {
+    const decision = classifyAntigravityQuotaProvenance(
+      JSON.stringify({ models: [{ id: 'gemini-pro' }] }),
+    )
+
+    expect(decision).toMatchObject({
+      status: 'subscription',
+      allowed: true,
+    })
+    expect(decision.reason).toContain('compatibility mode')
+    expect(decision.reason).toContain(
+      'does not expose the account quota source',
+    )
+  })
+
+  it('accepts nested JSON catalog wrappers used by model-list commands', () => {
+    expect(
+      classifyAntigravityQuotaProvenance(
+        JSON.stringify({
+          data: { items: [{ name: 'gemini-pro', label: 'Gemini Pro' }] },
+        }),
+      ),
+    ).toMatchObject({ status: 'subscription', allowed: true })
+  })
+
+  it('allows a successful non-empty models --json request preflight', async () => {
     const runner = jest.fn().mockResolvedValue({
       stdout: JSON.stringify({ models: [{ id: 'gemini-pro' }] }),
       stderr: '',
@@ -428,10 +469,100 @@ describe('Gemini Plan quota guard', () => {
       expect.objectContaining({ args: ['models', '--json'] }),
     )
     expect(verification.decision).toMatchObject({
-      status: 'quota-unverified',
-      allowed: false,
+      status: 'subscription',
+      allowed: true,
     })
   })
+
+  it('allows a non-empty legacy text catalog when --json is unavailable', async () => {
+    const runner = jest
+      .fn()
+      .mockResolvedValueOnce({
+        stdout: '',
+        stderr: 'unknown option',
+        exitCode: 2,
+      })
+      .mockResolvedValueOnce({
+        stdout: 'Gemini Pro  gemini-pro',
+        stderr: '',
+        exitCode: 0,
+      })
+
+    const verification = await verifyAntigravityPlanAuth('/runtime/agy', {
+      environment: prepareNativePlanEnvironment('gemini', { PATH: '/safe' }),
+      runner,
+    })
+
+    expect(runner).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ args: ['models'] }),
+    )
+    expect(verification.decision).toMatchObject({
+      status: 'subscription',
+      allowed: true,
+    })
+  })
+
+  it.each([
+    ['empty JSON', JSON.stringify({ models: [] })],
+    ['plain text from --json', 'Gemini Pro  gemini-pro'],
+  ])(
+    'retries %s with the legacy catalog command',
+    async (_label, jsonOutput) => {
+      const runner = jest
+        .fn()
+        .mockResolvedValueOnce({
+          stdout: jsonOutput,
+          stderr: '',
+          exitCode: 0,
+        })
+        .mockResolvedValueOnce({
+          stdout: 'Gemini Pro  gemini-pro',
+          stderr: '',
+          exitCode: 0,
+        })
+
+      const verification = await verifyAntigravityPlanAuth('/runtime/agy', {
+        environment: prepareNativePlanEnvironment('gemini', { PATH: '/safe' }),
+        runner,
+      })
+
+      expect(runner).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ args: ['models'] }),
+      )
+      expect(verification.decision).toMatchObject({
+        status: 'subscription',
+        allowed: true,
+      })
+    },
+  )
+
+  it.each([
+    ['empty object', '{}'],
+    ['empty model list', JSON.stringify({ models: [] })],
+    ['malformed JSON', '{"models":'],
+    ['heading-only text', 'Gemini Models'],
+  ])(
+    'blocks a successful command with an unreadable %s catalog',
+    async (_label, stdout) => {
+      const runner = jest.fn().mockResolvedValue({
+        stdout,
+        stderr: '',
+        exitCode: 0,
+      })
+
+      const verification = await verifyAntigravityPlanAuth('/runtime/agy', {
+        environment: prepareNativePlanEnvironment('gemini', { PATH: '/safe' }),
+        runner,
+      })
+
+      expect(verification.decision).toMatchObject({
+        status: 'quota-unverified',
+        allowed: false,
+      })
+    },
+  )
 
   it('blocks machine-readable Cloud and service-account markers', () => {
     expect(
@@ -442,5 +573,287 @@ describe('Gemini Plan quota guard', () => {
         }),
       ),
     ).toMatchObject({ status: 'billing-blocked', allowed: false })
+  })
+
+  it.each([
+    'billingProjectId',
+    'quota_project_id',
+    'google_cloud_project',
+    'consumptionBilling',
+  ])('blocks an active normalized Cloud field %s', (field) => {
+    expect(
+      classifyAntigravityQuotaProvenance(
+        JSON.stringify({
+          models: [{ id: 'gemini-pro' }],
+          [field]: 'private-cloud-marker',
+        }),
+      ),
+    ).toMatchObject({ status: 'billing-blocked', allowed: false })
+  })
+
+  it.each([
+    'enterprise',
+    'vertex',
+    'vertexAI',
+    'useVertexAI',
+    'cloud',
+    'googleCloud',
+  ])('blocks an active machine-readable routing key %s', (field) => {
+    expect(
+      classifyAntigravityQuotaProvenance(
+        JSON.stringify({
+          models: [{ id: 'gemini-pro' }],
+          [field]: true,
+        }),
+      ),
+    ).toMatchObject({ status: 'billing-blocked', allowed: false })
+  })
+
+  it.each([
+    'enterprise',
+    'vertex',
+    'vertexAI',
+    'useVertexAI',
+    'cloud',
+    'googleCloud',
+  ])('allows inactive machine-readable routing key %s', (field) => {
+    for (const value of [false, null, '']) {
+      expect(
+        classifyAntigravityQuotaProvenance(
+          JSON.stringify({
+            models: [{ id: 'gemini-pro' }],
+            [field]: value,
+          }),
+        ),
+      ).toMatchObject({ status: 'subscription', allowed: true })
+    }
+  })
+
+  it.each([null, '', false])(
+    'does not block an inactive project marker %p',
+    (project) => {
+      expect(
+        classifyAntigravityQuotaProvenance(
+          JSON.stringify({
+            models: [{ id: 'gemini-pro' }],
+            project,
+          }),
+        ),
+      ).toMatchObject({ status: 'subscription', allowed: true })
+    },
+  )
+
+  it('does not treat model description copy as a Cloud routing marker', () => {
+    expect(
+      classifyAntigravityQuotaProvenance(
+        JSON.stringify({
+          models: [
+            {
+              id: 'gemini-pro',
+              description: 'Enterprise-ready model for complex projects',
+            },
+          ],
+        }),
+      ),
+    ).toMatchObject({ status: 'subscription', allowed: true })
+  })
+
+  it('never falls back around a machine-readable Cloud marker', async () => {
+    const runner = jest.fn().mockResolvedValue({
+      stdout: JSON.stringify({
+        models: [{ id: 'gemini-pro' }],
+        account: { authMethod: 'adc' },
+      }),
+      stderr: '',
+      exitCode: 0,
+    })
+
+    const verification = await verifyAntigravityPlanAuth('/runtime/agy', {
+      environment: prepareNativePlanEnvironment('gemini', { PATH: '/safe' }),
+      runner,
+    })
+
+    expect(verification.decision).toMatchObject({
+      status: 'billing-blocked',
+      allowed: false,
+    })
+    expect(runner).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['nonzero stdout', 2, 'Google Cloud project: private-project', ''],
+    ['nonzero stderr', 2, '', 'consumption billing enabled'],
+    [
+      'JSON stderr error',
+      2,
+      '',
+      JSON.stringify({ error: 'Google Cloud project private-project' }),
+    ],
+    [
+      'JSON stderr message',
+      2,
+      '',
+      JSON.stringify({ message: 'consumption billing enabled' }),
+    ],
+    [
+      'exit-zero stderr',
+      0,
+      JSON.stringify({ models: [{ id: 'gemini-pro' }] }),
+      'ADC credentials active',
+    ],
+  ])(
+    'blocks %s Cloud output before fallback',
+    async (_label, exitCode, stdout, stderr) => {
+      const runner = jest.fn().mockResolvedValue({
+        stdout,
+        stderr,
+        exitCode,
+      })
+
+      const verification = await verifyAntigravityPlanAuth('/runtime/agy', {
+        environment: prepareNativePlanEnvironment('gemini', { PATH: '/safe' }),
+        runner,
+      })
+
+      expect(verification.decision).toMatchObject({
+        status: 'billing-blocked',
+        allowed: false,
+      })
+      expect(runner).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it.each([
+    { loggedIn: false },
+    { authenticated: false },
+    { signedIn: false },
+    { loginRequired: true },
+    { authStatus: 'signed_out' },
+    { error: 'not signed in' },
+    { message: 'login required' },
+    { error: 'Sign in with Google' },
+    { detail: 'Please log in with Google' },
+  ])('prioritizes JSON signed-out marker %p over models', (marker) => {
+    expect(
+      classifyAntigravityQuotaProvenance(
+        JSON.stringify({ models: [{ id: 'gemini-pro' }], ...marker }),
+      ),
+    ).toMatchObject({ status: 'login-required', allowed: false })
+  })
+
+  it('prioritizes exit-zero sign-in stderr over a JSON catalog', async () => {
+    const runner = jest.fn().mockResolvedValue({
+      stdout: JSON.stringify({ models: [{ id: 'gemini-pro' }] }),
+      stderr: 'Please sign in with Google',
+      exitCode: 0,
+    })
+
+    const verification = await verifyAntigravityPlanAuth('/runtime/agy', {
+      environment: prepareNativePlanEnvironment('gemini', { PATH: '/safe' }),
+      runner,
+    })
+
+    expect(verification.decision).toMatchObject({
+      status: 'login-required',
+      allowed: false,
+    })
+    expect(runner).toHaveBeenCalledTimes(1)
+  })
+
+  it('prioritizes a text signed-out marker over fallback model rows', async () => {
+    const runner = jest
+      .fn()
+      .mockResolvedValueOnce({
+        stdout: '',
+        stderr: 'unknown option',
+        exitCode: 2,
+      })
+      .mockResolvedValueOnce({
+        stdout: 'Not signed in\nGemini Pro  gemini-pro',
+        stderr: '',
+        exitCode: 0,
+      })
+
+    const verification = await verifyAntigravityPlanAuth('/runtime/agy', {
+      environment: prepareNativePlanEnvironment('gemini', { PATH: '/safe' }),
+      runner,
+    })
+
+    expect(verification.decision).toMatchObject({
+      status: 'login-required',
+      allowed: false,
+    })
+  })
+
+  it('times out a hanging catalog preflight without exposing late output', async () => {
+    jest.useFakeTimers()
+    try {
+      const runner = jest.fn(
+        (options: { signal?: AbortSignal }) =>
+          new Promise<{ stdout: string; stderr: string; exitCode: number }>(
+            (resolve) => {
+              options.signal?.addEventListener(
+                'abort',
+                () =>
+                  resolve({
+                    stdout: 'private-account private-project',
+                    stderr: 'private-path',
+                    exitCode: 1,
+                  }),
+                { once: true },
+              )
+            },
+          ),
+      )
+      const verificationPromise = verifyAntigravityPlanAuth('/runtime/agy', {
+        environment: prepareNativePlanEnvironment('gemini', { PATH: '/safe' }),
+        runner,
+      })
+
+      await jest.advanceTimersByTimeAsync(15_000)
+      const verification = await verificationPromise
+
+      expect(verification.decision).toMatchObject({
+        status: 'quota-unverified',
+        allowed: false,
+      })
+      expect(JSON.stringify(verification)).not.toContain('private-')
+      expect(jest.getTimerCount()).toBe(0)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('combines and propagates an external cancellation without leaking output', async () => {
+    const controller = new AbortController()
+    const runner = jest.fn(
+      (options: { signal?: AbortSignal }) =>
+        new Promise<{ stdout: string; stderr: string; exitCode: number }>(
+          (resolve) => {
+            options.signal?.addEventListener(
+              'abort',
+              () =>
+                resolve({
+                  stdout: 'private-account',
+                  stderr: 'private-project',
+                  exitCode: 1,
+                }),
+              { once: true },
+            )
+          },
+        ),
+    )
+    const verificationPromise = verifyAntigravityPlanAuth('/runtime/agy', {
+      environment: prepareNativePlanEnvironment('gemini', { PATH: '/safe' }),
+      runner,
+      signal: controller.signal,
+    })
+
+    controller.abort()
+
+    await expect(verificationPromise).rejects.toMatchObject({
+      name: 'AbortError',
+      message: 'Antigravity connection check was canceled.',
+    })
   })
 })

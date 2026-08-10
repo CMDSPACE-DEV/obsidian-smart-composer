@@ -68,7 +68,7 @@ describe('NativeRuntimeService structured diagnosis', () => {
     )
   })
 
-  it('keeps a successful Gemini catalog quota-unverified and non-ready', async () => {
+  it('marks a successful Gemini catalog ready in compatibility mode', async () => {
     const resolver = resolverWith(geminiDiscovery())
     const runner = jest.fn(async (options: NativeProcessOptions) => {
       if (options.args[0] === '--version') {
@@ -92,14 +92,189 @@ describe('NativeRuntimeService structured diagnosis', () => {
     const snapshot = await service.diagnose('gemini')
 
     expect(snapshot).toMatchObject({
-      status: 'quota-unverified',
+      status: 'ready',
       installation: 'installed',
-      authentication: 'quota-unverified',
+      authentication: 'subscription',
       catalog: 'ready',
       update: 'background',
       models: [{ id: 'gemini-pro', label: 'Gemini Pro' }],
+      authDecision: {
+        status: 'subscription',
+        allowed: true,
+      },
     })
+    expect(snapshot.warning).toContain('compatibility mode')
+    expect(snapshot.error).toBeUndefined()
     expect(service.getUpdateDecision('gemini').command).toBeUndefined()
+  })
+
+  it('keeps explicit Cloud metadata billing-blocked even with a model catalog', async () => {
+    const resolver = resolverWith(geminiDiscovery())
+    const runner = jest.fn(async (options: NativeProcessOptions) => {
+      if (options.args[0] === '--version') {
+        return { stdout: 'agy 1.1.11', stderr: '', exitCode: 0 }
+      }
+      return {
+        stdout: JSON.stringify({
+          models: [{ slug: 'gemini-pro', displayName: 'Gemini Pro' }],
+          account: { authMethod: 'service_account' },
+        }),
+        stderr: '',
+        exitCode: 0,
+      }
+    })
+    const service = new NativeRuntimeService(
+      resolver,
+      new NativeRuntimeStore(),
+      runner,
+      { PATH: '/safe' },
+    )
+
+    const snapshot = await service.diagnose('gemini')
+
+    expect(snapshot).toMatchObject({
+      status: 'billing-blocked',
+      authentication: 'billing-blocked',
+      catalog: 'ready',
+      authDecision: {
+        status: 'billing-blocked',
+        allowed: false,
+      },
+    })
+    expect(runner).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not fallback around nonzero Cloud diagnostics', async () => {
+    const resolver = resolverWith(geminiDiscovery())
+    const runner = jest.fn(async (options: NativeProcessOptions) => {
+      if (options.args[0] === '--version') {
+        return { stdout: 'agy 1.1.11', stderr: '', exitCode: 0 }
+      }
+      return {
+        stdout: '',
+        stderr: JSON.stringify({
+          error: 'Google Cloud project private-project is active',
+        }),
+        exitCode: 2,
+      }
+    })
+    const service = new NativeRuntimeService(
+      resolver,
+      new NativeRuntimeStore(),
+      runner,
+      { PATH: '/safe' },
+    )
+
+    const snapshot = await service.diagnose('gemini')
+
+    expect(snapshot).toMatchObject({
+      status: 'billing-blocked',
+      authentication: 'billing-blocked',
+      catalog: 'error',
+      authDecision: { allowed: false },
+    })
+    expect(JSON.stringify(snapshot)).not.toContain('private-project')
+    expect(runner).toHaveBeenCalledTimes(2)
+  })
+
+  it('prioritizes signed-out metadata over a readable model catalog', async () => {
+    const resolver = resolverWith(geminiDiscovery())
+    const runner = jest.fn(async (options: NativeProcessOptions) => {
+      if (options.args[0] === '--version') {
+        return { stdout: 'agy 1.1.11', stderr: '', exitCode: 0 }
+      }
+      return {
+        stdout: JSON.stringify({
+          loggedIn: false,
+          models: [{ slug: 'gemini-pro', displayName: 'Gemini Pro' }],
+        }),
+        stderr: '',
+        exitCode: 0,
+      }
+    })
+    const service = new NativeRuntimeService(
+      resolver,
+      new NativeRuntimeStore(),
+      runner,
+      { PATH: '/safe' },
+    )
+
+    const snapshot = await service.diagnose('gemini')
+
+    expect(snapshot).toMatchObject({
+      status: 'login-required',
+      authentication: 'login-required',
+      catalog: 'ready',
+      authDecision: {
+        status: 'login-required',
+        allowed: false,
+      },
+    })
+    expect(runner).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses a parsed legacy text catalog for diagnosis only', async () => {
+    const resolver = resolverWith(geminiDiscovery())
+    const runner = jest.fn(async (options: NativeProcessOptions) => {
+      if (options.args[0] === '--version') {
+        return { stdout: 'agy 1.1.11', stderr: '', exitCode: 0 }
+      }
+      if (options.args.includes('--json')) {
+        return { stdout: '', stderr: 'unknown option', exitCode: 2 }
+      }
+      return {
+        stdout: 'Gemini Pro  gemini-pro',
+        stderr: '',
+        exitCode: 0,
+      }
+    })
+    const service = new NativeRuntimeService(
+      resolver,
+      new NativeRuntimeStore(),
+      runner,
+      { PATH: '/safe' },
+    )
+
+    const snapshot = await service.diagnose('gemini')
+
+    expect(snapshot).toMatchObject({
+      status: 'ready',
+      authentication: 'subscription',
+      catalog: 'ready',
+      authDecision: { allowed: true },
+    })
+    expect(snapshot.warning).toContain('compatibility mode')
+  })
+
+  it('retries exit-zero non-JSON output with the text catalog command', async () => {
+    const resolver = resolverWith(geminiDiscovery())
+    const runner = jest.fn(async (options: NativeProcessOptions) => {
+      if (options.args[0] === '--version') {
+        return { stdout: 'agy 1.1.11', stderr: '', exitCode: 0 }
+      }
+      return {
+        stdout: 'Gemini Pro  gemini-pro',
+        stderr: '',
+        exitCode: 0,
+      }
+    })
+    const service = new NativeRuntimeService(
+      resolver,
+      new NativeRuntimeStore(),
+      runner,
+      { PATH: '/safe' },
+    )
+
+    const snapshot = await service.diagnose('gemini')
+
+    expect(snapshot).toMatchObject({
+      status: 'ready',
+      authentication: 'subscription',
+      catalog: 'ready',
+      authDecision: { allowed: true },
+    })
+    expect(runner).toHaveBeenCalledTimes(3)
+    expect(runner.mock.calls[2]?.[0].args).toEqual(['models'])
   })
 })
 

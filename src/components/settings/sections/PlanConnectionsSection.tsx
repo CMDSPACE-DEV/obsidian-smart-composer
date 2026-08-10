@@ -191,7 +191,7 @@ export function PlanConnectionsSection({
           app={app}
           provider="gemini"
           title="Gemini Plan"
-          description="설치된 공식 Antigravity CLI를 사용합니다. 로그인 후 모델 목록과 개인 Plan 할당량 출처를 각각 확인합니다."
+          description="설치된 공식 Antigravity CLI를 사용합니다. 로그인과 모델 목록을 확인하며, 명시적인 API 키·Google Cloud 환경이 감지되면 요청을 차단합니다."
           service={runtimeService}
           onDiagnostics={applyDiagnostics}
           experimental
