@@ -8,7 +8,8 @@ The repository-root `AGENTS.md` also requires Codex to open this register before
 any non-trivial implementation work and to read the reports relevant to the
 affected feature. For Plan runtime onboarding work, R-023 through R-025 are an
 explicit mandatory set. R-026 is additionally mandatory when qualifying or
-publishing the 2.6.2 release.
+publishing the 2.6.2 release. R-027 is mandatory for Claude Plan authentication
+classification and the 2.6.3 Pro/Max hotfix or release.
 
 ## Purpose
 
@@ -57,6 +58,7 @@ premature synthesis.
 | R-024 | Claude Code and Antigravity live headless protocol capture, bundled SDK failure, and direct CLI correction | **Verified + Implemented in 2.6.0 hotfix** | **Mandatory** | [R-024 report](R-024-native-plan-cli-live-protocol-and-runtime-fix.md) |
 | R-025 | Native Plan onboarding state flow, Windows/macOS installation and authentication, and the 2.6.2 implementation contract | **Partially verified; source and official-document analysis complete, clean-machine validation pending** | **Mandatory** | [R-025 report](R-025-native-plan-onboarding-cross-platform.md) |
 | R-026 | GitHub Actions macOS qualification and safe 2.6.2 branch/tag/release contract | **Partially verified; dual-architecture Settings and Claude transition verified, complete two-provider exact-SHA qualification and publication pending** | **Mandatory for 2.6.2 release** | [R-026 report](R-026-github-actions-macos-and-2.6.2-release.md) |
+| R-027 | Claude personal Pro/Max authentication false block and 2.6.3 billing-safe hotfix contract | **Partially verified; source, current first-party documentation, and sanitized local Max authentication verified; fixed live request and release pending** | **Mandatory for Claude Plan auth and 2.6.3 release** | [R-027 report](R-027-claude-pro-max-auth-hotfix.md) |
 
 ## Mandatory Synthesis Rule
 
