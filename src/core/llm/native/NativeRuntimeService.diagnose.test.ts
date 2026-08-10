@@ -9,7 +9,7 @@ import { NativeRuntimeService } from './NativeRuntimeService'
 import { NativeRuntimeStore } from './NativeRuntimeStore'
 
 describe('NativeRuntimeService structured diagnosis', () => {
-  it('confirms WinGet updater evidence while keeping Claude billing blocked', async () => {
+  it('confirms WinGet updater evidence and a clean Claude Pro subscription', async () => {
     const resolver = resolverWith(claudeDiscovery('winget'))
     const runner = jest.fn(async (options: NativeProcessOptions) => {
       if (options.executable === 'winget.exe') {
@@ -45,11 +45,15 @@ describe('NativeRuntimeService structured diagnosis', () => {
     const snapshot = await service.diagnose('claude')
 
     expect(snapshot).toMatchObject({
-      status: 'billing-blocked',
+      status: 'ready',
       installation: 'installed',
-      authentication: 'billing-blocked',
+      authentication: 'subscription',
       catalog: 'ready',
       update: 'winget',
+      authDecision: {
+        status: 'subscription',
+        allowed: true,
+      },
       discovery: {
         candidates: [
           expect.objectContaining({

@@ -1,4 +1,4 @@
-import { Check, LogIn, RefreshCw } from 'lucide-react'
+import { Check, LogIn, RefreshCw, ShieldAlert } from 'lucide-react'
 import { App } from 'obsidian'
 import { useEffect, useState } from 'react'
 
@@ -46,22 +46,43 @@ export function NativeRuntimeLoginModalComponent({
 }: NativeRuntimeLoginModalProps) {
   const [isCheckingRequest, setIsCheckingRequest] = useState(false)
   const [snapshot, setSnapshot] = useState(() => service.getSnapshot(provider))
-  const [statusMessage, setStatusMessage] = useState(
-    '아래 순서대로 진행하세요. 로그인 창은 Smart Composer와 별도로 열립니다.',
+  const [statusMessage, setStatusMessage] = useState(() =>
+    initialStatusMessage(snapshot, title, provider),
   )
   const platform = process.platform === 'darwin' ? 'darwin' : 'win32'
   const isReady = snapshot.status === 'ready'
+  const isPolicyBlocked =
+    snapshot.status === 'billing-blocked' ||
+    snapshot.status === 'quota-unverified'
+  const isAuthenticatedButBlocked =
+    isPolicyBlocked && hasAuthenticatedPolicyBlock(snapshot)
   const isChecking = isCheckingRequest || snapshot.phase === 'checking'
 
-  useEffect(() => service.subscribe(provider, setSnapshot), [provider, service])
+  useEffect(
+    () =>
+      service.subscribe(provider, (nextSnapshot) => {
+        setSnapshot(nextSnapshot)
+        if (
+          nextSnapshot.phase === 'settled' &&
+          (nextSnapshot.status === 'ready' ||
+            nextSnapshot.status === 'billing-blocked' ||
+            nextSnapshot.status === 'quota-unverified')
+        ) {
+          setStatusMessage(initialStatusMessage(nextSnapshot, title, provider))
+        }
+      }),
+    [provider, service, title],
+  )
 
   const openLogin = () => {
     try {
       service.openLoginTerminal(provider)
       setStatusMessage(
-        provider === 'claude'
-          ? 'Claude Code 로그인 창을 열었습니다. 브라우저 로그인을 마친 뒤 연결 확인을 누르세요.'
-          : 'Antigravity 로그인 창을 열었습니다. 브라우저 로그인을 먼저 완료하고, CLI가 직접 요구할 때만 일회용 코드를 터미널에 입력하세요.',
+        isPolicyBlocked
+          ? `${provider === 'claude' ? 'Claude Code' : 'Antigravity'} 로그인 관리 창을 열었습니다. 계정 변경이 필요할 때만 안내를 진행하세요. 기존 요청 차단은 재로그인만으로 해제되지 않을 수 있습니다.`
+          : provider === 'claude'
+            ? 'Claude Code 로그인 창을 열었습니다. 브라우저 로그인을 마친 뒤 연결 확인을 누르세요.'
+            : 'Antigravity 로그인 창을 열었습니다. 브라우저 로그인을 먼저 완료하고, CLI가 직접 요구할 때만 일회용 코드를 터미널에 입력하세요.',
       )
     } catch (error) {
       setStatusMessage(toErrorMessage(error))
@@ -90,15 +111,9 @@ export function NativeRuntimeLoginModalComponent({
             : '아직 로그인이 끝나지 않았습니다. 브라우저에서 Claude 로그인을 완료하세요.',
         )
       } else if (result.status === 'billing-blocked') {
-        setStatusMessage(
-          result.error ??
-            'API 또는 Cloud 과금 경로가 감지되어 Plan 요청을 차단했습니다.',
-        )
+        setStatusMessage(policyBlockMessage(provider, result))
       } else if (result.status === 'quota-unverified') {
-        setStatusMessage(
-          result.warning ??
-            '개인 Plan 할당량 사용 여부를 확인할 수 없어 요청을 차단했습니다.',
-        )
+        setStatusMessage(policyBlockMessage(provider, result))
       } else {
         setStatusMessage(
           result.error ??
@@ -123,19 +138,27 @@ export function NativeRuntimeLoginModalComponent({
       </div>
 
       <section className="smtcmp-runtime-install-step">
-        <StepHeading number="1" title="로그인 창 열기" current={!isReady} />
+        <StepHeading
+          number="1"
+          title={isReady || isPolicyBlocked ? '로그인 관리' : '로그인 창 열기'}
+          current={!isReady && !isPolicyBlocked}
+        />
         <p>
-          아래 버튼을 한 번 누르세요. 이미 열린 로그인 창이 있다면 그 창에서
-          계속 진행해도 됩니다.
+          {isReady || isPolicyBlocked
+            ? '계정을 바꾸거나 공식 CLI의 로그인 상태를 관리할 때만 아래 버튼을 누르세요.'
+            : '아래 버튼을 한 번 누르세요. 이미 열린 로그인 창이 있다면 그 창에서 계속 진행해도 됩니다.'}
         </p>
         <button className="mod-cta" onClick={openLogin}>
           <LogIn size={16} />
-          로그인 창 열기
+          {isReady || isPolicyBlocked ? '로그인 관리' : '로그인 창 열기'}
         </button>
       </section>
 
       <section className="smtcmp-runtime-install-step">
-        <StepHeading number="2" title="화면 안내 따라가기" />
+        <StepHeading
+          number="2"
+          title={isPolicyBlocked ? '계정 변경 시 안내' : '화면 안내 따라가기'}
+        />
         <NativeRuntimeLoginSteps provider={provider} platform={platform} />
       </section>
 
@@ -145,28 +168,45 @@ export function NativeRuntimeLoginModalComponent({
       >
         <StepHeading
           number="3"
-          title="연결 확인"
+          title="로그인 및 요청 정책 확인"
           complete={isReady}
-          current={!isReady}
+          current={!isReady && !isPolicyBlocked}
         />
         <p>
-          터미널에 로그인 완료 문구가 나타난 뒤 누르세요. 로그인 창을 다시 열
-          필요는 없습니다.
+          {isPolicyBlocked
+            ? '로그인 반복 대신 표시된 차단 사유를 해결한 뒤 다시 확인하세요.'
+            : '터미널에 로그인 완료 문구가 나타난 뒤 누르세요. 로그인 창을 다시 열 필요는 없습니다.'}
         </p>
+        {isPolicyBlocked && (
+          <div className="smtcmp-plan-runtime-warning" role="status">
+            <strong>
+              {isAuthenticatedButBlocked ? '로그인 확인됨' : '요청 정책 확인됨'}
+            </strong>
+            {' · '}요청 차단
+          </div>
+        )}
         <button
-          className={isReady ? undefined : 'mod-cta'}
+          className={isReady || isPolicyBlocked ? undefined : 'mod-cta'}
           disabled={isChecking}
           onClick={() => void diagnose()}
         >
           {isReady ? (
             <Check size={16} />
+          ) : isPolicyBlocked ? (
+            <ShieldAlert size={16} />
           ) : (
             <RefreshCw
               size={16}
               className={isChecking ? 'smtcmp-icon-spin' : undefined}
             />
           )}
-          {isChecking ? '확인 중' : isReady ? '연결 확인됨' : '연결 확인'}
+          {isChecking
+            ? '확인 중'
+            : isReady
+              ? '연결 확인됨'
+              : isPolicyBlocked
+                ? '차단 해제 확인'
+                : '연결 확인'}
         </button>
       </section>
 
@@ -177,7 +217,11 @@ export function NativeRuntimeLoginModalComponent({
         aria-atomic="true"
         aria-busy={isChecking}
       >
-        {isReady && <Check size={17} />}
+        {isReady ? (
+          <Check size={17} />
+        ) : isPolicyBlocked ? (
+          <ShieldAlert size={17} />
+        ) : null}
         <span>{statusMessage}</span>
       </div>
 
@@ -216,4 +260,54 @@ function StepHeading({
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function initialStatusMessage(
+  snapshot: NativeRuntimeSnapshot,
+  title: string,
+  provider: NativeRuntimeProvider,
+): string {
+  if (snapshot.status === 'ready') {
+    return `${title} 로그인이 확인되어 요청할 수 있습니다.`
+  }
+  if (
+    snapshot.status === 'billing-blocked' ||
+    snapshot.status === 'quota-unverified'
+  ) {
+    return policyBlockMessage(provider, snapshot)
+  }
+  return '아래 순서대로 진행하세요. 로그인 창은 Smart Composer와 별도로 열립니다.'
+}
+
+function policyBlockMessage(
+  provider: NativeRuntimeProvider,
+  snapshot: NativeRuntimeSnapshot,
+): string {
+  const detail = snapshot.error ?? snapshot.warning
+  const loginState = hasAuthenticatedPolicyBlock(snapshot)
+    ? `${provider === 'claude' ? 'Claude' : 'Antigravity'} 로그인은 확인했습니다. `
+    : ''
+  const boundary =
+    snapshot.status === 'quota-unverified'
+      ? '개인 Plan 할당량 출처를 확인할 수 없어 요청을 차단했습니다.'
+      : 'API, Cloud 또는 다른 과금 정책이 우선할 수 있어 요청을 차단했습니다.'
+  return `${loginState}${boundary}${detail ? ` ${detail}` : ''} 재로그인만으로 해제되는 상태가 아닙니다. 표시된 과금 경로나 환경 설정을 먼저 확인하세요.`
+}
+
+function hasAuthenticatedPolicyBlock(snapshot: NativeRuntimeSnapshot): boolean {
+  if (
+    snapshot.status !== 'billing-blocked' &&
+    snapshot.status !== 'quota-unverified'
+  ) {
+    return false
+  }
+  const evidence = snapshot.authDecision?.evidence ?? []
+  if (snapshot.provider === 'gemini') {
+    return snapshot.catalog === 'ready' && evidence.length > 0
+  }
+  return evidence.some(
+    (item) =>
+      item === 'auth metadata contains a non-subscription billing marker' ||
+      item === 'subscription provenance is incomplete or unknown',
+  )
 }

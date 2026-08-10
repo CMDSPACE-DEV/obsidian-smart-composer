@@ -97,14 +97,15 @@ export function NativeRuntimeInstallModalComponent({
   const [confirmedInstalled, setConfirmedInstalled] = useState(
     snapshot.installation === 'installed',
   )
-  const [statusMessage, setStatusMessage] = useState(
-    '아래 1번부터 차례대로 진행하세요.',
+  const [statusMessage, setStatusMessage] = useState(() =>
+    initialStatusMessage(snapshot, title, provider),
   )
   const tabRefs = useRef<
     Partial<Record<NativeRuntimeGuidePlatform, HTMLButtonElement | null>>
   >({})
   const loginStepRef = useRef<HTMLElement | null>(null)
   const wasInstalledRef = useRef(snapshot.installation === 'installed')
+  const previousSelectedPlatformRef = useRef(selectedPlatform)
   const idPrefix = useId().replace(/:/g, '')
 
   const isSelectedCurrentPlatform = currentPlatform === selectedPlatform
@@ -113,8 +114,29 @@ export function NativeRuntimeInstallModalComponent({
   const isChecking = isCheckingRequest || snapshot.phase === 'checking'
   const isInstalled = isSelectedCurrentPlatform && confirmedInstalled
   const isReady = isInstalled && snapshot.status === 'ready'
+  const isPolicyBlocked =
+    isInstalled &&
+    (snapshot.status === 'billing-blocked' ||
+      snapshot.status === 'quota-unverified')
+  const isAuthenticatedButBlocked =
+    isPolicyBlocked && hasAuthenticatedPolicyBlock(snapshot)
 
-  useEffect(() => service.subscribe(provider, setSnapshot), [provider, service])
+  useEffect(
+    () =>
+      service.subscribe(provider, (nextSnapshot) => {
+        setSnapshot(nextSnapshot)
+        if (
+          isSelectedCurrentPlatform &&
+          nextSnapshot.phase === 'settled' &&
+          (nextSnapshot.status === 'ready' ||
+            nextSnapshot.status === 'billing-blocked' ||
+            nextSnapshot.status === 'quota-unverified')
+        ) {
+          setStatusMessage(initialStatusMessage(nextSnapshot, title, provider))
+        }
+      }),
+    [isSelectedCurrentPlatform, provider, service, title],
+  )
 
   useEffect(() => {
     if (snapshot.phase === 'idle') {
@@ -125,6 +147,8 @@ export function NativeRuntimeInstallModalComponent({
   }, [snapshot.installation, snapshot.phase])
 
   useEffect(() => {
+    if (previousSelectedPlatformRef.current === selectedPlatform) return
+    previousSelectedPlatformRef.current = selectedPlatform
     setCopiedCommand(null)
     setTerminalOpened(false)
     setStatusMessage(
@@ -203,15 +227,9 @@ export function NativeRuntimeInstallModalComponent({
           '설치를 확인했습니다. 아래 4번 계정 로그인 단계가 활성화되었습니다.',
         )
       } else if (result.status === 'billing-blocked') {
-        setStatusMessage(
-          result.error ??
-            'API 또는 Cloud 과금 경로가 감지되어 Plan 요청을 차단했습니다. 안내에 따라 공식 구독 계정으로 다시 로그인하세요.',
-        )
+        setStatusMessage(policyBlockMessage(provider, result))
       } else if (result.status === 'quota-unverified') {
-        setStatusMessage(
-          result.warning ??
-            '로그인은 확인했지만 개인 Plan 할당량 사용 여부를 증명할 수 없어 요청을 차단했습니다.',
-        )
+        setStatusMessage(policyBlockMessage(provider, result))
       } else {
         setStatusMessage(
           result.error ??
@@ -461,7 +479,7 @@ export function NativeRuntimeInstallModalComponent({
             number="4"
             title="계정 로그인"
             complete={isReady}
-            current={isInstalled && !isReady}
+            current={isInstalled && !isReady && !isPolicyBlocked}
           />
           {!isInstalled && (
             <p id={`${idPrefix}-login-disabled`}>
@@ -469,6 +487,18 @@ export function NativeRuntimeInstallModalComponent({
             </p>
           )}
           <p>{loginDescription(provider)}</p>
+          {isPolicyBlocked && (
+            <div className="smtcmp-plan-runtime-warning" role="status">
+              <strong>
+                {isAuthenticatedButBlocked
+                  ? '로그인 확인됨'
+                  : '요청 정책 확인됨'}
+              </strong>
+              {' · '}
+              요청 차단. 로그인 반복보다 아래에 표시된 차단 사유를 먼저
+              해결하세요.
+            </div>
+          )}
           <NativeRuntimeLoginSteps
             provider={provider}
             platform={selectedPlatform}
@@ -491,22 +521,36 @@ export function NativeRuntimeInstallModalComponent({
               {copiedCommand === 'login' ? '복사됨' : '로그인 명령 복사'}
             </button>
             <button
-              className={isInstalled && !isReady ? 'mod-cta' : undefined}
+              className={
+                isInstalled && !isReady && !isPolicyBlocked
+                  ? 'mod-cta'
+                  : undefined
+              }
               disabled={!isInstalled}
               onClick={openLogin}
             >
               <LogIn size={16} />
-              로그인 창 열기
+              {isPolicyBlocked || isReady ? '로그인 관리' : '로그인 창 열기'}
             </button>
             <button
               disabled={!isInstalled || isChecking}
               onClick={() => void runDiagnostics('login')}
             >
-              <RefreshCw
-                size={16}
-                className={isChecking ? 'smtcmp-icon-spin' : undefined}
-              />
-              {isChecking ? '확인 중' : isReady ? '연결 확인됨' : '연결 확인'}
+              {isPolicyBlocked ? (
+                <ShieldAlert size={16} />
+              ) : (
+                <RefreshCw
+                  size={16}
+                  className={isChecking ? 'smtcmp-icon-spin' : undefined}
+                />
+              )}
+              {isChecking
+                ? '확인 중'
+                : isReady
+                  ? '연결 확인됨'
+                  : isPolicyBlocked
+                    ? '차단 해제 확인'
+                    : '연결 확인'}
             </button>
           </div>
         </section>
@@ -519,7 +563,11 @@ export function NativeRuntimeInstallModalComponent({
         aria-atomic="true"
         aria-busy={isChecking}
       >
-        {isReady && <Check size={17} />}
+        {isReady ? (
+          <Check size={17} />
+        ) : isPolicyBlocked ? (
+          <ShieldAlert size={17} />
+        ) : null}
         <span>{statusMessage}</span>
       </div>
 
@@ -624,6 +672,58 @@ function loginInstructions(
   }
   const pasteKey = platform === 'darwin' ? '⌘V' : 'Ctrl+V'
   return `Antigravity 로그인 창을 열었습니다. 브라우저 로그인을 먼저 완료하세요. CLI가 직접 코드를 요구할 때만 터미널에 ${pasteKey} 후 Enter를 누르세요.`
+}
+
+function initialStatusMessage(
+  snapshot: NativeRuntimeSnapshot,
+  title: string,
+  provider: NativeRuntimeProvider,
+): string {
+  if (snapshot.status === 'ready') {
+    return `${title} 설치와 안전한 구독 로그인을 확인했습니다.`
+  }
+  if (
+    snapshot.status === 'billing-blocked' ||
+    snapshot.status === 'quota-unverified'
+  ) {
+    return policyBlockMessage(provider, snapshot)
+  }
+  return '아래 1번부터 차례대로 진행하세요.'
+}
+
+function policyBlockMessage(
+  provider: NativeRuntimeProvider,
+  snapshot: NativeRuntimeSnapshot,
+): string {
+  const detail = snapshot.error ?? snapshot.warning
+  const loginState = hasAuthenticatedPolicyBlock(snapshot)
+    ? `${provider === 'claude' ? 'Claude' : 'Antigravity'} 로그인은 확인했습니다. `
+    : ''
+  const boundary =
+    snapshot.status === 'quota-unverified'
+      ? '개인 Plan 할당량 출처를 확인할 수 없어 요청을 차단했습니다.'
+      : 'API, Cloud 또는 다른 과금 정책이 우선할 수 있어 요청을 차단했습니다.'
+  const resolution =
+    ' 재로그인만으로 해제되는 상태가 아닙니다. 표시된 과금 경로나 환경 설정을 먼저 확인하세요.'
+  return `${loginState}${boundary}${detail ? ` ${detail}` : ''}${resolution}`
+}
+
+function hasAuthenticatedPolicyBlock(snapshot: NativeRuntimeSnapshot): boolean {
+  if (
+    snapshot.status !== 'billing-blocked' &&
+    snapshot.status !== 'quota-unverified'
+  ) {
+    return false
+  }
+  const evidence = snapshot.authDecision?.evidence ?? []
+  if (snapshot.provider === 'gemini') {
+    return snapshot.catalog === 'ready' && evidence.length > 0
+  }
+  return evidence.some(
+    (item) =>
+      item === 'auth metadata contains a non-subscription billing marker' ||
+      item === 'subscription provenance is incomplete or unknown',
+  )
 }
 
 function openOfficialDocumentation(url: string): void {

@@ -8,7 +8,7 @@ import {
 
 describe('Claude Plan billing guard', () => {
   it.each(['pro', 'max'])(
-    'keeps an apparent first-party %s fixture blocked without effective provenance',
+    'allows a clean first-party %s subscription fixture',
     (subscriptionType) => {
       expect(
         classifyClaudeAuthStatus(
@@ -17,7 +17,95 @@ describe('Claude Plan billing guard', () => {
             authMethod: 'claude.ai',
             apiProvider: 'firstParty',
             subscriptionType,
-            apiKeySource: '/login managed key',
+          }),
+        ),
+      ).toEqual({
+        status: 'subscription',
+        allowed: true,
+        reason:
+          'Claude Code reported an eligible first-party Pro/Max subscription login.',
+        evidence: [
+          'authMethod=claude.ai',
+          'apiProvider=firstParty',
+          `subscriptionType=${subscriptionType}`,
+        ],
+      })
+    },
+  )
+
+  it('allows unrelated identity fields without retaining them as evidence', () => {
+    const decision = classifyClaudeAuthStatus(
+      JSON.stringify({
+        loggedIn: true,
+        authMethod: 'claude.ai',
+        apiProvider: 'firstParty',
+        subscriptionType: 'max',
+        email: 'private@example.test',
+        accountId: 'private-account-id',
+        author: 'private-author-label',
+        resource: 'private-resource-label',
+        organization: {
+          id: 'private-organization-id',
+          displayName: 'Private organization',
+        },
+      }),
+    )
+
+    expect(decision).toMatchObject({
+      status: 'subscription',
+      allowed: true,
+    })
+    expect(JSON.stringify(decision)).not.toContain('private')
+  })
+
+  it.each([
+    ['unknown billing source', { billingSource: 'future-source' }],
+    ['enabled gateway', { gateway: true }],
+    [
+      'nested unknown provenance string',
+      { metadata: { billingProvenance: 'future-provenance' } },
+    ],
+    [
+      'nested unknown provenance object',
+      { metadata: { quotaProvenance: { kind: 'future' } } },
+    ],
+    ['nested unknown provenance number', { metadata: { provenance: 7 } }],
+    [
+      'compact lowercase provenance marker',
+      { metadata: { billingprovenance: true } },
+    ],
+  ])(
+    'fails closed for %s on an otherwise clean Max tuple',
+    (_label, marker) => {
+      expect(
+        classifyClaudeAuthStatus(
+          JSON.stringify({
+            loggedIn: true,
+            authMethod: 'claude.ai',
+            apiProvider: 'firstParty',
+            subscriptionType: 'max',
+            ...marker,
+          }),
+        ),
+      ).toMatchObject({
+        status: 'billing-blocked',
+        allowed: false,
+        evidence: ['auth metadata contains a non-subscription billing marker'],
+      })
+    },
+  )
+
+  it.each(['pro', 'max'])(
+    'blocks a first-party %s fixture with an API helper marker',
+    (subscriptionType) => {
+      expect(
+        classifyClaudeAuthStatus(
+          JSON.stringify({
+            loggedIn: true,
+            authMethod: 'claude.ai',
+            apiProvider: 'firstParty',
+            subscriptionType,
+            apiKeySource: 'apiKeyHelper',
           }),
         ),
       ).toMatchObject({ status: 'billing-blocked', allowed: false })
@@ -70,6 +158,26 @@ describe('Claude Plan billing guard', () => {
       },
     ],
     [
+      'Mantle billing marker',
+      {
+        loggedIn: true,
+        authMethod: 'claude.ai',
+        apiProvider: 'firstParty',
+        subscriptionType: 'max',
+        billingSource: 'Amazon Bedrock Mantle',
+      },
+    ],
+    [
+      'unknown credential source',
+      {
+        loggedIn: true,
+        authMethod: 'claude.ai',
+        apiProvider: 'firstParty',
+        subscriptionType: 'pro',
+        credentialSource: 'future-source',
+      },
+    ],
+    [
       'unknown future schema',
       { loggedIn: true, authMethod: 'oauth_token', apiProvider: 'firstParty' },
     ],
@@ -116,6 +224,94 @@ describe('Claude Plan billing guard', () => {
     expect(JSON.stringify(verification)).not.toContain('must-never-be-retained')
   })
 
+  it('allows verified Pro auth when the environment and managed settings are clean', async () => {
+    const runner = jest.fn().mockResolvedValue({
+      stdout: JSON.stringify({
+        loggedIn: true,
+        authMethod: 'claude.ai',
+        apiProvider: 'firstParty',
+        subscriptionType: 'pro',
+      }),
+      stderr: '',
+      exitCode: 0,
+    })
+    const environment = prepareNativePlanEnvironment('claude', {
+      PATH: '/safe/bin',
+    })
+
+    const verification = await verifyClaudePlanAuth('/runtime/claude', {
+      environment,
+      runner,
+      managedSettingsInspector: () => [],
+    })
+
+    expect(runner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        executable: '/runtime/claude',
+        args: ['auth', 'status'],
+        env: { PATH: '/safe/bin' },
+      }),
+    )
+    expect(verification.decision).toMatchObject({
+      status: 'subscription',
+      allowed: true,
+    })
+  })
+
+  it.each([
+    'ANTHROPIC_AWS_API_KEY',
+    'ANTHROPIC_AWS_BASE_URL',
+    'ANTHROPIC_AWS_WORKSPACE_ID',
+    'ANTHROPIC_BEDROCK_MANTLE_BASE_URL',
+    'ANTHROPIC_FOUNDRY_AUTH_TOKEN',
+    'ANTHROPIC_FOUNDRY_RESOURCE',
+    'ANTHROPIC_VERTEX_PROJECT_ID',
+    'ANTHROPIC_WORKSPACE_ID',
+    'AWS_BEARER_TOKEN_BEDROCK',
+    'CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST',
+    'CLAUDE_CODE_SKIP_ANTHROPIC_AWS_AUTH',
+    'CLAUDE_CODE_SKIP_BEDROCK_AUTH',
+    'CLAUDE_CODE_SKIP_FOUNDRY_AUTH',
+    'CLAUDE_CODE_SKIP_MANTLE_AUTH',
+    'CLAUDE_CODE_SKIP_VERTEX_AUTH',
+    'CLAUDE_CODE_USE_ANTHROPIC_AWS',
+    'CLAUDE_CODE_USE_MANTLE',
+  ])('blocks and removes the documented Claude routing override %s', (name) => {
+    const environment = prepareNativePlanEnvironment('claude', {
+      PATH: '/safe/bin',
+      [name]: 'must-never-reach-claude',
+    })
+
+    expect(environment.env).toEqual({ PATH: '/safe/bin' })
+    expect(environment.blockedVariables).toEqual([name])
+    expect(JSON.stringify(environment)).not.toContain('must-never-reach-claude')
+  })
+
+  it('does not treat ambient AWS credentials or disabled provider toggles as active routing', () => {
+    const environment = prepareNativePlanEnvironment('claude', {
+      PATH: '/safe/bin',
+      AWS_ACCESS_KEY_ID: 'ambient-access-id',
+      AWS_SECRET_ACCESS_KEY: 'ambient-secret',
+      AWS_SESSION_TOKEN: 'ambient-session',
+      AWS_PROFILE: 'ambient-profile',
+      AWS_REGION: 'us-east-1',
+      ANTHROPIC_SMALL_FAST_MODEL_AWS_REGION: 'us-west-2',
+      CLAUDE_CODE_USE_BEDROCK: '0',
+      CLAUDE_CODE_USE_MANTLE: 'false',
+    })
+
+    expect(environment.blockedVariables).toEqual([])
+    expect(environment.env).toEqual({
+      PATH: '/safe/bin',
+      AWS_ACCESS_KEY_ID: 'ambient-access-id',
+      AWS_SECRET_ACCESS_KEY: 'ambient-secret',
+      AWS_SESSION_TOKEN: 'ambient-session',
+      AWS_PROFILE: 'ambient-profile',
+      AWS_REGION: 'us-east-1',
+      ANTHROPIC_SMALL_FAST_MODEL_AWS_REGION: 'us-west-2',
+    })
+  })
+
   it('blocks mixed-case credential names used by Windows environments', () => {
     const environment = prepareNativePlanEnvironment('claude', {
       Path: 'C:\\safe\\bin',
@@ -153,6 +349,29 @@ describe('Claude Plan billing guard', () => {
       'managed settings file present',
       'machine policy registry present',
     ])
+  })
+
+  it('fails closed when managed settings inspection throws', async () => {
+    const runner = jest.fn()
+    const verification = await verifyClaudePlanAuth('/runtime/claude', {
+      environment: prepareNativePlanEnvironment('claude', {
+        PATH: '/safe/bin',
+      }),
+      runner,
+      managedSettingsInspector: () => {
+        throw new Error('inspection failure must not escape')
+      },
+    })
+
+    expect(runner).not.toHaveBeenCalled()
+    expect(verification.decision).toMatchObject({
+      status: 'billing-blocked',
+      allowed: false,
+      evidence: ['managed settings inspection failed closed'],
+    })
+    expect(JSON.stringify(verification)).not.toContain(
+      'inspection failure must not escape',
+    )
   })
 })
 

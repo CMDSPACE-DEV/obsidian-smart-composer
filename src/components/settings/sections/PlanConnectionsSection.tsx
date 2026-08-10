@@ -224,6 +224,7 @@ export function NativeRuntimeCard({
   )
   const isDiagnosing = snapshot.phase === 'checking'
   const isInstalled = snapshot.installation === 'installed'
+  const isAuthenticatedButBlocked = hasAuthenticatedPolicyBlock(snapshot)
 
   const diagnose = async () => {
     if (isDiagnosing) return
@@ -310,7 +311,10 @@ export function NativeRuntimeCard({
             </span>
           )}
         </div>
-        <PlanConnectionStatusBadge status={snapshot.status} />
+        <PlanConnectionStatusBadge
+          status={snapshot.status}
+          authenticatedButBlocked={isAuthenticatedButBlocked}
+        />
       </div>
 
       <div className="smtcmp-plan-connection-card-desc">{description}</div>
@@ -333,6 +337,14 @@ export function NativeRuntimeCard({
           role="alert"
           title={snapshot.error}
         >
+          {(snapshot.status === 'billing-blocked' ||
+            snapshot.status === 'quota-unverified') && (
+            <strong>
+              {isAuthenticatedButBlocked
+                ? '로그인 확인됨 · 요청 차단: '
+                : '요청 차단: '}
+            </strong>
+          )}
           {snapshot.error}
         </div>
       )}
@@ -389,7 +401,7 @@ export function NativeRuntimeCard({
         {isInstalled && (
           <button disabled={!Platform.isDesktop} onClick={openLogin}>
             <Terminal size={15} />
-            Sign in
+            {snapshot.status === 'login-required' ? 'Sign in' : '로그인 관리'}
           </button>
         )}
 
@@ -451,12 +463,19 @@ function PlanConnectionStatusBadge({
   status,
   connectedLabel,
   disconnectedLabel,
+  authenticatedButBlocked = false,
 }: {
   status: NativeRuntimeStatus
   connectedLabel?: string
   disconnectedLabel?: string
+  authenticatedButBlocked?: boolean
 }) {
-  const config = statusConfig(status, connectedLabel, disconnectedLabel)
+  const config = statusConfig(
+    status,
+    connectedLabel,
+    disconnectedLabel,
+    authenticatedButBlocked,
+  )
 
   return (
     <div
@@ -474,6 +493,7 @@ function statusConfig(
   status: NativeRuntimeStatus,
   connectedLabel = 'Ready',
   disconnectedLabel = 'Login required',
+  authenticatedButBlocked = false,
 ) {
   switch (status) {
     case 'checking':
@@ -491,13 +511,17 @@ function statusConfig(
     case 'billing-blocked':
       return {
         icon: <ShieldAlert size={14} />,
-        label: 'Billing blocked',
+        label: authenticatedButBlocked
+          ? '로그인 확인됨 · 요청 차단'
+          : '요청 차단',
         statusClass: 'smtcmp-mcp-server-status-badge--error',
       }
     case 'quota-unverified':
       return {
         icon: <ShieldAlert size={14} />,
-        label: 'Quota unverified',
+        label: authenticatedButBlocked
+          ? '로그인 확인됨 · 요청 차단'
+          : '요청 차단',
         statusClass: 'smtcmp-mcp-server-status-badge--warning',
       }
     case 'error':
@@ -582,14 +606,36 @@ function runtimeNotice(title: string, status: NativeRuntimeStatus): string {
     case 'login-required':
       return `${title}이 설치되었습니다. 로그인 후 다시 확인하세요.`
     case 'billing-blocked':
-      return `${title}에서 API 또는 Cloud 과금 경로가 감지되어 차단했습니다.`
+      return `${title} 요청을 차단했습니다. 재로그인보다 표시된 API 또는 Cloud 과금 경로를 먼저 해제하세요.`
     case 'quota-unverified':
-      return `${title}의 개인 Plan 할당량 출처를 확인할 수 없어 차단했습니다.`
+      return `${title} 로그인은 확인했지만 개인 Plan 할당량 출처를 확인할 수 없어 요청을 차단했습니다.`
     case 'not-installed':
       return `${title} runtime을 찾지 못했습니다.`
     case 'error':
       return `${title} runtime 진단에서 오류를 발견했습니다.`
   }
+}
+
+function hasAuthenticatedPolicyBlock(snapshot: NativeRuntimeSnapshot): boolean {
+  if (
+    snapshot.status !== 'billing-blocked' &&
+    snapshot.status !== 'quota-unverified'
+  ) {
+    return false
+  }
+
+  const evidence = snapshot.authDecision?.evidence ?? []
+  if (snapshot.provider === 'gemini') {
+    return snapshot.catalog === 'ready' && evidence.length > 0
+  }
+
+  // Environment and managed-policy preflight failures happen before
+  // `claude auth status`; only parsed auth metadata confirms a Claude login.
+  return evidence.some(
+    (item) =>
+      item === 'auth metadata contains a non-subscription billing marker' ||
+      item === 'subscription provenance is incomplete or unknown',
+  )
 }
 
 function isSafeClaudeUpdate(update: NativeRuntimeSnapshot['update']): boolean {

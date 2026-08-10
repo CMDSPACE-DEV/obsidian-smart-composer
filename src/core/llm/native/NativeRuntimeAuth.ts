@@ -25,16 +25,46 @@ export type RuntimeAuthVerification = {
 const CLAUDE_BLOCKED_ENVIRONMENT = new Set([
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_AWS_API_KEY',
+  'ANTHROPIC_AWS_BASE_URL',
+  'ANTHROPIC_AWS_WORKSPACE_ID',
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_BEDROCK_BASE_URL',
+  'ANTHROPIC_BEDROCK_MANTLE_BASE_URL',
   'ANTHROPIC_CUSTOM_HEADERS',
   'ANTHROPIC_FOUNDRY_API_KEY',
+  'ANTHROPIC_FOUNDRY_AUTH_TOKEN',
   'ANTHROPIC_FOUNDRY_BASE_URL',
+  'ANTHROPIC_FOUNDRY_RESOURCE',
   'ANTHROPIC_VERTEX_BASE_URL',
+  'ANTHROPIC_VERTEX_PROJECT_ID',
+  'ANTHROPIC_WORKSPACE_ID',
+  'AWS_BEARER_TOKEN_BEDROCK',
   'CLAUDE_CODE_OAUTH_TOKEN',
+  'CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST',
+  'CLAUDE_CODE_SKIP_ANTHROPIC_AWS_AUTH',
+  'CLAUDE_CODE_SKIP_BEDROCK_AUTH',
+  'CLAUDE_CODE_SKIP_FOUNDRY_AUTH',
+  'CLAUDE_CODE_SKIP_MANTLE_AUTH',
+  'CLAUDE_CODE_SKIP_VERTEX_AUTH',
+  'CLAUDE_CODE_USE_ANTHROPIC_AWS',
   'CLAUDE_CODE_USE_BEDROCK',
-  'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
+  'CLAUDE_CODE_USE_MANTLE',
+  'CLAUDE_CODE_USE_VERTEX',
+])
+
+const CLAUDE_BOOLEAN_ROUTING_ENVIRONMENT = new Set([
+  'CLAUDE_CODE_SKIP_ANTHROPIC_AWS_AUTH',
+  'CLAUDE_CODE_SKIP_BEDROCK_AUTH',
+  'CLAUDE_CODE_SKIP_FOUNDRY_AUTH',
+  'CLAUDE_CODE_SKIP_MANTLE_AUTH',
+  'CLAUDE_CODE_SKIP_VERTEX_AUTH',
+  'CLAUDE_CODE_USE_ANTHROPIC_AWS',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_FOUNDRY',
+  'CLAUDE_CODE_USE_MANTLE',
+  'CLAUDE_CODE_USE_VERTEX',
 ])
 
 const GEMINI_BLOCKED_ENVIRONMENT = new Set([
@@ -50,6 +80,36 @@ const GEMINI_BLOCKED_ENVIRONMENT = new Set([
 ])
 
 const CLAUDE_PERSONAL_SUBSCRIPTION_TYPES = new Set(['pro', 'max'])
+
+const CLAUDE_ALLOWED_ROOT_AUTH_FIELDS = new Set([
+  'loggedIn',
+  'authMethod',
+  'apiProvider',
+  'subscriptionType',
+])
+
+const CLAUDE_AUTH_MARKER_KEY_TOKENS = new Set([
+  'auth',
+  'authentication',
+  'authorization',
+  'bedrock',
+  'billing',
+  'credential',
+  'credentials',
+  'endpoint',
+  'entitlement',
+  'foundry',
+  'gateway',
+  'mantle',
+  'oauth',
+  'provenance',
+  'provider',
+  'quota',
+  'source',
+  'subscription',
+  'token',
+  'vertex',
+])
 
 export type ClaudeManagedSettingsInspector = () => string[]
 
@@ -74,7 +134,15 @@ export function prepareNativePlanEnvironment(
       env[name] = value
       continue
     }
-    if (typeof value === 'string' && value.trim()) {
+    if (
+      typeof value === 'string' &&
+      value.trim() &&
+      !(
+        provider === 'claude' &&
+        CLAUDE_BOOLEAN_ROUTING_ENVIRONMENT.has(canonicalName) &&
+        isExplicitlyDisabled(value)
+      )
+    ) {
       blockedVariables.push(canonicalName)
     }
   }
@@ -301,8 +369,7 @@ export function classifyClaudeAuthStatus(
   const authMethod = normalizedString(parsed.authMethod)
   const apiProvider = normalizedString(parsed.apiProvider)
   const subscriptionType = normalizedString(parsed.subscriptionType)
-  const records = collectRecords(parsed)
-  if (records.some(hasBlockedClaudeAuthMarker)) {
+  if (hasBlockedClaudeAuthMetadata(parsed)) {
     return {
       status: 'billing-blocked',
       allowed: false,
@@ -319,15 +386,14 @@ export function classifyClaudeAuthStatus(
     CLAUDE_PERSONAL_SUBSCRIPTION_TYPES.has(subscriptionType)
   if (looksLikePersonalSubscription) {
     return {
-      status: 'billing-blocked',
-      allowed: false,
+      status: 'subscription',
+      allowed: true,
       reason:
-        'Claude appears to use a first-party Pro/Max login, but the current CLI cannot prove that remote managed settings will not override it for this request.',
+        'Claude Code reported an eligible first-party Pro/Max subscription login.',
       evidence: [
         'authMethod=claude.ai',
         'apiProvider=firstParty',
         `subscriptionType=${subscriptionType}`,
-        'effective remote managed credential source is not machine-readable',
       ],
     }
   }
@@ -395,22 +461,77 @@ function blockedEnvironmentDecision(
   }
 }
 
-function hasBlockedClaudeAuthMarker(record: Record<string, unknown>): boolean {
-  const markerFields = [
-    record.authMethod,
-    record.apiProvider,
-    record.apiKeySource,
-    record.billingType,
-    record.billingSource,
-    record.credentialSource,
-  ]
-    .map(normalizedString)
-    .filter((value): value is string => value !== undefined)
-  return markerFields.some((value) =>
-    /console|api[_ -]?key|api[_ -]?usage|bedrock|vertex|foundry|gateway|helper/.test(
-      value,
-    ),
+function hasBlockedClaudeAuthMetadata(
+  record: Record<string, unknown>,
+  isRoot = true,
+): boolean {
+  for (const [key, value] of Object.entries(record)) {
+    if (isRoot && CLAUDE_ALLOWED_ROOT_AUTH_FIELDS.has(key)) {
+      if (!isAllowedClaudeRootAuthField(key, value) && hasActiveMarker(value)) {
+        return true
+      }
+    } else if (isClaudeAuthMarkerKey(key) && hasActiveMarker(value)) {
+      return true
+    }
+
+    if (containsBlockedClaudeAuthMetadata(value)) return true
+  }
+  return false
+}
+
+function containsBlockedClaudeAuthMetadata(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some(containsBlockedClaudeAuthMetadata)
+  }
+  return isRecord(value) ? hasBlockedClaudeAuthMetadata(value, false) : false
+}
+
+function isAllowedClaudeRootAuthField(key: string, value: unknown): boolean {
+  if (key === 'loggedIn') return value === true
+  const normalized = normalizedString(value)
+  if (key === 'authMethod') return normalized === 'claude.ai'
+  if (key === 'apiProvider') return normalized === 'firstparty'
+  if (key === 'subscriptionType') {
+    return (
+      normalized !== undefined &&
+      CLAUDE_PERSONAL_SUBSCRIPTION_TYPES.has(normalized)
+    )
+  }
+  return false
+}
+
+function isClaudeAuthMarkerKey(key: string): boolean {
+  const tokens = key
+    .replace(/([a-z\d])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .split(/[^a-zA-Z\d]+/)
+    .map((token) => token.toLowerCase())
+    .filter(Boolean)
+  const compact = tokens.join('')
+  return (
+    tokens.some((token) => CLAUDE_AUTH_MARKER_KEY_TOKENS.has(token)) ||
+    /billing|credential|endpoint|entitlement|foundry|gateway|mantle|oauth|provenance|provider|quota|subscription|token|vertex|bedrock|apikey|managedsettings/.test(
+      compact,
+    ) ||
+    compact === 'auth' ||
+    compact.endsWith('auth') ||
+    /authentication|authorization|auth(?:method|override|provider|source|status|token|enabled)/.test(
+      compact,
+    ) ||
+    (compact.endsWith('source') && compact !== 'resource') ||
+    compact === 'accounttype' ||
+    compact === 'organizationtype' ||
+    compact === 'plantype'
   )
+}
+
+function hasActiveMarker(value: unknown): boolean {
+  if (typeof value === 'string') return value.trim().length > 0
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return Number.isFinite(value) && value !== 0
+  if (Array.isArray(value)) return value.length > 0
+  if (isRecord(value)) return Object.keys(value).length > 0
+  return false
 }
 
 function hasGoogleCloudMarker(record: Record<string, unknown>): boolean {
@@ -456,6 +577,10 @@ function normalizedString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim()
     ? value.trim().toLowerCase()
     : undefined
+}
+
+function isExplicitlyDisabled(value: string): boolean {
+  return /^(?:0|false)$/i.test(value.trim())
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

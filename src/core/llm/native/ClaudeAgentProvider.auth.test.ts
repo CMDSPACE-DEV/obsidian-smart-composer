@@ -21,7 +21,7 @@ describe('ClaudeAgentProvider billing-safe environment', () => {
     mockRunNativeProcess.mockReset()
   })
 
-  it('blocks an apparent Pro login before inference without effective provenance', async () => {
+  it('rechecks a clean Pro login immediately before inference', async () => {
     mockRunNativeProcess.mockImplementation(
       async (options: {
         args: string[]
@@ -40,7 +40,14 @@ describe('ClaudeAgentProvider billing-safe environment', () => {
             exitCode: 0,
           }
         }
-        throw new Error('Inference must not run')
+        options.onStdoutLine?.(
+          JSON.stringify({
+            type: 'result',
+            subtype: 'success',
+            result: 'subscription response',
+          }),
+        )
+        return { stdout: '', stderr: '', exitCode: 0 }
       },
     )
     const resolver = {
@@ -51,14 +58,59 @@ describe('ClaudeAgentProvider billing-safe environment', () => {
       resolver,
       { PATH: '/safe/bin' },
     )
-    await expect(provider.streamResponse(model(), request())).rejects.toThrow(
-      /request blocked/i,
-    )
+    const stream = await provider.streamResponse(model(), request())
+    let content = ''
+    for await (const chunk of stream) {
+      content += chunk.choices[0]?.delta.content ?? ''
+    }
 
-    expect(mockRunNativeProcess).toHaveBeenCalledTimes(1)
+    expect(content).toBe('subscription response')
+    expect(mockRunNativeProcess).toHaveBeenCalledTimes(2)
     const authEnvironment = mockRunNativeProcess.mock.calls[0]?.[0].env
     expect(authEnvironment.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBe('1')
+    const inferenceEnvironment = mockRunNativeProcess.mock.calls[1]?.[0].env
+    expect(inferenceEnvironment).toBe(authEnvironment)
   })
+
+  it.each([
+    'ANTHROPIC_API_KEY',
+    'ANTHROPIC_AUTH_TOKEN',
+    'CLAUDE_CODE_OAUTH_TOKEN',
+    'ANTHROPIC_BASE_URL',
+    'ANTHROPIC_CUSTOM_HEADERS',
+    'ANTHROPIC_FOUNDRY_AUTH_TOKEN',
+    'CLAUDE_CODE_USE_FOUNDRY',
+    'ANTHROPIC_VERTEX_PROJECT_ID',
+    'CLAUDE_CODE_USE_VERTEX',
+  ])(
+    'blocks a request-time %s override before invoking Claude',
+    async (name) => {
+      const environmentSource: NodeJS.ProcessEnv = { PATH: '/safe/bin' }
+      const resolver = {
+        resolve: () => '/runtime/claude',
+      } as unknown as NativeCliResolver
+      const provider = new ClaudeAgentProvider(
+        { type: 'anthropic-plan', id: 'anthropic-plan' },
+        resolver,
+        environmentSource,
+      )
+      const secretValue = 'must-never-reach-claude'
+
+      environmentSource[name] = secretValue
+
+      let failure: unknown
+      try {
+        await provider.streamResponse(model(), request())
+      } catch (error) {
+        failure = error
+      }
+
+      expect(failure).toBeInstanceOf(Error)
+      expect(String(failure)).toMatch(/request blocked/i)
+      expect(String(failure)).not.toContain(secretValue)
+      expect(mockRunNativeProcess).not.toHaveBeenCalled()
+    },
+  )
 })
 
 function model(): Extract<ChatModel, { providerType: 'anthropic-plan' }> {

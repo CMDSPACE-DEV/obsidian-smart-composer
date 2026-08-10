@@ -15,6 +15,7 @@ import {
   NativeRuntimeInstallModalComponent,
   getAlternativeInstallMethods,
 } from './NativeRuntimeInstallModal'
+import { NativeRuntimeLoginModalComponent } from './NativeRuntimeLoginModal'
 import { NativeRuntimeLoginSteps } from './NativeRuntimeLoginSteps'
 
 const initialSnapshot: NativeRuntimeSnapshot = {
@@ -26,6 +27,39 @@ const initialSnapshot: NativeRuntimeSnapshot = {
   catalog: 'not-checked',
   update: 'not-checked',
   models: [],
+}
+
+const readyClaudeSnapshot: NativeRuntimeSnapshot = {
+  ...initialSnapshot,
+  status: 'ready',
+  phase: 'settled',
+  installation: 'installed',
+  authentication: 'subscription',
+  catalog: 'ready',
+  update: 'native',
+  authDecision: {
+    status: 'subscription',
+    allowed: true,
+    reason: 'Eligible first-party Claude subscription.',
+    evidence: [
+      'authMethod=claude.ai',
+      'apiProvider=firstParty',
+      'subscriptionType=max',
+    ],
+  },
+}
+
+const blockedClaudeSnapshot: NativeRuntimeSnapshot = {
+  ...readyClaudeSnapshot,
+  status: 'billing-blocked',
+  authentication: 'billing-blocked',
+  authDecision: {
+    status: 'billing-blocked',
+    allowed: false,
+    reason: 'A non-subscription billing path takes precedence.',
+    evidence: ['auth metadata contains a non-subscription billing marker'],
+  },
+  error: 'A non-subscription billing path takes precedence.',
 }
 
 function createService(snapshot = initialSnapshot): NativeRuntimeService {
@@ -117,6 +151,63 @@ describe('NativeRuntimeInstallModalComponent', () => {
     expect(html).toContain('aria-disabled="false"')
     expect(html).toContain('로그인 창 열기')
     expect(html).toContain('연결 확인')
+  })
+
+  it('renders an allowed first-party subscription as Ready and completed', () => {
+    const html = withPlatform('win32', () =>
+      renderToStaticMarkup(
+        <NativeRuntimeInstallModalComponent
+          provider="claude"
+          title="Claude Plan"
+          service={createService(readyClaudeSnapshot)}
+          onDiagnostics={() => undefined}
+          onClose={() => undefined}
+        />,
+      ),
+    )
+
+    expect(html).toMatch(
+      /data-runtime-step="login" class="[^"]*is-complete[^"]*"/,
+    )
+    expect(html).toContain('연결 확인됨')
+    expect(html).toContain('안전한 구독 로그인을 확인했습니다')
+    expect(html).toContain('로그인 관리')
+    expect(html).toContain('완료')
+    expect(html).not.toContain('요청 차단')
+  })
+
+  it('labels an authenticated policy block without prescribing another login', () => {
+    const service = createService(blockedClaudeSnapshot)
+    const installer = withPlatform('win32', () =>
+      renderToStaticMarkup(
+        <NativeRuntimeInstallModalComponent
+          provider="claude"
+          title="Claude Plan"
+          service={service}
+          onDiagnostics={() => undefined}
+          onClose={() => undefined}
+        />,
+      ),
+    )
+    const login = withPlatform('win32', () =>
+      renderToStaticMarkup(
+        <NativeRuntimeLoginModalComponent
+          provider="claude"
+          title="Claude Plan"
+          service={service}
+          onDiagnostics={() => undefined}
+          onClose={() => undefined}
+        />,
+      ),
+    )
+
+    for (const html of [installer, login]) {
+      expect(html).toContain('로그인 확인됨')
+      expect(html).toContain('요청 차단')
+      expect(html).toContain('로그인 관리')
+      expect(html).toContain('재로그인만으로 해제되는 상태가 아닙니다')
+      expect(html).not.toContain('공식 구독 계정으로 다시 로그인하세요')
+    }
   })
 
   it('keeps official package-manager and CMD alternatives copy-only', () => {
