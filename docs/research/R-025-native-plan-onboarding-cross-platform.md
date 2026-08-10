@@ -1022,3 +1022,8 @@ dumps.
   user-approved Gemini compatibility rollback. Successful official catalog
   discovery may enable requests without claiming machine-verified personal
   quota; explicit API and Google Cloud evidence remains blocking.
+- 2026-08-10: R-029 refines the Antigravity updater UX after a 2.6.4
+  user-supplied screenshot report. The current scripts still do not replace an
+  existing binary; the safe action opens the selected CLI to give its
+  documented background updater an opportunity to run, then re-diagnoses the
+  observed local version.

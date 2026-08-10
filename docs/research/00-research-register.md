@@ -11,6 +11,8 @@ explicit mandatory set. R-026 is additionally mandatory when qualifying or
 publishing the 2.6.2 release. R-027 is mandatory for Claude Plan authentication
 classification and the 2.6.3 Pro/Max hotfix or release. R-028 is mandatory for
 Gemini Plan authentication and the 2.6.4 compatibility hotfix or release.
+R-029 is mandatory for Antigravity updater, ready-state UX, and the 2.6.5
+patch or release.
 
 ## Purpose
 
@@ -61,6 +63,7 @@ premature synthesis.
 | R-026 | GitHub Actions macOS qualification and safe 2.6.2 branch/tag/release contract | **Partially verified; dual-architecture Settings and Claude transition verified, complete two-provider exact-SHA qualification and publication pending** | **Mandatory for 2.6.2 release** | [R-026 report](R-026-github-actions-macos-and-2.6.2-release.md) |
 | R-027 | Claude personal Pro/Max authentication false block and 2.6.3 billing-safe hotfix contract | **Partially verified; source, current first-party documentation, local tests/build, sanitized Max authentication, and one live protocol request verified; real-Obsidian CI and release pending** | **Mandatory for Claude Plan auth and 2.6.3 release** | [R-027 report](R-027-claude-pro-max-auth-hotfix.md) |
 | R-028 | Gemini Plan compatibility rollback after the 2.6.2/2.6.3 blanket quota-provenance block | **Partially verified; tagged source, R-024 live path, current first-party documentation, implementation, and local full verification complete; authenticated current-runtime and exact-SHA qualification pending** | **Mandatory for Gemini Plan auth and 2.6.4 release** | [R-028 report](R-028-gemini-plan-compatibility-unblock.md) |
+| R-029 | Antigravity background update action and healthy ready-state presentation | **Partially verified; screenshot/source/first-party research, implementation, 652 local tests, and bundle verification complete; exact-SHA hosted qualification pending** | **Mandatory for Antigravity updater/ready UX and 2.6.5 release** | [R-029 report](R-029-antigravity-update-and-ready-state-ux.md) |
 
 ## Mandatory Synthesis Rule
 

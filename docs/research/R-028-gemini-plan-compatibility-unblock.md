@@ -456,3 +456,7 @@ Composer to read or persist those credentials.
   suites/642 tests, typecheck, lint, production build, bundle budget, and zero
   absolute paths in normalized build metadata. Authenticated current-runtime
   and exact-SHA hosted verification remain pending.
+- 2026-08-10: R-029 refines the presentation of an allowed compatibility
+  result. Quota provenance remains unclaimed and technical evidence remains in
+  `authDecision`, but a healthy ready result is no longer promoted to a
+  user-visible warning or shown with error-like styling.
