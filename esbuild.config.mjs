@@ -38,6 +38,24 @@ if you want to view the source, please visit the github repository of this plugi
 
 const prod = process.argv[2] === 'production'
 
+const makeMetafilePortable = (value) => {
+  if (typeof value === 'string') {
+    return path.isAbsolute(value)
+      ? path.relative(process.cwd(), value).split(path.sep).join('/')
+      : value
+  }
+  if (Array.isArray(value)) return value.map(makeMetafilePortable)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nested]) => [
+        makeMetafilePortable(key),
+        makeMetafilePortable(nested),
+      ]),
+    )
+  }
+  return value
+}
+
 const context = await esbuild.context({
   banner: {
     js: banner,
@@ -82,7 +100,7 @@ const context = await esbuild.context({
 
 if (prod) {
   const result = await context.rebuild()
-  fs.writeFileSync('meta.json', JSON.stringify(result.metafile))
+  fs.writeFileSync('meta.json', JSON.stringify(makeMetafilePortable(result.metafile)))
   process.exit(0)
 } else {
   await context.watch()
