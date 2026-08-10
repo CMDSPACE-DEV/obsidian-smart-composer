@@ -27,6 +27,7 @@ import { ConfirmModal } from '../../modals/ConfirmModal'
 import { ConnectOpenAIPlanModal } from '../modals/ConnectOpenAIPlanModal'
 import { NativeRuntimeInstallModal } from '../modals/NativeRuntimeInstallModal'
 import { NativeRuntimeLoginModal } from '../modals/NativeRuntimeLoginModal'
+import { NativeRuntimeUpdateModal } from '../modals/NativeRuntimeUpdateModal'
 
 type PlanConnectionsSectionProps = {
   app: App
@@ -36,7 +37,6 @@ type PlanConnectionsSectionProps = {
 const OPENAI_PLAN_PROVIDER_ID = PROVIDER_TYPES_INFO['openai-plan']
   .defaultProviderId as string
 const CLAUDE_INSTALL_URL = 'https://code.claude.com/docs/en/installation'
-const ANTIGRAVITY_INSTALL_URL = 'https://antigravity.google/docs/cli/install'
 
 export function PlanConnectionsSection({
   app,
@@ -249,12 +249,9 @@ export function NativeRuntimeCard({
   const openUpdateGuide = () => {
     const updateDecision = service.getUpdateDecision(provider)
     if (provider === 'gemini') {
-      new ConfirmModal(app, {
-        title: 'Antigravity 업데이트 안내',
-        message:
-          'Antigravity는 공식 문서에서 백그라운드 native updater를 안내합니다. Smart Composer는 문서화되지 않은 `agy update`를 실행하지 않습니다. CLI를 다시 시작해 백그라운드 업데이트를 확인하거나 공식 문서를 열어 복구 방법을 확인하세요.',
-        ctaText: '공식 문서 열기',
-        onConfirm: () => openExternal(ANTIGRAVITY_INSTALL_URL),
+      new NativeRuntimeUpdateModal(app, {
+        service,
+        onDiagnostics,
       }).open()
       return
     }
@@ -349,7 +346,23 @@ export function NativeRuntimeCard({
         </div>
       )}
 
-      {snapshot.warning && (
+      {provider === 'gemini' && snapshot.status === 'ready' && (
+        <div className="smtcmp-plan-runtime-success" role="status">
+          <Check size={16} aria-hidden="true" />
+          <div>
+            <strong>연결 완료 · Gemini 사용 가능</strong>
+            <span>
+              Antigravity 로그인과 사용 가능한 모델 목록을 확인했습니다.
+            </span>
+            <small>
+              할당량 유형은 Antigravity에서 관리하며 현재 Smart Composer에는
+              표시되지 않습니다.
+            </small>
+          </div>
+        </div>
+      )}
+
+      {snapshot.warning && snapshot.status !== 'ready' && (
         <div
           className="smtcmp-plan-runtime-warning"
           role="status"
@@ -406,11 +419,17 @@ export function NativeRuntimeCard({
         )}
 
         {isInstalled && (
-          <button disabled={!Platform.isDesktop} onClick={openUpdateGuide}>
+          <button
+            data-runtime-action="update"
+            disabled={!Platform.isDesktop}
+            onClick={openUpdateGuide}
+          >
             <Wrench size={15} />
-            {provider === 'gemini' || !isSafeClaudeUpdate(snapshot.update)
-              ? '업데이트 안내'
-              : 'Update'}
+            {provider === 'gemini'
+              ? '자동 업데이트 확인'
+              : !isSafeClaudeUpdate(snapshot.update)
+                ? '업데이트 안내'
+                : 'Update'}
           </button>
         )}
       </div>

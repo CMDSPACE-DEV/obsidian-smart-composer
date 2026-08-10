@@ -90,6 +90,7 @@ export function runNativeProcess(
 export function launchVisibleTerminal(
   command: string,
   preferredShell: NativeRuntimeSetupShell = 'powershell',
+  workingDirectory?: string,
 ): void {
   const { spawn } = requireNode<ChildProcessModule>('child_process')
   if (process.platform === 'win32') {
@@ -97,7 +98,16 @@ export function launchVisibleTerminal(
     const shellArgs =
       preferredShell === 'cmd'
         ? ['/d', '/k', ...(command ? [command] : [])]
-        : ['-NoExit', '-NoProfile', ...(command ? ['-Command', command] : [])]
+        : [
+            '-NoExit',
+            '-NoProfile',
+            ...(command
+              ? [
+                  '-EncodedCommand',
+                  Buffer.from(command, 'utf16le').toString('base64'),
+                ]
+              : []),
+          ]
     const child = spawn(
       'cmd.exe',
       ['/d', '/s', '/c', 'start', '', executable, ...shellArgs],
@@ -105,6 +115,7 @@ export function launchVisibleTerminal(
         detached: true,
         stdio: 'ignore',
         windowsHide: false,
+        cwd: workingDirectory,
       },
     )
     child.unref()
@@ -112,16 +123,18 @@ export function launchVisibleTerminal(
   }
 
   if (process.platform === 'darwin') {
-    const terminalCommand = command
-    const escaped = terminalCommand.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-    const child = spawn(
-      'osascript',
-      ['-e', `tell application "Terminal" to do script "${escaped}"`],
-      {
-        detached: true,
-        stdio: 'ignore',
-      },
-    )
+    const terminalCommand = workingDirectory
+      ? `cd ${quotePosixShell(workingDirectory)} && ${command || 'exec $SHELL -l'}`
+      : command
+    const appleScript = [
+      'on run argv',
+      'tell application "Terminal" to do script (item 1 of argv)',
+      'end run',
+    ].join('\n')
+    const child = spawn('osascript', ['-e', appleScript, terminalCommand], {
+      detached: true,
+      stdio: 'ignore',
+    })
     child.unref()
     return
   }
@@ -132,9 +145,14 @@ export function launchVisibleTerminal(
     {
       detached: true,
       stdio: 'ignore',
+      cwd: workingDirectory,
     },
   )
   child.unref()
+}
+
+function quotePosixShell(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
 function emitLines(value: string, callback?: (line: string) => void): string {

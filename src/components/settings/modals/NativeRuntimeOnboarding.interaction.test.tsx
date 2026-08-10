@@ -128,8 +128,6 @@ const readyGeminiSnapshot: NativeRuntimeSnapshot = {
       'Antigravity is signed in and returned a usable model catalog. Gemini requests are enabled in compatibility mode; the CLI does not expose the account quota source to Smart Composer.',
     evidence: ['agy models --json returned a non-empty catalog'],
   },
-  warning:
-    'Antigravity is signed in and returned a usable model catalog. Gemini requests are enabled in compatibility mode; the CLI does not expose the account quota source to Smart Composer.',
 }
 
 function createSharedService(
@@ -432,9 +430,28 @@ describe('native runtime onboarding interaction', () => {
 
       expect(card).toHaveTextContent('Ready')
       expect(card).toHaveTextContent('1 models detected')
+      expect(card).toHaveTextContent('연결 완료 · Gemini 사용 가능')
+      expect(card).toHaveTextContent(
+        'Antigravity 로그인과 사용 가능한 모델 목록을 확인했습니다.',
+      )
       expect(card).not.toHaveTextContent(
         'Personal Gemini Plan quota provenance is not available.',
       )
+      expect(card).not.toHaveTextContent('legacy text model catalog')
+      expect(card).not.toHaveTextContent('compatibility mode')
+      expect(
+        card?.querySelector('.smtcmp-plan-runtime-warning'),
+      ).not.toBeInTheDocument()
+      expect(
+        card?.querySelector('.smtcmp-plan-runtime-error'),
+      ).not.toBeInTheDocument()
+      expect(
+        card?.querySelector('.smtcmp-plan-runtime-success'),
+      ).toBeInTheDocument()
+      expect(container).toHaveTextContent(
+        'Antigravity 설치, 로그인, 사용 가능한 모델을 확인했습니다.',
+      )
+      expect(container).not.toHaveTextContent('안전한 구독 로그인')
       expect(loginStep).toHaveClass('is-complete')
       expect(loginStep).toHaveAttribute('aria-disabled', 'false')
       expect(loginStep?.querySelectorAll('button')).not.toHaveLength(0)

@@ -103,9 +103,10 @@ describe('NativeRuntimeService structured diagnosis', () => {
         allowed: true,
       },
     })
-    expect(snapshot.warning).toContain('compatibility mode')
+    expect(snapshot.warning).toBeUndefined()
     expect(snapshot.error).toBeUndefined()
-    expect(service.getUpdateDecision('gemini').command).toBeUndefined()
+    expect(service.getUpdateDecision('gemini').command).toContain('agy')
+    expect(service.getUpdateDecision('gemini').command).not.toContain('update')
   })
 
   it('keeps explicit Cloud metadata billing-blocked even with a model catalog', async () => {
@@ -243,7 +244,8 @@ describe('NativeRuntimeService structured diagnosis', () => {
       catalog: 'ready',
       authDecision: { allowed: true },
     })
-    expect(snapshot.warning).toContain('compatibility mode')
+    expect(snapshot.warning).toBeUndefined()
+    expect(snapshot.authDecision?.reason).toContain('compatibility mode')
   })
 
   it('retries exit-zero non-JSON output with the text catalog command', async () => {

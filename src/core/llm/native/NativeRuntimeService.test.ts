@@ -2,11 +2,14 @@ jest.mock('obsidian', () => ({
   Platform: { isDesktop: true },
 }))
 
+import { NativeCliResolver } from './NativeCliResolver'
 import {
+  NativeRuntimeService,
   getNativeRuntimeInstallGuide,
   getUpdateDecision,
   parseAntigravityModels,
 } from './NativeRuntimeService'
+import { NativeRuntimeStore } from './NativeRuntimeStore'
 
 describe('getNativeRuntimeInstallGuide', () => {
   it('gives Windows beginners the official native Claude command', () => {
@@ -103,15 +106,91 @@ describe('getUpdateDecision', () => {
     expect(decision.command).toBeUndefined()
   })
 
-  it('never executes the undocumented agy update command', () => {
+  it('opens the selected Antigravity binary without inventing an update command', () => {
     const geminiDiscovery = {
       ...discovery('native'),
       provider: 'gemini' as const,
+      selectedPath: '/runtime/agy',
+      candidates: [
+        {
+          path: '/runtime/agy',
+          canonicalPath: '/runtime/agy',
+          method: 'native' as const,
+          evidence: ['fixture'],
+          managerVerified: false,
+        },
+      ],
     }
     const decision = getUpdateDecision('gemini', geminiDiscovery)
     expect(decision.state).toBe('background')
-    expect(decision.command).toBeUndefined()
-    expect(decision.reason).toContain('does not run')
+    expect(decision.command).toContain('/runtime/agy')
+    expect(decision.command).not.toMatch(
+      /agy\s+update|install\.(?:ps1|sh|cmd)/i,
+    )
+    expect(decision.reason).toContain('opportunity to run')
+  })
+
+  it('launches Antigravity from a fresh Smart Composer-owned temp directory', () => {
+    const geminiDiscovery = {
+      ...discovery('native'),
+      provider: 'gemini' as const,
+      selectedPath: '/runtime/agy',
+      candidates: [],
+    }
+    const resolver = {
+      discover: jest.fn(() => geminiDiscovery),
+    } as unknown as NativeCliResolver
+    const terminalLauncher = jest.fn()
+    const workingDirectoryFactory = jest.fn(
+      () => '/tmp/smart-composer-antigravity-update-fixture',
+    )
+    const service = new NativeRuntimeService(
+      resolver,
+      new NativeRuntimeStore(),
+      jest.fn(),
+      {},
+      terminalLauncher,
+      workingDirectoryFactory,
+    )
+    const decision = service.getUpdateDecision('gemini')
+
+    service.openUpdateTerminal('gemini')
+
+    expect(workingDirectoryFactory).toHaveBeenCalledTimes(1)
+    expect(terminalLauncher).toHaveBeenCalledWith(
+      decision.command,
+      decision.shell,
+      '/tmp/smart-composer-antigravity-update-fixture',
+    )
+    expect(decision.command).not.toMatch(/\supdate(?:\s|$)/i)
+  })
+
+  it('does not create a temp directory or launch when Gemini discovery is ambiguous', () => {
+    const resolver = {
+      discover: jest.fn(() => ({
+        ...discovery('native', true),
+        provider: 'gemini' as const,
+        selectedPath: '/runtime/agy',
+      })),
+    } as unknown as NativeCliResolver
+    const terminalLauncher = jest.fn()
+    const workingDirectoryFactory = jest.fn(
+      () => '/tmp/smart-composer-antigravity-update-fixture',
+    )
+    const service = new NativeRuntimeService(
+      resolver,
+      new NativeRuntimeStore(),
+      jest.fn(),
+      {},
+      terminalLauncher,
+      workingDirectoryFactory,
+    )
+
+    expect(() => service.openUpdateTerminal('gemini')).toThrow(
+      /Multiple runtime installations/,
+    )
+    expect(workingDirectoryFactory).not.toHaveBeenCalled()
+    expect(terminalLauncher).not.toHaveBeenCalled()
   })
 })
 

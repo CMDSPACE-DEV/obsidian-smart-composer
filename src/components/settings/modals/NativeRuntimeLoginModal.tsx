@@ -93,7 +93,9 @@ export function NativeRuntimeLoginModalComponent({
     if (isChecking) return
     setIsCheckingRequest(true)
     setStatusMessage(
-      '로그인 상태와 안전한 Plan 사용 가능 여부를 확인하고 있습니다...',
+      provider === 'gemini'
+        ? 'Antigravity 로그인과 사용 가능한 모델을 확인하고 있습니다...'
+        : '로그인 상태와 안전한 Plan 사용 가능 여부를 확인하고 있습니다...',
     )
     try {
       const result = await service.diagnose(provider)
@@ -102,7 +104,9 @@ export function NativeRuntimeLoginModalComponent({
 
       if (result.status === 'ready') {
         setStatusMessage(
-          `${title} 로그인을 확인했습니다. 완료를 눌러 모델을 사용할 수 있습니다.`,
+          provider === 'gemini'
+            ? 'Antigravity 로그인과 사용 가능한 모델을 확인했습니다. 완료를 눌러 Gemini를 사용할 수 있습니다.'
+            : `${title} 로그인을 확인했습니다. 완료를 눌러 모델을 사용할 수 있습니다.`,
         )
       } else if (result.status === 'login-required') {
         setStatusMessage(
@@ -268,7 +272,9 @@ function initialStatusMessage(
   provider: NativeRuntimeProvider,
 ): string {
   if (snapshot.status === 'ready') {
-    return `${title} 로그인이 확인되어 요청할 수 있습니다.`
+    return provider === 'gemini'
+      ? 'Antigravity 로그인과 사용 가능한 모델을 확인했습니다. 지금 Gemini를 사용할 수 있습니다.'
+      : `${title} 로그인이 확인되어 요청할 수 있습니다.`
   }
   if (
     snapshot.status === 'billing-blocked' ||

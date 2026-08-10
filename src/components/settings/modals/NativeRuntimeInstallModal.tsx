@@ -206,7 +206,9 @@ export function NativeRuntimeInstallModalComponent({
     setIsCheckingRequest(true)
     setStatusMessage(
       source === 'login'
-        ? '로그인 상태와 구독 사용 가능 여부를 확인하고 있습니다...'
+        ? provider === 'gemini'
+          ? 'Antigravity 로그인과 사용 가능한 모델을 확인하고 있습니다...'
+          : '로그인 상태와 구독 사용 가능 여부를 확인하고 있습니다...'
         : '이 컴퓨터의 설치 상태를 확인하고 있습니다...',
     )
     try {
@@ -220,7 +222,9 @@ export function NativeRuntimeInstallModalComponent({
         )
       } else if (result.status === 'ready') {
         setStatusMessage(
-          `${title} 설치와 안전한 구독 로그인을 모두 확인했습니다. 완료를 눌러 바로 사용할 수 있습니다.`,
+          provider === 'gemini'
+            ? 'Antigravity 설치, 로그인, 사용 가능한 모델을 확인했습니다. 완료를 눌러 Gemini를 사용할 수 있습니다.'
+            : `${title} 설치와 안전한 구독 로그인을 모두 확인했습니다. 완료를 눌러 바로 사용할 수 있습니다.`,
         )
       } else if (result.status === 'login-required') {
         setStatusMessage(
@@ -680,7 +684,9 @@ function initialStatusMessage(
   provider: NativeRuntimeProvider,
 ): string {
   if (snapshot.status === 'ready') {
-    return `${title} 설치와 안전한 구독 로그인을 확인했습니다.`
+    return provider === 'gemini'
+      ? 'Antigravity 설치, 로그인, 사용 가능한 모델을 확인했습니다. 지금 Gemini를 사용할 수 있습니다.'
+      : `${title} 설치와 안전한 구독 로그인을 확인했습니다.`
   }
   if (
     snapshot.status === 'billing-blocked' ||

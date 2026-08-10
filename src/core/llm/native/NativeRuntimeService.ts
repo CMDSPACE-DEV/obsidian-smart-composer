@@ -25,6 +25,7 @@ import {
   NativeRuntimeStore,
   sharedNativeRuntimeStore,
 } from './NativeRuntimeStore'
+import { requireNode } from './nodeRuntime'
 
 const DIAGNOSTIC_TIMEOUT_MS = 30_000
 const CLAUDE_INSTALL_GUIDE_URL = 'https://code.claude.com/docs/en/installation'
@@ -34,6 +35,8 @@ const ANTIGRAVITY_INSTALL_GUIDE_URL =
 type NativeProcessRunner = (
   options: NativeProcessOptions,
 ) => ReturnType<typeof runNativeProcess>
+type NativeTerminalLauncher = typeof launchVisibleTerminal
+type UpdateWorkingDirectoryFactory = () => string
 
 export type NativeRuntimeSetupShell = 'powershell' | 'cmd' | 'terminal'
 
@@ -70,6 +73,8 @@ export class NativeRuntimeService {
     private readonly store: NativeRuntimeStore = sharedNativeRuntimeStore,
     private readonly runner: NativeProcessRunner = runNativeProcess,
     private readonly environmentSource: NodeJS.ProcessEnv = process.env,
+    private readonly terminalLauncher: NativeTerminalLauncher = launchVisibleTerminal,
+    private readonly updateWorkingDirectoryFactory: UpdateWorkingDirectoryFactory = createAntigravityUpdateWorkingDirectory,
   ) {}
 
   getSnapshot(provider: NativeRuntimeProvider): NativeRuntimeSnapshot {
@@ -160,7 +165,7 @@ export class NativeRuntimeService {
   }
 
   openSetupTerminal(shell: NativeRuntimeSetupShell): void {
-    launchVisibleTerminal('', shell)
+    this.terminalLauncher('', shell)
   }
 
   getUpdateDecision(
@@ -176,7 +181,9 @@ export class NativeRuntimeService {
   openUpdateTerminal(provider: NativeRuntimeProvider): void {
     const decision = this.getUpdateDecision(provider)
     if (!decision.command) throw new Error(decision.reason)
-    launchVisibleTerminal(decision.command, decision.shell)
+    const workingDirectory =
+      provider === 'gemini' ? this.updateWorkingDirectoryFactory() : undefined
+    this.terminalLauncher(decision.command, decision.shell, workingDirectory)
   }
 
   openLoginTerminal(provider: NativeRuntimeProvider): void {
@@ -188,12 +195,21 @@ export class NativeRuntimeService {
           : 'Antigravity CLI is not installed.',
       )
     }
-    launchVisibleTerminal(
+    this.terminalLauncher(
       provider === 'claude'
         ? `${quoteForShell(executablePath)} auth login`
         : quoteForShell(executablePath),
     )
   }
+}
+
+function createAntigravityUpdateWorkingDirectory(): string {
+  const fs = requireNode<typeof import('fs')>('fs')
+  const os = requireNode<typeof import('os')>('os')
+  const path = requireNode<typeof import('path')>('path')
+  return fs.mkdtempSync(
+    path.join(os.tmpdir(), 'smart-composer-antigravity-update-'),
+  )
 }
 
 async function diagnoseClaude(
@@ -433,9 +449,7 @@ async function diagnoseAntigravity(
     catalog: models.length > 0 ? 'ready' : 'error',
     models,
     authDecision,
-    ...(authDecision.allowed
-      ? { warning: authDecision.reason }
-      : { error: authDecision.reason }),
+    ...(authDecision.allowed ? {} : { error: authDecision.reason }),
   })
 }
 
@@ -470,9 +484,10 @@ export function getUpdateDecision(
     return {
       provider,
       state: 'background',
+      command: quoteForShell(discovery.selectedPath),
       shell,
       reason:
-        'Antigravity uses its documented background updater. Smart Composer does not run the undocumented `agy update` command.',
+        'Opening the installed Antigravity CLI gives its documented background updater an opportunity to run. Smart Composer does not invent an `agy update` command that is absent from the current CLI reference.',
       discovery,
     }
   }

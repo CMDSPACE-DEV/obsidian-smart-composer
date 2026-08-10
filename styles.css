@@ -1834,6 +1834,76 @@ button.smtcmp-research-source-main:focus-visible {
   user-select: text;
 }
 
+.smtcmp-plan-runtime-success {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--size-4-2);
+  border-left: 3px solid var(--text-success);
+  padding: var(--size-4-2) var(--size-4-3);
+  color: var(--text-normal);
+  background: color-mix(in srgb, var(--text-success) 9%, transparent);
+  font-size: var(--font-ui-smaller);
+  line-height: var(--line-height-tight);
+}
+
+.smtcmp-plan-runtime-success > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--text-success);
+}
+
+.smtcmp-plan-runtime-success > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.smtcmp-plan-runtime-success strong {
+  color: var(--text-success);
+}
+
+.smtcmp-plan-runtime-success small {
+  color: var(--text-muted);
+}
+
+.smtcmp-runtime-update-modal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-3);
+}
+
+.smtcmp-runtime-update-modal > p,
+.smtcmp-runtime-update-modal > ol {
+  margin: 0;
+}
+
+.smtcmp-runtime-update-modal > ol {
+  padding-left: var(--size-4-6);
+  color: var(--text-muted);
+}
+
+.smtcmp-runtime-update-status {
+  border-left: 2px solid var(--interactive-accent);
+  padding: var(--size-4-1) var(--size-4-2);
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--interactive-accent) 7%, transparent);
+  font-size: var(--font-ui-smaller);
+  line-height: var(--line-height-tight);
+}
+
+.smtcmp-runtime-update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+}
+
+.smtcmp-runtime-update-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-4-1);
+}
+
 .smtcmp-settings-load-error {
   max-width: 720px;
   padding: 24px;

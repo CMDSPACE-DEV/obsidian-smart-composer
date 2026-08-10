@@ -289,6 +289,7 @@ verify_installer_modal() {
     printf '%s\n' \
       '#!/usr/bin/env bash' \
       'if [[ "${1:-}" == "--version" ]]; then printf "0.0.0-ci-fixture (Antigravity CLI)\\n"; exit 0; fi' \
+      'if [[ "${1:-}" == "models" && "${2:-}" == "--json" ]]; then printf '\''{"models":[{"id":"gemini-ci-fixture","displayName":"Gemini CI Fixture"}]}'\''; exit 0; fi' \
       'exit 1' \
       > "${HOME}/.local/bin/agy"
     chmod 0755 "${HOME}/.local/bin/agy"
@@ -310,6 +311,24 @@ verify_installer_modal() {
 
 verify_installer_modal claude
 verify_installer_modal gemini
+
+wait_for_true \
+  '(() => { const card = document.querySelector("[data-runtime-provider=gemini]"); return card?.querySelector(".smtcmp-plan-runtime-success") !== null && card?.querySelector(".smtcmp-plan-runtime-warning") === null && card?.querySelector(".smtcmp-plan-runtime-error") === null && card?.textContent?.includes("legacy text model catalog") === false && card?.textContent?.includes("compatibility mode") === false; })()' \
+  'the healthy Gemini success presentation'
+eval_obsidian '(() => { const button = document.querySelector("[data-runtime-provider=gemini] [data-runtime-action=update]"); if (!(button instanceof HTMLElement)) return false; button.click(); return true; })()' \
+  | is_true_output
+wait_for_true \
+  'document.querySelector("[data-runtime-update=gemini]") !== null' \
+  'the Antigravity update modal'
+wait_for_true \
+  '(() => { const modal = document.querySelector("[data-runtime-update=gemini]"); if (!(modal instanceof HTMLElement)) return false; const launch = modal.querySelector("[data-runtime-update-action=launch]"); const recheck = modal.querySelector("[data-runtime-update-action=recheck]"); return launch instanceof HTMLButtonElement && !launch.disabled && recheck instanceof HTMLButtonElement && !recheck.disabled && modal.querySelector(".mod-warning") === null; })()' \
+  'the non-destructive Antigravity update actions'
+run_cli dev:screenshot "path=${artifact_dir}/gemini-update.png" > /dev/null
+eval_obsidian '(() => { const marker = document.querySelector("[data-runtime-update=gemini]"); if (!(marker instanceof HTMLElement)) return false; const container = marker.closest(".modal-container"); if (!(container instanceof HTMLElement)) return false; const backdrop = container.querySelector(".modal-bg"); if (!(backdrop instanceof HTMLElement)) return false; backdrop.click(); return true; })()' \
+  | is_true_output
+wait_for_true \
+  'document.querySelector("[data-runtime-update=gemini]") === null' \
+  'the Antigravity update modal to close'
 
 eval_obsidian 'JSON.stringify({cards: document.querySelectorAll("[data-runtime-provider]").length, loadError: document.querySelector(".smtcmp-settings-load-error") !== null})' \
   | tee "${artifact_dir}/dom-summary.json"
