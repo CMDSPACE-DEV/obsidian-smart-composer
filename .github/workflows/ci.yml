@@ -1,0 +1,190 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'codex/**'
+      - 'import/**'
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Ubuntu quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run type:check
+
+      - name: Lint check
+        run: npm run lint:check
+
+      - name: Test
+        run: npm test -- --runInBand
+
+      - name: Build plugin and enforce bundle budget
+        run: npm run build
+
+  windows-runtime:
+    name: Windows 2025 runtime and UI tests
+    runs-on: windows-2025
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run platform tests
+        run: npm test -- --runInBand
+
+      - name: Build plugin
+        run: npm run build
+
+  macos-runtime:
+    name: macOS source tests (${{ matrix.architecture }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x86_64
+
+    steps:
+      - name: Check runner architecture
+        env:
+          EXPECTED_ARCHITECTURE: ${{ matrix.architecture }}
+        run: test "$(uname -m)" = "${EXPECTED_ARCHITECTURE}"
+
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run platform tests
+        run: npm test -- --runInBand
+
+      - name: Build plugin
+        run: npm run build
+
+  macos-native-installers:
+    name: macOS official installer smoke (${{ matrix.architecture }})
+    needs:
+      - quality
+      - windows-runtime
+      - macos-runtime
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x86_64
+
+    steps:
+      - name: Check runner architecture
+        env:
+          EXPECTED_ARCHITECTURE: ${{ matrix.architecture }}
+        run: test "$(uname -m)" = "${EXPECTED_ARCHITECTURE}"
+
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+
+      - name: Verify and install official runtimes
+        run: bash .github/scripts/native-runtime-smoke-macos.sh
+
+  macos-obsidian-smoke:
+    name: macOS Obsidian CLI smoke (${{ matrix.architecture }})
+    needs:
+      - quality
+      - windows-runtime
+      - macos-runtime
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x86_64
+
+    steps:
+      - name: Check runner architecture
+        env:
+          EXPECTED_ARCHITECTURE: ${{ matrix.architecture }}
+        run: test "$(uname -m)" = "${EXPECTED_ARCHITECTURE}"
+
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build release bundle
+        run: npm run build
+
+      - name: Run secret-free Obsidian CLI smoke
+        run: bash .github/scripts/obsidian-smoke-macos.sh
+
+      - name: Upload sanitized smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: obsidian-smoke-${{ matrix.architecture }}
+          path: ${{ runner.temp }}/smart-composer-obsidian-smoke/artifacts
+          if-no-files-found: warn
+          retention-days: 14

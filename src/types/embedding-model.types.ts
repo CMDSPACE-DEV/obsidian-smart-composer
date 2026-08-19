@@ -1,0 +1,90 @@
+import { z } from 'zod'
+
+const baseEmbeddingModelSchema = z.object({
+  providerId: z
+    .string({
+      required_error: 'provider ID is required',
+    })
+    .min(1, 'provider ID is required'),
+  id: z
+    .string({
+      required_error: 'id is required',
+    })
+    .min(1, 'id is required'),
+  model: z
+    .string({
+      required_error: 'model is required',
+    })
+    .min(1, 'model is required'),
+  dimension: z.number(),
+  // Optional: Request specific output dimensions from the API.
+  // Only works with models that support Matryoshka Representation Learning (MRL),
+  // such as OpenAI's text-embedding-3-* and Google's gemini-embedding-001.
+  outputDimension: z.number().optional(),
+})
+
+// TODO: Ensure the embedding model schema only includes providers that genuinely support embeddings.
+export const embeddingModelSchema = z.discriminatedUnion('providerType', [
+  z.object({
+    providerType: z.literal('anthropic-plan'),
+    ...baseEmbeddingModelSchema.shape,
+  }),
+  z.object({
+    providerType: z.literal('openai-plan'),
+    ...baseEmbeddingModelSchema.shape,
+  }),
+  z.object({
+    providerType: z.literal('gemini-plan'),
+    ...baseEmbeddingModelSchema.shape,
+  }),
+  z.object({
+    providerType: z.literal('anthropic'),
+    ...baseEmbeddingModelSchema.shape,
+  }),
+  z.object({
+    providerType: z.literal('openai'),
+    ...baseEmbeddingModelSchema.shape,
+  }),
+  z.object({
+    providerType: z.literal('gemini'),
+    ...baseEmbeddingModelSchema.shape,
+  }),
+  z.object({
+    providerType: z.literal('xai'),
+    ...baseEmbeddingModelSchema.shape,
+  }),
+  z.object({
+    providerType: z.literal('deepseek'),
+    ...baseEmbeddingModelSchema.shape,
+  }),
+  z.object({
+    providerType: z.literal('perplexity'),
+    ...baseEmbeddingModelSchema.shape,
+  }),
+  z.object({
+    providerType: z.literal('mistral'),
+    ...baseEmbeddingModelSchema.shape,
+  }),
+  z.object({
+    providerType: z.literal('openrouter'),
+    ...baseEmbeddingModelSchema.shape,
+  }),
+  z.object({
+    providerType: z.literal('ollama'),
+    ...baseEmbeddingModelSchema.shape,
+  }),
+  z.object({
+    providerType: z.literal('lm-studio'),
+    ...baseEmbeddingModelSchema.shape,
+  }),
+  z.object({
+    providerType: z.literal('azure-openai'),
+    ...baseEmbeddingModelSchema.shape,
+  }),
+  z.object({
+    providerType: z.literal('openai-compatible'),
+    ...baseEmbeddingModelSchema.shape,
+  }),
+])
+
+export type EmbeddingModel = z.infer<typeof embeddingModelSchema>

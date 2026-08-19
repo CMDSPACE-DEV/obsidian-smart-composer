@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "reviewedAt": "2026-08-10",
+  "artifacts": {
+    "claude-macos-installer": {
+      "url": "https://claude.ai/install.sh",
+      "bytes": 7984,
+      "sha256": "cde4f1702d3b1695f92b73d26888364e17bca476e17f0fd676484c951d36c125",
+      "review": "Official native macOS/Linux installer referenced by Anthropic's installation documentation."
+    },
+    "antigravity-macos-installer": {
+      "url": "https://antigravity.google/cli/install.sh",
+      "bytes": 7354,
+      "sha256": "ee1ea43ce4e9e56356c4ab6dad907ef357ae4bdfcaadb682735909fb57c9c640",
+      "review": "Official native macOS/Linux installer referenced by Google Antigravity installation documentation."
+    },
+    "obsidian-macos-dmg": {
+      "version": "1.13.4",
+      "url": "https://github.com/obsidianmd/obsidian-releases/releases/download/v1.13.4/Obsidian-1.13.4.dmg",
+      "bytes": 228041400,
+      "sha256": "e84b9595aba5e50221c97e43d3e3f437416edfbf4c4a84c379461e70f854d78f",
+      "review": "Official universal macOS release asset and digest published by obsidianmd/obsidian-releases."
+    }
+  }
+}

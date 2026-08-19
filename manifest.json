@@ -1,0 +1,11 @@
+{
+  "id": "smart-composer",
+  "name": "Smart Composer",
+  "version": "2.6.6-test.1",
+  "minAppVersion": "1.11.4",
+  "description": "Isolated AI chat, Plan image generation, parallel inline and document-scale editing, and secure MCP connections.",
+  "author": "Heesu Suh",
+  "authorUrl": "https://github.com/glowingjade",
+  "fundingUrl": "https://buymeacoffee.com/kevin.on",
+  "isDesktopOnly": false
+}

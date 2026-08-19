@@ -1,24 +1,27 @@
-# Obsidian Smart Composer — 커맨드스페이스 협업 레포
+<img width="509" height="635" alt="Smart Composer_Achmage_example_1" src="https://github.com/user-attachments/assets/eaa92354-130d-4f9c-9824-d78aa769e221" />
+<img width="558" height="353" alt="Smart Composer_Achmage_example_4" src="https://github.com/user-attachments/assets/0e8a0e9b-5506-4ff0-8717-03900fd3f131" />
+<img width="508" height="649" alt="Smart Composer_Achmage_example_3" src="https://github.com/user-attachments/assets/42a69b2c-71b5-49b0-aa9a-76ffd08386fe" />
+<img width="506" height="643" alt="Smart Composer_Achmage_example_2" src="https://github.com/user-attachments/assets/acc5f17f-106d-4737-a72e-8a50ff2a536c" />
 
-> **레포명은 임시입니다.** 공식 명칭은 확정 후 변경합니다 ([#3](../../issues/3)).
+`glowingjade/obsidian-smart-composer`의 업데이트 & 개량 버전
+원본 출처 링크 : https://github.com/glowingjade/obsidian-smart-composer
 
-커맨드스페이스와 **안창현 교수님**([@laguna821](https://github.com/laguna821))이 함께 개발하는 Obsidian AI 플러그인입니다.
+- 추가 업데이트 및 수정 내용
+  - v1.4.0 Plan 모델: GPT-5.6 Sol/Terra/Luna와 Claude Sonnet 5
+    - GPT-5.6 모델별로 `none`, `low`, `medium`, `high`, `xhigh`, `max` 추론 강도를 독립 설정
+    - Claude Sonnet 5 Adaptive Thinking, 추론 강도, thinking summary 표시 설정 지원
+    - 채팅 입력창에서 현재 추론 강도를 바로 확인하고 변경하는 빠른 effort 선택기 추가
+    - 기존 gpt-5.5 (plan)과 Claude Sonnet 4.6 (plan) 설정은 업데이트 시 새 Plan 모델로 이전
+  - RAG 임베딩이 원래 **OpenAI API키로만 폴더 멘션/임베딩을 할 수 있도록 하드코딩된 버그**가 있었습니다.
+    - Plan 모드로도 API 키 아예 없이도 폴더 멘션 및 청크, 임베딩이 가능하도록 개선 (API 키 제거 후 동작 확인)
 
-## 현재 상태
+## Plan 모드 주의사항
 
-**소스 반입 전입니다.** 안창현 교수님의 [`laguna821/obsidian_smart_composer_Achmage`](https://github.com/laguna821/obsidian_smart_composer_Achmage)를 이 조직으로 이관(transfer)하는 방식으로 합의되었습니다. 진행 상황은 [#2](../../issues/2)에서 관리합니다.
+- OpenAI/Claude Plan 연결은 구독 인증과 비공개 백엔드를 사용하는 실험 기능입니다. 제공자의 모델 권한이나 백엔드 변경으로 예고 없이 작동하지 않을 수 있으며 자동으로 다른 모델로 대체하지 않습니다.
+- Claude는 제3자 도구에 API 인증 사용을 권장합니다. Plan 연결 전 계정 정책과 위험 안내를 확인하세요.
+- v1.4.0을 수동 설치하기 전에 기존 플러그인 폴더와 `data.json`을 통째로 백업하세요.
+- API 키 기반 모델 목록은 v1.4.0에서 변경되지 않습니다.
 
-## 원본
+---
 
-이 플러그인은 오픈소스 [**Smart Composer**](https://github.com/glowingjade/obsidian-smart-composer)(MIT, Heesu Suh)에서 출발했으며, 안창현 교수님이 독자적으로 확장한 버전을 기반으로 합니다.
-
-라이선스는 MIT를 따르며 원 저작권 표시를 유지합니다. 기여자 표기 정리는 [#4](../../issues/4) 참조.
-
-## 열려 있는 논의
-
-| # | 내용 |
-|---|---|
-| [#1](../../issues/1) | Plan 모드(구독 인증) 배포 리스크 검토 |
-| [#2](../../issues/2) | 소스 이관 실행 및 브랜치 정리 |
-| [#3](../../issues/3) | 공식 레포·플러그인 명칭 확정 |
-| [#4](../../issues/4) | 라이선스·저작자 표기 정리 |
+커맨드스페이스 협업 레포 안내는 [docs/CMDS-COLLABORATION.md](docs/CMDS-COLLABORATION.md)를 참고하세요.
