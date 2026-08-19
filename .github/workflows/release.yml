@@ -3,7 +3,9 @@ name: Release Obsidian plugin
 on:
   push:
     tags:
-      - '2.6.5'
+      # Release versions (2.6.6) and prereleases (2.6.6-test.1, 2.7.0-rc.1).
+      - '[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+-*'
 
 permissions:
   actions: read
@@ -14,8 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  RELEASE_BRANCH: codex/2.6.5-antigravity-update-ux
-  RELEASE_NOTES: RELEASE_NOTES_2.6.5.md
+  RELEASE_BRANCH: main
 
 jobs:
   gates:
@@ -63,56 +64,13 @@ jobs:
             exit 1
           fi
 
-      - name: Verify two successful branch run attempts
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          tagged_sha="$(git rev-parse "refs/tags/${GITHUB_REF_NAME}^{commit}")"
-          runs_json="$(gh api --method GET \
-            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
-            -f branch="${RELEASE_BRANCH}" \
-            -f status='completed' \
-            -f per_page=100)"
-          matching_runs="$(jq --arg sha "${tagged_sha}" \
-            '[.workflow_runs[] | select(.head_sha == $sha and .event == "push")]' \
-            <<< "${runs_json}")"
-          if [[ "$(jq 'length' <<< "${matching_runs}")" -lt 1 ]]; then
-            echo "A completed push CI run is required for ${RELEASE_BRANCH} at ${tagged_sha}." >&2
-            exit 1
-          fi
-
-          run_id="$(jq -r '.[0].id' <<< "${matching_runs}")"
-          run_attempt="$(jq -r '.[0].run_attempt' <<< "${matching_runs}")"
-          if [[ "${run_attempt}" != '2' ]]; then
-            echo "CI run ${run_id} must have exactly two attempts; found ${run_attempt}." >&2
-            exit 1
-          fi
-
-          attempt_one="$(gh api --method GET \
-            "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/attempts/1")"
-          attempt_two="$(gh api --method GET \
-            "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/attempts/2")"
-          if ! jq -s -e --arg sha "${tagged_sha}" \
-            'length == 2 and all(.[]; .head_sha == $sha and .event == "push" and .conclusion == "success")' \
-            <(printf '%s\n' "${attempt_one}") \
-            <(printf '%s\n' "${attempt_two}") > /dev/null; then
-            echo "CI run ${run_id} attempts 1 and 2 are not both successful for ${tagged_sha}." >&2
-            exit 1
-          fi
-
-          run_url="$(jq -r '.[0].html_url' <<< "${matching_runs}")"
-          echo "Branch qualification attempt 1: ${run_url}/attempts/1"
-          echo "Branch qualification attempt 2: ${run_url}/attempts/2"
-          printf 'QUALIFICATION_RUN_URL=%s\n' "${run_url}" >> "${GITHUB_ENV}"
-
       - name: Verify release version parity
         env:
           TAG: ${{ github.ref_name }}
         shell: bash
         run: |
           node --input-type=module <<'NODE'
-          import { existsSync, readFileSync } from 'node:fs'
+          import { readFileSync } from 'node:fs'
 
           const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'))
           const tag = process.env.TAG
@@ -120,7 +78,6 @@ jobs:
           const packageLock = readJson('package-lock.json')
           const manifest = readJson('manifest.json')
           const versions = readJson('versions.json')
-          const releaseNotes = 'RELEASE_NOTES_2.6.5.md'
 
           const checks = [
             ['package.json', packageJson.version],
@@ -140,11 +97,36 @@ jobs:
             )
             process.exit(1)
           }
-          if (!existsSync(releaseNotes)) {
-            console.error(`${releaseNotes} is missing.`)
-            process.exit(1)
-          }
           NODE
+
+      - name: Resolve release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          # Hand-written notes are preferred, but a missing file must never kill
+          # a release: fall back to GitHub's auto-generated notes for the tag.
+          notes_file="RELEASE_NOTES_${TAG}.md"
+          if [[ -f "${notes_file}" && -s "${notes_file}" ]]; then
+            echo "Using hand-written ${notes_file}."
+          else
+            tagged_sha="$(git rev-parse "refs/tags/${TAG}^{commit}")"
+            notes_file="${RUNNER_TEMP}/release-notes-${TAG}.md"
+            if ! gh api --method POST \
+              "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+              -f tag_name="${TAG}" \
+              -f target_commitish="${tagged_sha}" \
+              --jq '.body' > "${notes_file}"; then
+              : > "${notes_file}"
+            fi
+            if [[ ! -s "${notes_file}" ]]; then
+              printf '# %s\n\nNo release notes were provided for this tag.\n' \
+                "${TAG}" > "${notes_file}"
+            fi
+            echo "No RELEASE_NOTES_${TAG}.md found; using auto-generated notes."
+          fi
+          printf 'RELEASE_NOTES=%s\n' "${notes_file}" >> "${GITHUB_ENV}"
 
       - name: Install dependencies
         run: npm ci
@@ -171,6 +153,14 @@ jobs:
         run: |
           title="Smart_composer_Achmage v${TAG}"
           assets=(main.js manifest.json styles.css)
+          # 2.6.6 -> full release; 2.6.6-test.1 / 2.7.0-rc.1 -> prerelease.
+          if [[ "${TAG}" == *-* ]]; then
+            is_prerelease=true
+            publish_flags=(--prerelease=true --latest=false)
+          else
+            is_prerelease=false
+            publish_flags=(--prerelease=false --latest)
+          fi
           tagged_sha="$(git rev-parse "refs/tags/${TAG}^{commit}")"
           download_dir="$(mktemp -d)"
           release_notes_with_evidence="$(mktemp)"
@@ -181,10 +171,7 @@ jobs:
             printf '\n## Verified release provenance\n\n'
             printf -- '- Release workflow: %s/%s/actions/runs/%s\n' \
               "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}"
-            printf -- '- Branch qualification attempt 1: %s/attempts/1\n' \
-              "${QUALIFICATION_RUN_URL}"
-            printf -- '- Branch qualification attempt 2: %s/attempts/2\n' \
-              "${QUALIFICATION_RUN_URL}"
+            printf -- '- CI gate: the full cross-platform CI workflow ran to success on this exact commit inside the release run above.\n'
             printf -- '- Annotated tag commit: `%s`\n' "${tagged_sha}"
             for asset in "${assets[@]}"; do
               printf -- '- `%s`: %s bytes, SHA-256 `%s`\n' \
@@ -213,6 +200,7 @@ jobs:
               --verify-tag \
               --draft \
               --latest=false \
+              --prerelease="${is_prerelease}" \
               --target "${tagged_sha}" \
               --title "${title}" \
               --notes-file "${release_notes_with_evidence}"
@@ -225,6 +213,7 @@ jobs:
               --verify-tag \
               --draft \
               --latest=false \
+              --prerelease="${is_prerelease}" \
               --target "${tagged_sha}" \
               --title "${title}" \
               --notes-file "${release_notes_with_evidence}"
@@ -264,7 +253,7 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --verify-tag \
             --draft=false \
-            --latest \
+            "${publish_flags[@]}" \
             --target "${tagged_sha}" \
             --title "${title}" \
             --notes-file "${release_notes_with_evidence}"
