@@ -1,0 +1,4 @@
+# Generated dependencies may contain significant trailing spaces inside
+# multiline JavaScript template literals. Do not treat those bytes as patch
+# whitespace errors.
+main.js -whitespace
