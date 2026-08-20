@@ -1,11 +1,10 @@
 {
-  "id": "knowledge-base-agent",
-  "name": "Smart Composer",
-  "version": "2.6.6-test.2",
+  "id": "cmds-achmage",
+  "name": "CMDS Achmage",
+  "version": "2.6.6-test.3",
   "minAppVersion": "1.11.4",
   "description": "Isolated AI chat, Plan image generation, parallel inline and document-scale editing, and secure MCP connections.",
-  "author": "Heesu Suh",
-  "authorUrl": "https://github.com/glowingjade",
-  "fundingUrl": "https://buymeacoffee.com/kevin.on",
+  "author": "CMDSPACE-DEV",
+  "authorUrl": "https://github.com/CMDSPACE-DEV",
   "isDesktopOnly": false
 }

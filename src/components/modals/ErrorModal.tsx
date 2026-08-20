@@ -73,7 +73,7 @@ function ErrorModalComponent({
               // @ts-expect-error: setting property exists in Obsidian's App but is not typed
               app.setting.open()
               // @ts-expect-error: setting property exists in Obsidian's App but is not typed
-              app.setting.openTabById('smart-composer')
+              app.setting.openTabById('cmds-achmage')
             }}
           >
             Open Settings

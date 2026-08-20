@@ -8,7 +8,7 @@ artifact_dir="${smoke_root}/artifacts"
 mount_dir="${smoke_root}/mount"
 application_path="${smoke_root}/Obsidian.app"
 vault_path="${smoke_root}/smart-composer-ci"
-plugin_path="${vault_path}/.obsidian/plugins/smart-composer"
+plugin_path="${vault_path}/.obsidian/plugins/cmds-achmage"
 obsidian_dmg="${smoke_root}/Obsidian-1.13.4.dmg"
 obsidian_url='https://github.com/obsidianmd/obsidian-releases/releases/download/v1.13.4/Obsidian-1.13.4.dmg'
 obsidian_pid=''
@@ -25,10 +25,10 @@ cleanup() {
       > "${artifact_dir}/failure-javascript-errors.txt" 2>&1 || true
     "${cli_path}" 'vault=smart-composer-ci' dev:console level=error limit=200 \
       > "${artifact_dir}/failure-console-errors.txt" 2>&1 || true
-    "${cli_path}" 'vault=smart-composer-ci' plugin id=smart-composer \
+    "${cli_path}" 'vault=smart-composer-ci' plugin id=cmds-achmage \
       > "${artifact_dir}/failure-plugin.txt" 2>&1 || true
     "${cli_path}" 'vault=smart-composer-ci' eval \
-      'code=JSON.stringify({layoutReady: app.workspace?.layoutReady === true, pluginLoaded: Boolean(app.plugins.getPlugin("smart-composer")), settingsPopoutConfigured: app.vault?.getConfig("settingsPopoutWindow") === true, settingsPopoutOpen: app.setting?.isPopoutModal?.() === true, settingsDocumentIsMain: app.setting?.modalEl?.ownerDocument === document, settingsTabRegistered: app.setting?.pluginTabs?.some(tab => tab.id === "smart-composer") === true, settingsRoot: document.querySelector(".smtcmp-settings-root") !== null, loadError: document.querySelector(".smtcmp-settings-load-error") !== null, cardCount: document.querySelectorAll("[data-runtime-provider]").length, modalCount: document.querySelectorAll(".modal").length})' \
+      'code=JSON.stringify({layoutReady: app.workspace?.layoutReady === true, pluginLoaded: Boolean(app.plugins.getPlugin("cmds-achmage")), settingsPopoutConfigured: app.vault?.getConfig("settingsPopoutWindow") === true, settingsPopoutOpen: app.setting?.isPopoutModal?.() === true, settingsDocumentIsMain: app.setting?.modalEl?.ownerDocument === document, settingsTabRegistered: app.setting?.pluginTabs?.some(tab => tab.id === "cmds-achmage") === true, settingsRoot: document.querySelector(".smtcmp-settings-root") !== null, loadError: document.querySelector(".smtcmp-settings-load-error") !== null, cardCount: document.querySelectorAll("[data-runtime-provider]").length, modalCount: document.querySelectorAll(".modal").length})' \
       > "${artifact_dir}/failure-structure.json" 2>&1 || true
     "${cli_path}" 'vault=smart-composer-ci' dev:screenshot \
       "path=${artifact_dir}/failure-settings.png" > /dev/null 2>&1 || true
@@ -102,7 +102,7 @@ lipo -archs "${application_path}/Contents/MacOS/Obsidian" \
 cp "${repository_root}/main.js" "${plugin_path}/main.js"
 cp "${repository_root}/manifest.json" "${plugin_path}/manifest.json"
 cp "${repository_root}/styles.css" "${plugin_path}/styles.css"
-printf '["smart-composer"]\n' > "${vault_path}/.obsidian/community-plugins.json"
+printf '["cmds-achmage"]\n' > "${vault_path}/.obsidian/community-plugins.json"
 # Obsidian 1.13.4 defaults settingsPopoutWindow to true. Keep this disposable
 # smoke in the main renderer so CLI eval, DOM assertions, and screenshots all
 # observe the same document.
@@ -216,12 +216,12 @@ if grep -Fq 'Error:' <<< "${baseline_errors}"; then
   exit 1
 fi
 printf '%s\n' "${baseline_errors}" > "${artifact_dir}/javascript-errors-baseline.txt"
-run_cli plugin:enable id=smart-composer filter=community
-eval_obsidian 'globalThis.__smtcmpPreviousPlugin = app.plugins.getPlugin("smart-composer"); true' \
+run_cli plugin:enable id=cmds-achmage filter=community
+eval_obsidian 'globalThis.__smtcmpPreviousPlugin = app.plugins.getPlugin("cmds-achmage"); true' \
   | is_true_output
-run_cli plugin:reload id=smart-composer
+run_cli plugin:reload id=cmds-achmage
 wait_for_true \
-  'Boolean(app.plugins.getPlugin("smart-composer")) && app.plugins.getPlugin("smart-composer") !== globalThis.__smtcmpPreviousPlugin' \
+  'Boolean(app.plugins.getPlugin("cmds-achmage")) && app.plugins.getPlugin("cmds-achmage") !== globalThis.__smtcmpPreviousPlugin' \
   'the reloaded Smart Composer plugin instance'
 
 wait_for_true \
@@ -236,9 +236,9 @@ wait_for_true \
   'document.querySelector(".modal.mod-settings") !== null && app.setting?.isPopoutModal?.() !== true && app.setting?.modalEl?.ownerDocument === document' \
   'the main-window Obsidian settings modal'
 wait_for_true \
-  'app.setting?.pluginTabs?.some(tab => tab.id === "smart-composer") === true' \
+  'app.setting?.pluginTabs?.some(tab => tab.id === "cmds-achmage") === true' \
   'the registered Smart Composer settings tab'
-eval_obsidian 'Boolean(app.setting.openTabById("smart-composer"))' \
+eval_obsidian 'Boolean(app.setting.openTabById("cmds-achmage"))' \
   | is_true_output
 wait_for_true \
   'document.querySelector(".smtcmp-settings-root, .smtcmp-settings-load-error") !== null' \
@@ -248,7 +248,7 @@ if is_true_output <<< "${load_error_state}"; then
   echo 'Smart Composer rendered its settings load-error state.' >&2
   exit 1
 fi
-eval_obsidian 'JSON.stringify({appVersion: app.getVersion?.() ?? null, pluginLoaded: Boolean(app.plugins.getPlugin("smart-composer")), settingsOpen: document.querySelector(".modal.mod-settings") !== null})' \
+eval_obsidian 'JSON.stringify({appVersion: app.getVersion?.() ?? null, pluginLoaded: Boolean(app.plugins.getPlugin("cmds-achmage")), settingsOpen: document.querySelector(".modal.mod-settings") !== null})' \
   > "${artifact_dir}/startup-summary.json"
 run_cli dev:screenshot "path=${artifact_dir}/settings-open.png" > /dev/null
 wait_for_true \
