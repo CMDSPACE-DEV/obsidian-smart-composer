@@ -1,10 +1,13 @@
-<img width="509" height="635" alt="Smart Composer_Achmage_example_1" src="https://github.com/user-attachments/assets/eaa92354-130d-4f9c-9824-d78aa769e221" />
-<img width="558" height="353" alt="Smart Composer_Achmage_example_4" src="https://github.com/user-attachments/assets/0e8a0e9b-5506-4ff0-8717-03900fd3f131" />
-<img width="508" height="649" alt="Smart Composer_Achmage_example_3" src="https://github.com/user-attachments/assets/42a69b2c-71b5-49b0-aa9a-76ffd08386fe" />
-<img width="506" height="643" alt="Smart Composer_Achmage_example_2" src="https://github.com/user-attachments/assets/acc5f17f-106d-4737-a72e-8a50ff2a536c" />
+# CMDS Achmage
 
-`glowingjade/obsidian-smart-composer`의 업데이트 & 개량 버전
+<img width="509" height="635" alt="CMDS Achmage_example_1" src="https://github.com/user-attachments/assets/eaa92354-130d-4f9c-9824-d78aa769e221" />
+<img width="558" height="353" alt="CMDS Achmage_example_4" src="https://github.com/user-attachments/assets/0e8a0e9b-5506-4ff0-8717-03900fd3f131" />
+<img width="508" height="649" alt="CMDS Achmage_example_3" src="https://github.com/user-attachments/assets/42a69b2c-71b5-49b0-aa9a-76ffd08386fe" />
+<img width="506" height="643" alt="CMDS Achmage_example_2" src="https://github.com/user-attachments/assets/acc5f17f-106d-4737-a72e-8a50ff2a536c" />
+
+CMDS Achmage(플러그인 ID: `cmds-achmage`)는 Heesu Suh의 Smart Composer(`glowingjade/obsidian-smart-composer`)를 포크한 업데이트 & 개량 버전입니다.
 원본 출처 링크 : https://github.com/glowingjade/obsidian-smart-composer
+이 저장소 : https://github.com/CMDSPACE-DEV/CMDS-Achmage
 
 - 추가 업데이트 및 수정 내용
   - v1.4.0 Plan 모델: GPT-5.6 Sol/Terra/Luna와 Claude Sonnet 5
